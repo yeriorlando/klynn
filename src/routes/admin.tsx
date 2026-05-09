@@ -1,5 +1,5 @@
 import { createFileRoute, Link } from "@tanstack/react-router";
-import { useMemo, useState, useEffect } from "react";
+import { useState, useEffect } from "react";
 import { 
   Building2, 
   Shield, 
@@ -85,8 +85,10 @@ function PlanBadge({ id }: { id: PlanId }) {
 
 function AdminPage() {
   const [tick, setTick] = useState(0);
-  const tenants = useMemo(() => getTenants(), [tick]);
-  const plans = useMemo(() => getPlans(), [tick]);
+  const [tenants, setTenants] = useState<Tenant[]>([]);
+  const [plans, setPlans] = useState<Plan[]>([]);
+  const [totalOrdenes, setTotalOrdenes] = useState(0);
+  const [ordenesByTenant, setOrdenesByTenant] = useState<Record<string, { count: number; total: number }>>({});
   const [globalConfig, setGlobalConfig] = useState<GlobalConfig>(() => getGlobalConfig());
   const [editingPlan, setEditingPlan] = useState<Plan | null>(null);
   const [openPlan, setOpenPlan] = useState(false);
@@ -97,8 +99,26 @@ function AdminPage() {
   const [newPassword, setNewPassword] = useState("");
   const [selectedPlanId, setSelectedPlanId] = useState<PlanId>("basico");
 
+  useEffect(() => {
+    async function load() {
+      const [t, p] = await Promise.all([getTenants(), getPlans()]);
+      setTenants(t);
+      setPlans(p);
+      const ordsMap: Record<string, { count: number; total: number }> = {};
+      let grandTotal = 0;
+      for (const tenant of t) {
+        const ords = await getOrdenes(tenant.id);
+        const ingr = ords.reduce((s: number, o: any) => s + (o.total || 0), 0);
+        ordsMap[tenant.id] = { count: ords.length, total: ingr };
+        grandTotal += ords.length;
+      }
+      setOrdenesByTenant(ordsMap);
+      setTotalOrdenes(grandTotal);
+    }
+    load();
+  }, [tick]);
+
   const ingresos = tenants.reduce((s, t) => s + (plans.find((p) => p.id === t.plan_id)?.precio_mensual || 0), 0);
-  const totalOrdenes = tenants.reduce((s, t) => s + getOrdenes(t.id).length, 0);
 
   function handleUpdateAdmin() {
     if (!editingTenant) return;
@@ -170,8 +190,7 @@ function AdminPage() {
                   </thead>
                   <tbody>
                     {tenants.map((t) => {
-                      const ords = getOrdenes(t.id);
-                      const ingr = ords.reduce((s, o) => s + o.total, 0);
+                      const tenantOrds = ordenesByTenant[t.id] || { count: 0, total: 0 };
                       return (
                         <tr key={t.id} className="border-b border-border/50 hover:bg-muted/30 transition-colors">
                           <td className="px-6 py-4">
@@ -187,8 +206,8 @@ function AdminPage() {
                             <PlanBadge id={t.plan_id} />
                           </td>
                           <td className="px-6 py-4 text-center"><Badge variant="outline" className="bg-background">{t.estado === "TRIAL" ? "Prueba" : t.estado}</Badge></td>
-                          <td className="px-6 py-4 text-center font-medium">{ords.length}</td>
-                          <td className="px-6 py-4 text-right font-bold text-primary">{formatRD(ingr)}</td>
+                          <td className="px-6 py-4 text-center font-medium">{tenantOrds.count}</td>
+                          <td className="px-6 py-4 text-right font-bold text-primary">{formatRD(tenantOrds.total)}</td>
                           <td className="px-6 py-4 text-center">
                             <div className="flex justify-center">
                               <DropdownMenu>
