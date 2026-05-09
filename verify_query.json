@@ -1,0 +1,3 @@
+{
+  "query": "select id, nombre, precio_mensual from public.planes;"
+}

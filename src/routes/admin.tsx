@@ -1,0 +1,532 @@
+import { createFileRoute, Link } from "@tanstack/react-router";
+import { useMemo, useState, useEffect } from "react";
+import { 
+  Building2, 
+  Shield, 
+  TrendingUp, 
+  Users, 
+  Trash2, 
+  ExternalLink, 
+  Plus, 
+  Pencil, 
+  RefreshCw, 
+  Package, 
+  LogOut,
+  MoreHorizontal,
+  Key
+} from "lucide-react";
+import { Logo } from "@/components/klynn/Logo";
+import { SeedBootstrap } from "@/components/klynn/SeedBootstrap";
+import { Card } from "@/components/ui/card";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import { Switch } from "@/components/ui/switch";
+import { Badge } from "@/components/ui/badge";
+import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { 
+  getTenants, 
+  deleteTenant, 
+  getPlans, 
+  getOrdenes, 
+  formatRD, 
+  setActiveTenant, 
+  logout,
+  switchSession,
+  savePlan, 
+  deletePlan,
+  updateTenantAdmin,
+  updateTenantPlan,
+  getGlobalConfig,
+  saveGlobalConfig,
+  type Plan, type PlanId, type Tenant, type GlobalConfig
+} from "@/lib/storage";
+import { 
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuLabel,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
+import { 
+  AlertDialog, 
+  AlertDialogAction, 
+  AlertDialogCancel, 
+  AlertDialogContent, 
+  AlertDialogDescription, 
+  AlertDialogFooter, 
+  AlertDialogHeader, 
+  AlertDialogTitle, 
+  AlertDialogTrigger 
+} from "@/components/ui/alert-dialog";
+import { toast } from "sonner";
+
+export const Route = createFileRoute("/admin")({
+  head: () => ({ meta: [{ title: "Super Admin — Klynn" }] }),
+  component: AdminPage,
+});
+
+function PlanBadge({ id }: { id: PlanId }) {
+  const configs: Record<PlanId, { label: string; className: string }> = {
+    basico: { label: "Básico", className: "bg-blue-50 text-blue-700 border-blue-200" },
+    pro: { label: "Pro", className: "bg-indigo-50 text-indigo-700 border-indigo-200" },
+    enterprise: { label: "Enterprise", className: "bg-amber-50 text-amber-700 border-amber-200" },
+  };
+  const config = configs[id] || { label: id, className: "" };
+  return (
+    <Badge variant="outline" className={`px-3 py-0.5 rounded-full uppercase text-[10px] font-bold tracking-widest ${config.className}`}>
+      {config.label}
+    </Badge>
+  );
+}
+
+function AdminPage() {
+  const [tick, setTick] = useState(0);
+  const tenants = useMemo(() => getTenants(), [tick]);
+  const plans = useMemo(() => getPlans(), [tick]);
+  const [globalConfig, setGlobalConfig] = useState<GlobalConfig>(() => getGlobalConfig());
+  const [editingPlan, setEditingPlan] = useState<Plan | null>(null);
+  const [openPlan, setOpenPlan] = useState(false);
+  
+  const [editingTenant, setEditingTenant] = useState<Tenant | null>(null);
+  const [openEditModal, setOpenEditModal] = useState(false);
+  const [newEmail, setNewEmail] = useState("");
+  const [newPassword, setNewPassword] = useState("");
+  const [selectedPlanId, setSelectedPlanId] = useState<PlanId>("basico");
+
+  const ingresos = tenants.reduce((s, t) => s + (plans.find((p) => p.id === t.plan_id)?.precio_mensual || 0), 0);
+  const totalOrdenes = tenants.reduce((s, t) => s + getOrdenes(t.id).length, 0);
+
+  function handleUpdateAdmin() {
+    if (!editingTenant) return;
+    updateTenantAdmin(editingTenant.id, newEmail, newPassword || undefined);
+    updateTenantPlan(editingTenant.id, selectedPlanId);
+    toast.success("Información de lavandería actualizada");
+    setOpenEditModal(false);
+    setTick(t => t + 1);
+  }
+
+  function handleLogout() {
+    logout();
+    window.location.assign("/login");
+  }
+
+  return (
+    <div className="min-h-screen bg-background">
+      <SeedBootstrap />
+      <header className="border-b border-border bg-surface">
+        <div className="mx-auto flex max-w-6xl items-center justify-between px-6 py-4">
+          <div className="flex items-center gap-3">
+            <Logo />
+            <Badge variant="outline" className="border-gold/40 bg-gold/10"><Shield className="mr-1 h-3 w-3" /> Super Admin</Badge>
+          </div>
+          <div className="flex items-center gap-2">
+            <Button 
+              size="sm" 
+              variant="destructive" 
+              onClick={handleLogout} 
+              className="h-9 px-4 rounded-lg font-bold shadow-md hover:opacity-90 transition-all"
+            >
+              <LogOut className="mr-2 h-4 w-4" /> Cerrar sesión
+            </Button>
+          </div>
+        </div>
+      </header>
+
+      <main className="mx-auto max-w-6xl px-6 py-8">
+        <h1 className="font-display text-4xl">Panel central Klynn</h1>
+        <p className="mt-1 text-muted-foreground">Administra todas las lavanderías y los planes SaaS.</p>
+
+        <div className="mt-6 grid gap-4 md:grid-cols-4">
+          <KPI t="Lavanderías" v={String(tenants.length)} icon={Building2} />
+          <KPI t="Activas" v={String(tenants.filter((t) => t.estado !== "CANCELADO").length)} icon={Users} />
+          <KPI t="MRR estimado" v={formatRD(ingresos)} icon={TrendingUp} accent />
+          <KPI t="Órdenes totales" v={String(totalOrdenes)} icon={Package} />
+        </div>
+
+        <Tabs defaultValue="tenants" className="mt-8">
+          <TabsList>
+            <TabsTrigger value="tenants">Lavanderías</TabsTrigger>
+            <TabsTrigger value="plans">Planes SaaS</TabsTrigger>
+          </TabsList>
+
+          <TabsContent value="tenants">
+            <Card className="overflow-hidden border-none shadow-card">
+              <div className="border-b border-border p-4"><h2 className="font-display text-xl">Lavanderías registradas</h2></div>
+              <div className="overflow-x-auto">
+                <table className="w-full text-sm">
+                  <thead className="bg-surface-elevated text-xs uppercase text-muted-foreground">
+                    <tr>
+                      <th className="px-6 py-4 text-left font-bold">Marca</th>
+                      <th className="px-6 py-4 text-center font-bold">Plan</th>
+                      <th className="px-6 py-4 text-center font-bold">Estado</th>
+                      <th className="px-6 py-4 text-center font-bold">Órdenes</th>
+                      <th className="px-6 py-4 text-right font-bold">Ingresos</th>
+                      <th className="px-6 py-4 text-center font-bold">Acciones</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {tenants.map((t) => {
+                      const ords = getOrdenes(t.id);
+                      const ingr = ords.reduce((s, o) => s + o.total, 0);
+                      return (
+                        <tr key={t.id} className="border-b border-border/50 hover:bg-muted/30 transition-colors">
+                          <td className="px-6 py-4">
+                            <div className="flex items-center gap-3">
+                              <span className="h-9 w-9 rounded-xl shadow-sm" style={{ background: `linear-gradient(135deg, ${t.color_primario}, ${t.color_secundario})` }} />
+                              <div>
+                                <div className="font-bold text-foreground">{t.nombre}</div>
+                                <div className="text-xs text-muted-foreground/80">{t.email}</div>
+                              </div>
+                            </div>
+                          </td>
+                          <td className="px-6 py-4 text-center">
+                            <PlanBadge id={t.plan_id} />
+                          </td>
+                          <td className="px-6 py-4 text-center"><Badge variant="outline" className="bg-background">{t.estado === "TRIAL" ? "Prueba" : t.estado}</Badge></td>
+                          <td className="px-6 py-4 text-center font-medium">{ords.length}</td>
+                          <td className="px-6 py-4 text-right font-bold text-primary">{formatRD(ingr)}</td>
+                          <td className="px-6 py-4 text-center">
+                            <div className="flex justify-center">
+                              <DropdownMenu>
+                                <DropdownMenuTrigger asChild>
+                                  <Button size="icon" variant="ghost" className="h-8 w-8 rounded-lg hover:bg-accent">
+                                    <MoreHorizontal className="h-4 w-4" />
+                                  </Button>
+                                </DropdownMenuTrigger>
+                                <DropdownMenuContent align="end" className="w-52 rounded-xl shadow-elegant border border-border/50 p-1">
+                                  <DropdownMenuLabel className="text-[10px] uppercase tracking-widest text-muted-foreground px-2 py-1.5 font-bold">Gestión de Sucursal</DropdownMenuLabel>
+                                  <DropdownMenuItem 
+                                    className="rounded-lg gap-2 cursor-pointer py-2"
+                                    onClick={() => {
+                                      const ok = switchSession(t.id, t.email);
+                                      if (ok) {
+                                        toast.success(`Entrando a ${t.slug}...`);
+                                        setTimeout(() => window.location.assign(`/t/${t.slug}`), 500);
+                                      } else {
+                                        setActiveTenant(t.slug);
+                                        toast.success(`Cambiando a ${t.slug}. Inicia sesión.`);
+                                        setTimeout(() => window.location.assign("/login"), 600);
+                                      }
+                                    }}
+                                  >
+                                    <ExternalLink className="h-4 w-4 text-primary" /> Visitar lavandería
+                                  </DropdownMenuItem>
+                                  <DropdownMenuItem 
+                                    className="rounded-lg gap-2 cursor-pointer py-2"
+                                    onClick={() => {
+                                      setEditingTenant(t);
+                                      setNewEmail(t.email);
+                                      setNewPassword("");
+                                      setSelectedPlanId(t.plan_id);
+                                      setOpenEditModal(true);
+                                    }}
+                                  >
+                                    <Pencil className="h-4 w-4 text-primary" /> Editar lavandería
+                                  </DropdownMenuItem>
+                                  
+                                  <DropdownMenuSeparator className="bg-border/50 my-1" />
+                                  
+                                  <AlertDialog>
+                                    <AlertDialogTrigger asChild>
+                                      <button className="relative flex w-full cursor-default select-none items-center rounded-lg gap-2 px-2 py-2 text-sm outline-none transition-colors hover:bg-destructive/10 hover:text-destructive text-destructive font-medium">
+                                        <Trash2 className="h-4 w-4" /> Eliminar lavandería
+                                      </button>
+                                    </AlertDialogTrigger>
+                                    <AlertDialogContent className="rounded-2xl border-none shadow-card">
+                                      <AlertDialogHeader>
+                                        <AlertDialogTitle>¿Estás completamente seguro?</AlertDialogTitle>
+                                        <AlertDialogDescription>
+                                          Esta acción eliminará permanentemente la lavandería <strong>{t.nombre}</strong> y todos sus datos asociados.
+                                        </AlertDialogDescription>
+                                      </AlertDialogHeader>
+                                      <AlertDialogFooter>
+                                        <AlertDialogCancel className="rounded-xl">Cancelar</AlertDialogCancel>
+                                        <AlertDialogAction 
+                                          onClick={() => { deleteTenant(t.id); setTick((r) => r + 1); toast.success("Lavandería eliminada"); }}
+                                          className="bg-destructive text-destructive-foreground hover:bg-destructive/90 rounded-xl"
+                                        >
+                                          Eliminar
+                                        </AlertDialogAction>
+                                      </AlertDialogFooter>
+                                    </AlertDialogContent>
+                                  </AlertDialog>
+                                </DropdownMenuContent>
+                              </DropdownMenu>
+                            </div>
+                          </td>
+                        </tr>
+                      );
+                    })}
+                    {tenants.length === 0 && <tr><td colSpan={6} className="py-12 text-center text-muted-foreground font-medium">No se encontraron lavanderías registradas</td></tr>}
+                  </tbody>
+                </table>
+              </div>
+            </Card>
+          </TabsContent>
+
+          <TabsContent value="plans">
+            <div className="mb-6 rounded-2xl border border-border/50 bg-surface p-6 shadow-sm">
+              <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
+                <div>
+                  <h3 className="font-bold text-lg">Configuración de Registro</h3>
+                  <p className="text-sm text-muted-foreground">Controla cómo se registran las nuevas lavanderías.</p>
+                </div>
+                <div className="flex flex-wrap items-center gap-4 md:gap-6">
+                  <div className="flex items-center gap-2">
+                    <Label className="text-xs uppercase tracking-wider font-bold text-muted-foreground">Días de prueba</Label>
+                    <Input 
+                      type="number" 
+                      className="w-16 h-9 rounded-lg" 
+                      value={globalConfig.trialDays} 
+                      onChange={(e) => setGlobalConfig({...globalConfig, trialDays: Number(e.target.value)})} 
+                    />
+                  </div>
+                  <div className="flex items-center gap-3">
+                    <Label className="text-xs uppercase tracking-wider font-bold text-muted-foreground whitespace-nowrap">Solicitar plan al registro</Label>
+                    <Switch 
+                      checked={globalConfig.requirePlanOnRegistration} 
+                      onCheckedChange={(v) => setGlobalConfig({...globalConfig, requirePlanOnRegistration: v})} 
+                    />
+                  </div>
+                  <Button 
+                    size="sm" 
+                    onClick={() => { saveGlobalConfig(globalConfig); toast.success("Configuración guardada"); }}
+                    className="h-9 px-4 rounded-lg shadow-md font-bold"
+                  >
+                    Guardar cambios
+                  </Button>
+                </div>
+              </div>
+            </div>
+
+            <div className="mb-4 flex items-center justify-between">
+              <p className="text-sm text-muted-foreground">{plans.length} planes configurados</p>
+              <Button onClick={() => { setEditingPlan(null); setOpenPlan(true); }} className="bg-gradient-primary text-white rounded-lg shadow-md h-9 px-5">
+                <Plus className="mr-1.5 h-4 w-4" /> Nuevo plan
+              </Button>
+            </div>
+
+            <div className="grid gap-4 md:grid-cols-3">
+              {plans.map((p) => (
+                <Card key={p.id} className={`border-none p-6 shadow-card ${p.destacado ? "ring-2 ring-primary" : ""}`}>
+                  <div className="flex items-start justify-between">
+                    <span className="font-display text-2xl">{p.nombre}</span>
+                    {p.destacado && <Badge>Popular</Badge>}
+                  </div>
+                    <div className="mt-2 font-display text-3xl text-primary">{formatRD(p.precio_mensual)}<span className="text-sm font-normal text-muted-foreground">/mes</span></div>
+                    {p.precio_anual && (
+                      <div className="text-xs text-muted-foreground font-medium">o {formatRD(p.precio_anual)}/año</div>
+                    )}
+                  <div className="mt-4 space-y-2 text-sm">
+                    <div>👥 {p.limite_empleados} empleados</div>
+                    <div>📦 {p.limite_ordenes_mes ?? "∞"} órdenes/mes</div>
+                    <div className="border-t border-border pt-2 space-y-1">
+                      {Object.entries(p.modulos).map(([k, v]) => (
+                        <div key={k} className={`flex items-center gap-2 ${v ? "text-foreground font-medium" : "text-muted-foreground line-through opacity-50"}`}>
+                          <span>{v ? "✓" : "✗"}</span>
+                          <span className="capitalize">{k.replace(/_/g, " ")}</span>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                  <div className="mt-4 flex gap-2">
+                    <Button size="sm" variant="outline" className="flex-1" onClick={() => { setEditingPlan(p); setOpenPlan(true); }}>
+                      <Pencil className="mr-1 h-3.5 w-3.5" /> Editar
+                    </Button>
+                    <Button size="sm" variant="outline" onClick={() => { if (confirm(`¿Eliminar plan ${p.nombre}?`)) { deletePlan(p.id); setTick((r) => r + 1); } }}>
+                      <Trash2 className="h-3.5 w-3.5 text-destructive" />
+                    </Button>
+                  </div>
+                </Card>
+              ))}
+            </div>
+          </TabsContent>
+        </Tabs>
+      </main>
+
+        {/* Modal para editar Credenciales de Lavandería */}
+        <Dialog open={openEditModal} onOpenChange={setOpenEditModal}>
+          <DialogContent className="rounded-2xl border-none shadow-card max-w-md">
+            <DialogHeader>
+              <DialogTitle className="font-display text-2xl flex items-center gap-2">
+                <Shield className="h-5 w-5 text-primary" /> Editar Credenciales
+              </DialogTitle>
+              <p className="text-sm text-muted-foreground mt-1">
+                Actualiza el acceso para <strong>{editingTenant?.nombre}</strong>
+              </p>
+            </DialogHeader>
+
+            <div className="space-y-5 py-4">
+              <div className="space-y-2">
+                <Label htmlFor="edit-email">Correo Administrativo</Label>
+                <div className="relative">
+                  <Users className="absolute left-3 top-3 h-4 w-4 text-muted-foreground" />
+                  <Input 
+                    id="edit-email" 
+                    type="email" 
+                    className="pl-10 rounded-xl" 
+                    value={newEmail} 
+                    onChange={(e) => setNewEmail(e.target.value)} 
+                  />
+                </div>
+              </div>
+
+              <div className="space-y-2">
+                <Label htmlFor="edit-pass">Nueva Contraseña (opcional)</Label>
+                <div className="relative">
+                  <Key className="absolute left-3 top-3 h-4 w-4 text-muted-foreground" />
+                  <Input 
+                    id="edit-pass" 
+                    type="password" 
+                    className="pl-10 rounded-xl" 
+                    placeholder="Dejar en blanco para no cambiar"
+                    value={newPassword} 
+                    onChange={(e) => setNewPassword(e.target.value)} 
+                  />
+                </div>
+              </div>
+
+              <div className="space-y-2">
+                <Label htmlFor="edit-plan">Plan de Suscripción</Label>
+                <Select value={selectedPlanId} onValueChange={(v: PlanId) => setSelectedPlanId(v)}>
+                  <SelectTrigger className="h-11 rounded-xl">
+                    <SelectValue placeholder="Seleccionar plan" />
+                  </SelectTrigger>
+                  <SelectContent className="rounded-xl shadow-elegant">
+                    {plans.map((p) => (
+                      <SelectItem key={p.id} value={p.id} className="rounded-lg">
+                        <div className="flex items-center justify-between w-full gap-4">
+                          <span className="font-semibold">{p.nombre}</span>
+                          <span className="text-xs text-muted-foreground">{formatRD(p.precio_mensual)}/mes</span>
+                        </div>
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+            </div>
+
+            <DialogFooter className="gap-2 sm:gap-0">
+              <Button variant="ghost" onClick={() => setOpenEditModal(false)} className="rounded-xl">Cancelar</Button>
+              <Button onClick={handleUpdateAdmin} className="bg-gradient-primary text-white rounded-xl shadow-md font-bold">
+                Guardar Cambios
+              </Button>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
+
+        <PlanDialog open={openPlan} onOpenChange={setOpenPlan} initial={editingPlan} onSaved={() => { setTick((r) => r + 1); setOpenPlan(false); }} />
+    </div>
+  );
+}
+
+function KPI({ t, v, icon: Icon, accent }: { t: string; v: string; icon: typeof Building2; accent?: boolean }) {
+  return (
+    <Card className={`border-none p-5 shadow-card ${accent ? "bg-gradient-primary text-white" : ""}`}>
+      <div className="flex items-start justify-between">
+        <div className={`text-xs uppercase ${accent ? "text-white/80" : "text-muted-foreground"}`}>{t}</div>
+        <Icon className={`h-4 w-4 ${accent ? "text-white/80" : "text-muted-foreground"}`} />
+      </div>
+      <div className="mt-2 font-display text-3xl">{v}</div>
+    </Card>
+  );
+}
+
+function PlanDialog({ open, onOpenChange, initial, onSaved }: {
+  open: boolean; onOpenChange: (o: boolean) => void; initial: Plan | null; onSaved: () => void;
+}) {
+  const [f, setF] = useState<Partial<Plan>>({});
+  useEffect(() => {
+    if (open) setF(initial ? { ...initial } : {
+      id: ("plan_" + Date.now()) as PlanId,
+      nombre: "", precio_mensual: 0, precio_anual: 0, limite_empleados: 5, limite_ordenes_mes: 500,
+      modulos: { whatsapp: false, facturacion_fiscal: false },
+    });
+  }, [open, initial]);
+
+  function setMod(k: keyof Plan["modulos"], v: boolean) {
+    setF((s) => ({ ...s, modulos: { ...(s.modulos as Plan["modulos"]), [k]: v } }));
+  }
+
+  function submit() {
+    if (!f.nombre?.trim()) { toast.error("Nombre requerido"); return; }
+    const plan: Plan = {
+      id: (initial?.id ?? f.id ?? ("plan_" + Date.now())) as PlanId,
+      nombre: f.nombre!.trim(),
+      precio_mensual: Number(f.precio_mensual) || 0,
+      precio_anual: Number(f.precio_anual) || 0,
+      limite_empleados: Number(f.limite_empleados) || 1,
+      limite_ordenes_mes: f.limite_ordenes_mes === null ? null : Number(f.limite_ordenes_mes) || null,
+      modulos: f.modulos as Plan["modulos"],
+      destacado: f.destacado,
+    };
+    savePlan(plan);
+    toast.success("Plan guardado");
+    onSaved();
+  }
+
+  const mods = (f.modulos || {}) as Plan["modulos"];
+
+  return (
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogContent className="sm:max-w-2xl rounded-2xl border-none shadow-card">
+        <DialogHeader><DialogTitle>{initial ? "Editar plan" : "Nuevo plan"}</DialogTitle></DialogHeader>
+        <div className="grid gap-4 py-2">
+          <div className="grid grid-cols-2 gap-3">
+            <div><Label className="mb-1.5 block text-sm font-bold">ID interno</Label>
+              <Input value={f.id || ""} onChange={(e) => setF({ ...f, id: e.target.value as PlanId })} disabled={!!initial} className="h-11 rounded-xl" />
+            </div>
+            <div><Label className="mb-1.5 block text-sm font-bold">Nombre</Label>
+              <Input value={f.nombre || ""} onChange={(e) => setF({ ...f, nombre: e.target.value })} className="h-11 rounded-xl" />
+            </div>
+          </div>
+          <div className="grid grid-cols-4 gap-3">
+            <div className="col-span-1"><Label className="mb-1.5 block text-sm font-bold">Precio/mes (RD$)</Label>
+              <Input type="number" value={f.precio_mensual ?? 0} onChange={(e) => setF({ ...f, precio_mensual: Number(e.target.value) })} className="h-11 rounded-xl" />
+            </div>
+            <div className="col-span-1"><Label className="mb-1.5 block text-sm font-bold">Precio/año (RD$)</Label>
+              <Input type="number" value={f.precio_anual ?? 0} onChange={(e) => setF({ ...f, precio_anual: Number(e.target.value) })} className="h-11 rounded-xl" placeholder="Opcional" />
+            </div>
+            <div className="col-span-1"><Label className="mb-1.5 block text-sm font-bold">Empleados</Label>
+              <Input type="number" value={f.limite_empleados ?? 0} onChange={(e) => setF({ ...f, limite_empleados: Number(e.target.value) })} className="h-11 rounded-xl" />
+            </div>
+            <div className="col-span-1"><Label className="mb-1.5 block text-sm font-bold">Órdenes/mes</Label>
+              <Input type="number" value={f.limite_ordenes_mes ?? ""} onChange={(e) => setF({ ...f, limite_ordenes_mes: e.target.value === "" ? null : Number(e.target.value) })} className="h-11 rounded-xl" />
+            </div>
+          </div>
+
+          <div>
+            <Label className="mb-3 block text-sm font-bold text-muted-foreground uppercase tracking-wider">Módulos incluidos</Label>
+            <div className="grid grid-cols-2 gap-x-6 gap-y-3 rounded-2xl border border-border p-5 bg-accent/30 backdrop-blur-sm">
+              {(["whatsapp", "facturacion_fiscal"] as const).map((m) => (
+                <label key={m} className="flex items-center gap-3 text-sm p-1 rounded-lg transition-colors cursor-pointer group">
+                  <Switch 
+                    checked={!!mods?.[m]} 
+                    onCheckedChange={(v) => setMod(m, v)} 
+                    className="data-[state=checked]:bg-primary"
+                  />
+                  <span className="font-semibold capitalize text-foreground group-hover:text-primary transition-colors">
+                    {m.replace(/_/g, " ")}
+                  </span>
+                </label>
+              ))}
+            </div>
+          </div>
+
+          <label className="flex items-center gap-2 text-sm">
+            <Switch checked={!!f.destacado} onCheckedChange={(v) => setF({ ...f, destacado: v })} />
+            Marcar como plan destacado / popular
+          </label>
+        </div>
+        <DialogFooter>
+          <Button variant="outline" onClick={() => onOpenChange(false)}>Cancelar</Button>
+          <Button onClick={submit} className="bg-gradient-primary text-white">Guardar plan</Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  );
+}
