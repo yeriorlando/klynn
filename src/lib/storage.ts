@@ -1,4 +1,4 @@
-import { supabase, supabaseAdmin } from './supabase';
+import { supabase } from './supabase';
 
 export type PlanId = "basico" | "pro" | "enterprise";
 
@@ -396,8 +396,8 @@ export async function saveTenant(t: Tenant) {
 }
 
 export async function registerTenant(tenant: Tenant, admin: Empleado) {
-  // 1. Crear el usuario en Supabase Auth (usando admin client para bypass RLS)
-  const { data: authData, error: authError } = await supabaseAdmin.auth.signUp({
+  // 1. Crear el usuario en Supabase Auth
+  const { data: authData, error: authError } = await supabase.auth.signUp({
     email: admin.email,
     password: admin.password,
     options: {
@@ -411,20 +411,21 @@ export async function registerTenant(tenant: Tenant, admin: Empleado) {
   if (authError) throw authError;
   if (!authData.user) throw new Error("No se pudo crear el usuario");
 
-  // 2. Guardar la lavandería (usando admin client para bypass RLS)
-  const { error: tenantError } = await supabaseAdmin.from('tenants').insert(tenant);
+  // 2. Guardar la lavandería
+  const { error: tenantError } = await supabase.from('tenants').insert(tenant);
   if (tenantError) throw tenantError;
 
   // 3. Guardar el Administrador vinculado al ID de Auth
-  const { password, ...empData } = admin;
-  const { error: empError } = await supabaseAdmin.from('empleados').insert({
+  const { password: _pw, ...empData } = admin;
+  const { error: empError } = await supabase.from('empleados').insert({
     ...empData,
-    id: authData.user.id
+    id: authData.user.id,
+    password: '***' // Auth se maneja via Supabase Auth, no en esta tabla
   });
   
   if (empError) throw empError;
 
-  // 4. Ahora iniciar sesión con el usuario creado para establecer la sesión
+  // 4. Iniciar sesión
   await supabase.auth.signInWithPassword({
     email: admin.email,
     password: admin.password,

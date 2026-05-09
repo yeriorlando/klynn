@@ -53,7 +53,15 @@ function LoginPage() {
         return;
       }
 
-      // 2. Buscar lavanderías asociadas a este email
+      // 2. Check si es Super Admin
+      const ADMIN_EMAILS = ['admin@klynn.com.do'];
+      if (ADMIN_EMAILS.includes(email.toLowerCase())) {
+        setLoading(false);
+        navigate({ to: '/admin' });
+        return;
+      }
+
+      // 3. Buscar lavanderías asociadas a este email
       const tenants = await getTenantsForUser(email);
 
       if (tenants.length === 0) {
@@ -62,7 +70,7 @@ function LoginPage() {
         return;
       }
 
-      // 3. Obtener el perfil de empleado del usuario actual
+      // 4. Obtener el perfil de empleado del usuario actual
       const emp = await getEmpleadoById(authData.user.id);
 
       if (!emp) {
@@ -72,7 +80,6 @@ function LoginPage() {
       }
 
       if (tenants.length === 1) {
-        // Redirigir directo al dashboard del único tenant
         const tenant = tenants[0];
         setSession({
           empleado_id: emp.id,
@@ -83,7 +90,6 @@ function LoginPage() {
         setLoading(false);
         navigate({ to: "/t/$slug", params: { slug: tenant.slug } });
       } else {
-        // Mostrar selector de cuentas/sucursales
         const accounts = tenants.map(t => ({ emp, tenant: t }));
         setMatchingAccounts(accounts);
         setLoading(false);
