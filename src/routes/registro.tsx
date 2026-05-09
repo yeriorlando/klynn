@@ -1,4 +1,5 @@
 import { createFileRoute, Link, useNavigate } from "@tanstack/react-router";
+import { compressImage } from "@/lib/compressImage";
 import { useEffect, useMemo, useState, useRef } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import {
@@ -630,13 +631,16 @@ function ProvinciaModal({ open, onClose, onSelect, value }: { open: boolean; onC
 
 function LogoUploader({ label, value, onChange }: { label: string; value: string; onChange: (v: string) => void }) {
   const inputRef = useRef<HTMLInputElement>(null);
-  function onFile(e: React.ChangeEvent<HTMLInputElement>) {
+  async function onFile(e: React.ChangeEvent<HTMLInputElement>) {
     const f = e.target.files?.[0];
     if (!f) return;
-    if (f.size > 2 * 1024 * 1024) { alert("Máximo 2MB"); return; }
-    const reader = new FileReader();
-    reader.onload = () => onChange(String(reader.result));
-    reader.readAsDataURL(f);
+    if (f.size > 5 * 1024 * 1024) { alert("Máximo 5MB"); return; }
+    try {
+      const compressed = await compressImage(f, 512, 512, 0.7);
+      onChange(compressed);
+    } catch {
+      alert("Error al procesar la imagen");
+    }
   }
   return (
     <div>

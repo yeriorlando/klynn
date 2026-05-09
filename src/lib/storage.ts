@@ -816,8 +816,8 @@ export async function checkPlanLimits(tenant: Tenant) {
 }
 
 // ============ Helpers ============
-export function uid(prefix = "id"): string {
-  return `${prefix}_${Math.random().toString(36).slice(2, 9)}${Date.now().toString(36).slice(-4)}`;
+export function uid(_prefix = "id"): string {
+  return crypto.randomUUID();
 }
 export function formatRD(n: number): string {
   // en-US for comma thousands + period decimal, prefixed with RD$

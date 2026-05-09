@@ -1,4 +1,5 @@
 import { createFileRoute } from "@tanstack/react-router";
+import { compressImage } from "@/lib/compressImage";
 import { useState } from "react";
 import { useRequireAuth } from "@/lib/useRequireAuth";
 import { PageHeader } from "@/components/klynn/PageHeader";
@@ -177,12 +178,15 @@ function ConfigPage() {
                     <p className="text-xs text-muted-foreground max-w-[200px]">Se mostrará en la factura (ticket) y en el dashboard.</p>
                   </div>
                 </div>
-                <input type="file" accept="image/*" className="hidden" id="logo-upload" onChange={(e) => {
+                <input type="file" accept="image/*" className="hidden" id="logo-upload" onChange={async (e) => {
                   const file = e.target.files?.[0];
                   if (file) {
-                    const reader = new FileReader();
-                    reader.onloadend = () => setTenant({ ...tenant, logo_url: reader.result as string });
-                    reader.readAsDataURL(file);
+                    try {
+                      const compressed = await compressImage(file, 512, 512, 0.7);
+                      setTenant({ ...tenant, logo_url: compressed });
+                    } catch {
+                      toast.error("Error al procesar la imagen");
+                    }
                   }
                 }} />
                 <Button variant="outline" size="sm" onClick={() => document.getElementById("logo-upload")?.click()}>

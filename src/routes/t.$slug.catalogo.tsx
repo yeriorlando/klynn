@@ -1,4 +1,5 @@
 import { createFileRoute } from "@tanstack/react-router";
+import { compressImage } from "@/lib/compressImage";
 import { useMemo, useState, useEffect } from "react";
 import { Plus, Pencil, Trash2, Shirt, Sparkles, Image as ImageIcon, PackagePlus, Search } from "lucide-react";
 import { useRequireAuth } from "@/lib/useRequireAuth";
@@ -391,12 +392,17 @@ function ItemDialog({ open, onOpenChange, tenantId, initial, onSaved }: {
     
     try {
       setUploading(true);
-      const ext = file.name.split('.').pop();
-      const path = `${tenantId}/${uid("img")}.${ext}`;
+      
+      // Comprimir imagen antes de subir
+      const compressedDataUrl = await compressImage(file, 800, 800, 0.75);
+      const res = await fetch(compressedDataUrl);
+      const blob = await res.blob();
+      
+      const path = `${tenantId}/${uid("img")}.webp`;
       
       const { data, error } = await supabase.storage
         .from('catalogo')
-        .upload(path, file);
+        .upload(path, blob, { contentType: 'image/webp' });
         
       if (error) throw error;
       
@@ -405,7 +411,7 @@ function ItemDialog({ open, onOpenChange, tenantId, initial, onSaved }: {
         .getPublicUrl(path);
         
       setF({ ...f, imagen_url: publicUrl });
-      toast.success("Imagen subida");
+      toast.success("Imagen subida y comprimida");
     } catch (err: any) {
       toast.error("Error al subir: " + (err.message || "Asegúrate de que el bucket 'catalogo' sea público"));
     } finally {
@@ -634,12 +640,17 @@ function ServDialog({ open, onOpenChange, tenantId, initial, onSaved }: {
     
     try {
       setUploading(true);
-      const ext = file.name.split('.').pop();
-      const path = `${tenantId}/serv-${uid("img")}.${ext}`;
+      
+      // Comprimir imagen antes de subir
+      const compressedDataUrl = await compressImage(file, 800, 800, 0.75);
+      const res = await fetch(compressedDataUrl);
+      const blob = await res.blob();
+      
+      const path = `${tenantId}/serv-${uid("img")}.webp`;
       
       const { data, error } = await supabase.storage
         .from('catalogo')
-        .upload(path, file);
+        .upload(path, blob, { contentType: 'image/webp' });
         
       if (error) throw error;
       
@@ -648,7 +659,7 @@ function ServDialog({ open, onOpenChange, tenantId, initial, onSaved }: {
         .getPublicUrl(path);
         
       setF({ ...f, imagen_url: publicUrl });
-      toast.success("Imagen de servicio subida");
+      toast.success("Imagen de servicio subida y comprimida");
     } catch (err: any) {
       toast.error("Error al subir: " + (err.message || "Verifica el bucket 'catalogo'"));
     } finally {
