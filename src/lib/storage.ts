@@ -413,17 +413,24 @@ export async function registerTenant(tenant: Tenant, admin: Empleado) {
 
   // 2. Guardar la lavandería
   const { error: tenantError } = await supabase.from('tenants').insert(tenant);
-  if (tenantError) throw tenantError;
+  if (tenantError) {
+    // Rollback Auth user — no se puede desde el cliente, pero al menos señalar el error
+    throw new Error("Error al crear lavandería: " + tenantError.message + ". Por favor contacta soporte.");
+  }
 
   // 3. Guardar el Administrador vinculado al ID de Auth
   const { password: _pw, ...empData } = admin;
   const { error: empError } = await supabase.from('empleados').insert({
     ...empData,
     id: authData.user.id,
-    password: '***' // Auth se maneja via Supabase Auth, no en esta tabla
+    password: '***'
   });
   
-  if (empError) throw empError;
+  if (empError) {
+    // Rollback: eliminar el tenant creado
+    await supabase.from('tenants').delete().eq('id', tenant.id);
+    throw new Error("Error al crear empleado: " + empError.message + ". Por favor intenta de nuevo.");
+  }
 
   // 4. Iniciar sesión
   await supabase.auth.signInWithPassword({
