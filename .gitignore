@@ -17,6 +17,7 @@ lerna-debug.log*
 dist
 dist-ssr
 .output
+.vercel
 
 # Wrangler / Cloudflare
 .wrangler/
