@@ -24,8 +24,8 @@ import {
   getClientes, saveCliente, getCatalogo, getServicios, getCajaAbierta, saveOrden, saveMovimiento,
   nextOrdenNumero, formatRD, formatPhoneRD, uid, DEFAULT_CONFIG,
   formatAmountInput, parseAmount, saveTenant,
-  type Cliente, type OrdenItem, type MetodoPago, type Orden,
   checkPlanLimits,
+  type Cliente, type OrdenItem, type MetodoPago, type Orden, type CatalogoItem, type Servicio, type Caja
 } from "@/lib/storage";
 import { PlanLimitModal } from "@/components/klynn/PlanLimitModal";
 import { toast } from "sonner";
@@ -108,7 +108,7 @@ function NuevaOrdenPage() {
 
   useEffect(() => {
     async function load() {
-      if (!tenantId) return;
+      if (!tenantId || tenantId === '__loading__') return;
       const [list, activeCaja] = await Promise.all([
         getClientes(tenantId),
         getCajaAbierta(tenantId)
@@ -119,15 +119,45 @@ function NuevaOrdenPage() {
     load();
   }, [tenantId]);
 
-  const limits = useMemo(() => user ? checkPlanLimits(user.tenant) : null, [user]);
+  const [limits, setLimits] = useState<any>(null);
 
   useEffect(() => {
-    if (limits?.ordersReached) {
-      setShowLimitModal(true);
+    async function check() {
+      if (user?.tenant && user.tenant.id !== '__loading__') {
+        const l = await checkPlanLimits(user.tenant);
+        setLimits(l);
+        if (l.ordersReached) {
+          setShowLimitModal(true);
+        }
+      }
     }
-  }, [limits]);
+    check();
+  }, [user]);
 
-  if (!user) return null;
+  const categories = useMemo(() => {
+    const cats = new Set(catalogo.map(c => c.categoria || "Otros"));
+    return ["TODOS", "Servicios", ...Array.from(cats)];
+  }, [catalogo]);
+
+  const catalogFiltered = useMemo(() => {
+    let list = catalogo;
+    if (!posSearch && activeCategory !== "TODOS" && activeCategory !== "Servicios") {
+      list = list.filter(c => (c.categoria || "Otros") === activeCategory);
+    }
+    if (posSearch) {
+      list = list.filter(c => c.nombre.toLowerCase().includes(posSearch.toLowerCase()));
+    }
+    return list;
+  }, [catalogo, activeCategory, posSearch]);
+
+  const servicesFiltered = useMemo(() => {
+    if (posSearch) {
+      return servicios.filter(s => s.nombre.toLowerCase().includes(posSearch.toLowerCase()));
+    }
+    return servicios;
+  }, [servicios, posSearch]);
+
+  if (!user || user.tenant.id === '__loading__') return null;
   const { tenant, empleado } = user;
   const cfg = tenant.config || DEFAULT_CONFIG;
 
@@ -196,30 +226,7 @@ function NuevaOrdenPage() {
     }
   };
 
-  const categories = useMemo(() => {
-    const cats = new Set(catalogo.map(c => c.categoria || "Otros"));
-    return ["TODOS", "Servicios", ...Array.from(cats)];
-  }, [catalogo]);
 
-  const catalogFiltered = useMemo(() => {
-    let list = catalogo;
-    // Si NO hay búsqueda activa, respetamos el filtro de categoría.
-    // Si HAY búsqueda, buscamos en todo el catálogo ignorando la categoría seleccionada.
-    if (!posSearch && activeCategory !== "TODOS" && activeCategory !== "Servicios") {
-      list = list.filter(c => (c.categoria || "Otros") === activeCategory);
-    }
-    if (posSearch) {
-      list = list.filter(c => c.nombre.toLowerCase().includes(posSearch.toLowerCase()));
-    }
-    return list;
-  }, [catalogo, activeCategory, posSearch]);
-
-  const servicesFiltered = useMemo(() => {
-    if (posSearch) {
-      return servicios.filter(s => s.nombre.toLowerCase().includes(posSearch.toLowerCase()));
-    }
-    return servicios;
-  }, [servicios, posSearch]);
 
   async function onCrearOrden() {
     if (limits?.ordersReached) { setShowLimitModal(true); return; }

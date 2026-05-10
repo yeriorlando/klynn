@@ -1,24 +1,25 @@
 import { createFileRoute } from "@tanstack/react-router";
-import { useMemo } from "react";
+import { useMemo, useState, useEffect } from "react";
 import { useRequireAuth } from "@/lib/useRequireAuth";
 import { PageHeader } from "@/components/klynn/PageHeader";
 import { ExportAndPrintButtons } from "@/components/klynn/ExportAndPrintButtons";
 import { Card } from "@/components/ui/card";
-import { getOrdenes, getGastos, getEmpleados, formatRD } from "@/lib/storage";
+import { getOrdenes, getGastos, getEmpleados, formatRD, type Orden, type Gasto, type Empleado } from "@/lib/storage";
 
 export const Route = createFileRoute("/t/$slug/reportes")({ component: ReportesPage });
 
 function ReportesPage() {
   const user = useRequireAuth();
-  if (!user) return null;
-  const { tenant } = user;
   const [ordenes, setOrdenes] = useState<Orden[]>([]);
   const [gastos, setGastos] = useState<Gasto[]>([]);
   const [emps, setEmps] = useState<Empleado[]>([]);
   const [loading, setLoading] = useState(true);
 
+  const tenant = user?.tenant;
+
   useEffect(() => {
     async function load() {
+      if (!tenant || tenant.id === '__loading__') return;
       setLoading(true);
       const [oList, gList, eList] = await Promise.all([
         getOrdenes(tenant.id),
@@ -31,28 +32,25 @@ function ReportesPage() {
       setLoading(false);
     }
     load();
-  }, [tenant.id]);
+  }, [tenant?.id]);
 
-  const { ventas, itbis, totalGastos, rentabilidad, porMetodo, porEmp, topPrendas } = useMemo(() => {
+  const stats = useMemo(() => {
     const ventas = ordenes.reduce((s, o) => s + o.total, 0);
     const itbis = ordenes.reduce((s, o) => s + o.itbis, 0);
     const totalGastos = gastos.reduce((s, g) => s + g.monto, 0);
     const rentabilidad = ventas - totalGastos;
 
-    // Por método
     const porMetodo = ordenes.reduce((m, o) => { 
       m[o.metodo_pago] = (m[o.metodo_pago] || 0) + o.total; 
       return m; 
     }, {} as Record<string, number>);
 
-    // Por empleado
     const porEmp = emps.map((e) => ({ 
       nombre: e.nombre, 
       total: ordenes.filter((o) => o.empleado_id === e.id).reduce((s, o) => s + o.total, 0), 
       n: ordenes.filter((o) => o.empleado_id === e.id).length 
     })).sort((a, b) => b.total - a.total);
 
-    // Prendas más procesadas
     const prendas: Record<string, number> = {};
     ordenes.forEach((o) => o.items.forEach((it) => { 
       prendas[it.descripcion] = (prendas[it.descripcion] || 0) + it.cantidad; 
@@ -61,6 +59,10 @@ function ReportesPage() {
 
     return { ventas, itbis, totalGastos, rentabilidad, porMetodo, porEmp, topPrendas };
   }, [ordenes, gastos, emps]);
+
+  const { ventas, itbis, totalGastos, rentabilidad, porMetodo, porEmp, topPrendas } = stats;
+
+  if (!user || user.tenant.id === '__loading__') return null;
 
   if (loading) return <div className="flex h-64 items-center justify-center"><p className="text-muted-foreground animate-pulse">Cargando reportes...</p></div>;
 

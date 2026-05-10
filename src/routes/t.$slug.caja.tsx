@@ -1,5 +1,5 @@
 import { createFileRoute } from "@tanstack/react-router";
-import { useMemo, useState } from "react";
+import { useMemo, useState, useEffect } from "react";
 import { Wallet, Lock, ArrowDownLeft, ArrowUpRight, AlertTriangle, Plus, CheckCircle2 } from "lucide-react";
 import { useRequireAuth } from "@/lib/useRequireAuth";
 import { PageHeader } from "@/components/klynn/PageHeader";
@@ -37,7 +37,9 @@ function CajaPage() {
   const [movs, setMovs] = useState<MovimientoCaja[]>([]);
   const [loading, setLoading] = useState(true);
 
-  const tenantId = tenant.id;
+  const tenant = user?.tenant;
+  const empleado = user?.empleado;
+  const tenantId = tenant?.id || '';
 
   useEffect(() => {
     async function load() {
@@ -61,6 +63,8 @@ function CajaPage() {
   const otrosIng = movs.filter((m) => m.tipo === "INGRESO" || m.tipo === "ABONO").reduce((s, m) => s + m.monto, 0) - (caja?.monto_inicial || 0);
   const egresos = movs.filter((m) => ["EGRESO", "RETIRO", "GASTO_CAJA_CHICA"].includes(m.tipo)).reduce((s, m) => s + m.monto, 0);
   const efectivoEsperado = (caja?.monto_inicial || 0) + ventasEf + otrosIng - egresos;
+
+  if (!user || user.tenant.id === '__loading__') return null;
 
   return (
     <div>

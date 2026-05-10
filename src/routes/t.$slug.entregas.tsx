@@ -1,5 +1,5 @@
 import { createFileRoute } from "@tanstack/react-router";
-import { useMemo, useState } from "react";
+import { useMemo, useState, useEffect } from "react";
 import { Truck, MapPin, CheckCircle2, Clock } from "lucide-react";
 import { useRequireAuth } from "@/lib/useRequireAuth";
 import { PageHeader } from "@/components/klynn/PageHeader";
@@ -8,7 +8,7 @@ import { EstadoBadge } from "@/components/klynn/TenantShell";
 import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
-import { getOrdenes, getClientes, getEmpleados, saveOrden, formatRD, formatDateRD } from "@/lib/storage";
+import { getOrdenes, getClientes, getEmpleados, saveOrden, formatRD, formatDateRD, type Orden, type Cliente, type Empleado } from "@/lib/storage";
 import { toast } from "sonner";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 
@@ -18,16 +18,16 @@ function EntregasPage() {
   const user = useRequireAuth();
   const [refresh, setRefresh] = useState(0);
   const [tab, setTab] = useState<"pendientes" | "entregadas">("pendientes");
-  if (!user) return null;
-  const { tenant } = user;
-  
   const [ordenesRaw, setOrdenesRaw] = useState<Orden[]>([]);
   const [clientes, setClientes] = useState<Cliente[]>([]);
   const [repartidores, setRepartidores] = useState<Empleado[]>([]);
   const [loading, setLoading] = useState(true);
 
+  const tenant = user?.tenant;
+
   useEffect(() => {
     async function load() {
+      if (!tenant || tenant.id === '__loading__') return;
       setLoading(true);
       const [oList, cList, eList] = await Promise.all([
         getOrdenes(tenant.id),
@@ -40,12 +40,14 @@ function EntregasPage() {
       setLoading(false);
     }
     load();
-  }, [tenant.id, refresh]);
+  }, [tenant?.id, refresh]);
 
   const ordenes = useMemo(() => {
     if (tab === "pendientes") return ordenesRaw.filter(o => o.estado === "LISTA");
     return ordenesRaw.filter(o => o.estado === "ENTREGADA");
   }, [ordenesRaw, tab]);
+
+  if (!user || user.tenant.id === '__loading__') return null;
 
   async function marcarEntregada(id: string) {
     const o = ordenes.find((x) => x.id === id);

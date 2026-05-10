@@ -1,5 +1,5 @@
 import { createFileRoute } from "@tanstack/react-router";
-import { useMemo, useState } from "react";
+import { useMemo, useState, useEffect } from "react";
 import { Plus, Trash2 } from "lucide-react";
 import { useRequireAuth } from "@/lib/useRequireAuth";
 import { PageHeader } from "@/components/klynn/PageHeader";
@@ -10,7 +10,7 @@ import { Label } from "@/components/ui/label";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { getGastos, saveGasto, deleteGasto, formatRD, formatDateRD, uid, CATEGORIAS_GASTOS } from "@/lib/storage";
+import { getGastos, saveGasto, deleteGasto, formatRD, formatDateRD, uid, CATEGORIAS_GASTOS, type Gasto } from "@/lib/storage";
 import { toast } from "sonner";
 import { 
   AlertDialog, 
@@ -30,15 +30,15 @@ function GastosPage() {
   const user = useRequireAuth();
   const [show, setShow] = useState(false);
   const [refresh, setRefresh] = useState(0);
-  if (!user) return null;
-
   const [gastos, setGastos] = useState<Gasto[]>([]);
   const [loading, setLoading] = useState(true);
 
-  const tenantId = user.tenant.id;
+  const tenant = user?.tenant;
+  const tenantId = tenant?.id || '';
 
   useEffect(() => {
     async function load() {
+      if (!tenantId || tenantId === '__loading__') return;
       setLoading(true);
       const list = await getGastos(tenantId);
       setGastos(list.sort((a, b) => +new Date(b.fecha) - +new Date(a.fecha)));
@@ -46,6 +46,8 @@ function GastosPage() {
     }
     load();
   }, [tenantId, refresh]);
+
+  if (!user || user.tenant.id === '__loading__') return null;
 
   const total = gastos.reduce((s, g) => s + g.monto, 0);
   const porCategoria = gastos.reduce((m, g) => { m[g.categoria] = (m[g.categoria] || 0) + g.monto; return m; }, {} as Record<string, number>);

@@ -1,5 +1,5 @@
 import { createFileRoute } from "@tanstack/react-router";
-import { useMemo, useState } from "react";
+import { useMemo, useState, useEffect } from "react";
 import { Search, Printer, Eye, XCircle, MessageCircle } from "lucide-react";
 import { useRequireAuth } from "@/lib/useRequireAuth";
 import { PageHeader } from "@/components/klynn/PageHeader";
@@ -38,21 +38,26 @@ function OrdenesPage() {
   const [ordenes, setOrdenes] = useState<Orden[]>([]);
   const [clientes, setClientes] = useState<Cliente[]>([]);
   const [cajaAbierta, setCajaAbierta] = useState<Caja | undefined>(undefined);
+  const [limits, setLimits] = useState<any>({ orderLimit: null, orderCount: 0, ordersReached: false });
   const [loading, setLoading] = useState(true);
 
-  const tenantId = tenant.id;
+  const tenant = user?.tenant;
+  const tenantId = tenant?.id || '';
 
   useEffect(() => {
     async function load() {
+      if (!tenantId || tenantId === '__loading__') return;
       setLoading(true);
       const [oList, cList, activeCaja] = await Promise.all([
         getOrdenes(tenantId),
         getClientes(tenantId),
         getCajaAbierta(tenantId)
       ]);
+      const lim = await checkPlanLimits(tenantId);
       setOrdenes(oList);
       setClientes(cList);
       setCajaAbierta(activeCaja);
+      setLimits(lim);
       setLoading(false);
     }
     load();
@@ -66,6 +71,8 @@ function OrdenesPage() {
       return o.numero.toLowerCase().includes(q.toLowerCase()) || c?.nombre.toLowerCase().includes(q.toLowerCase());
     }).sort((a, b) => +new Date(b.creado_en) - +new Date(a.creado_en));
   }, [ordenes, clientes, filtroEstado, q]);
+
+  if (!user || user.tenant.id === '__loading__') return null;
 
   async function cambiarEstado(o: Orden, estado: EstadoOrden) {
     try {
@@ -232,59 +239,18 @@ function OrdenesPage() {
       </Card>
 
       {/* Vista detalle */}
+      {/* Vista detalle */}
       <Dialog open={!!view} onOpenChange={(o) => !o && setView(null)}>
         <DialogContent className="max-w-4xl">
-          {view && (() => {
-            const [empleadoView, setEmpleadoView] = useState<any>(null);
-            
-            useEffect(() => {
-              if (view) {
-                getEmpleadoById(view.empleado_id).then(setEmpleadoView);
-              }
-            }, [view]);
-
-            if (!c || !empleadoView) return <div className="p-12 text-center">Cargando detalles...</div>;
-            return (
-              <>
-                <DialogHeader>
-                  <DialogTitle>Orden {view.numero}</DialogTitle>
-                </DialogHeader>
-                <div className="grid gap-4 md:grid-cols-2">
-                  <div className="space-y-2 text-sm">
-                    <div><strong>Cliente:</strong> {c.nombre}</div>
-                    <div><strong>Tel:</strong> {c.telefono}</div>
-                    <div><strong>Estado:</strong> <EstadoBadge estado={view.estado} /></div>
-                    <div><strong>Total:</strong> {formatRD(view.total)}</div>
-                    <div><strong>Pagado:</strong> {formatRD(view.pagado)}</div>
-                    {view.saldo > 0 && <div className="text-warning-foreground"><strong>Saldo:</strong> {formatRD(view.saldo)}</div>}
-                    <div><strong>Atendido por:</strong> {empleadoView.nombre}</div>
-                    {view.motivo_anulacion && <div className="rounded-md bg-destructive/10 p-2 text-destructive"><strong>Motivo anulación:</strong> {view.motivo_anulacion}</div>}
-
-                    <div className="pt-3">
-                      <div className="mb-2 text-xs uppercase text-muted-foreground">Cambiar estado</div>
-                      <div className="flex flex-wrap gap-1.5">
-                        {(["RECIBIDA", "EN_PROCESO", "LISTA", "ENTREGADA"] as EstadoOrden[]).map((s) => (
-                          <Button key={s} size="sm" variant={view.estado === s ? "default" : "outline"} onClick={() => { cambiarEstado(view, s); setView({ ...view, estado: s }); }}>{s.replace("_", " ")}</Button>
-                        ))}
-                      </div>
-                    </div>
-
-                    <div className="flex gap-2 pt-6">
-                      <Button variant="outline" className="flex-1" onClick={() => toast.success("Mensaje enviado por WhatsApp (simulado)")}>
-                        <MessageCircle className="mr-1.5 h-4 w-4" /> Enviar WhatsApp
-                      </Button>
-                      <Button className="flex-1 bg-gradient-primary text-white" onClick={() => window.print()}>
-                        <Printer className="mr-1.5 h-4 w-4" /> Imprimir
-                      </Button>
-                    </div>
-                  </div>
-                  <div className="max-h-[500px] overflow-auto rounded-xl bg-zinc-100 p-4 shadow-inner dark:bg-zinc-800/50">
-                    <Ticket orden={view} tenant={tenant} empleado={empleadoView} cliente={c} formato={tenant.config!.formato_ticket} />
-                  </div>
-                </div>
-              </>
-            );
-          })()}
+          {view && (
+            <OrderDetail 
+              view={view} 
+              tenant={tenant} 
+              clientes={clientes} 
+              cambiarEstado={cambiarEstado} 
+              setView={setView} 
+            />
+          )}
         </DialogContent>
       </Dialog>
 
@@ -303,5 +269,61 @@ function OrdenesPage() {
         </DialogContent>
       </Dialog>
     </div>
+  );
+}
+
+function OrderDetail({ view, tenant, clientes, cambiarEstado, setView }: { 
+  view: Orden; tenant: any; clientes: any[]; cambiarEstado: any; setView: any;
+}) {
+  const [empleadoView, setEmpleadoView] = useState<any>(null);
+  
+  useEffect(() => {
+    if (view) {
+      getEmpleadoById(view.empleado_id).then(setEmpleadoView);
+    }
+  }, [view]);
+
+  const c = clientes.find((x) => x.id === view?.cliente_id);
+  if (!c || !empleadoView) return <div className="p-12 text-center">Cargando detalles...</div>;
+
+  return (
+    <>
+      <DialogHeader>
+        <DialogTitle>Orden {view.numero}</DialogTitle>
+      </DialogHeader>
+      <div className="grid gap-4 md:grid-cols-2">
+        <div className="space-y-2 text-sm">
+          <div><strong>Cliente:</strong> {c.nombre}</div>
+          <div><strong>Tel:</strong> {c.telefono}</div>
+          <div><strong>Estado:</strong> <EstadoBadge estado={view.estado} /></div>
+          <div><strong>Total:</strong> {formatRD(view.total)}</div>
+          <div><strong>Pagado:</strong> {formatRD(view.pagado)}</div>
+          {view.saldo > 0 && <div className="text-warning-foreground"><strong>Saldo:</strong> {formatRD(view.saldo)}</div>}
+          <div><strong>Atendido por:</strong> {empleadoView.nombre}</div>
+          {view.motivo_anulacion && <div className="rounded-md bg-destructive/10 p-2 text-destructive"><strong>Motivo anulación:</strong> {view.motivo_anulacion}</div>}
+
+          <div className="pt-3">
+            <div className="mb-2 text-xs uppercase text-muted-foreground">Cambiar estado</div>
+            <div className="flex flex-wrap gap-1.5">
+              {(["RECIBIDA", "EN_PROCESO", "LISTA", "ENTREGADA"] as EstadoOrden[]).map((s) => (
+                <Button key={s} size="sm" variant={view.estado === s ? "default" : "outline"} onClick={() => { cambiarEstado(view, s); setView({ ...view, estado: s }); }}>{s.replace("_", " ")}</Button>
+              ))}
+            </div>
+          </div>
+
+          <div className="flex gap-2 pt-6">
+            <Button variant="outline" className="flex-1" onClick={() => toast.success("Mensaje enviado por WhatsApp (simulado)")}>
+              <MessageCircle className="mr-1.5 h-4 w-4" /> Enviar WhatsApp
+            </Button>
+            <Button className="flex-1 bg-gradient-primary text-white" onClick={() => window.print()}>
+              <Printer className="mr-1.5 h-4 w-4" /> Imprimir
+            </Button>
+          </div>
+        </div>
+        <div className="max-h-[500px] overflow-auto rounded-xl bg-zinc-100 p-4 shadow-inner dark:bg-zinc-800/50">
+          <Ticket orden={view} tenant={tenant} empleado={empleadoView} cliente={c} formato={tenant.config!.formato_ticket} />
+        </div>
+      </div>
+    </>
   );
 }

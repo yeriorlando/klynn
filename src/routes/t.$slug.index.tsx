@@ -1,5 +1,5 @@
 import { createFileRoute, Link } from "@tanstack/react-router";
-import { useMemo } from "react";
+import { useMemo, useState, useEffect } from "react";
 import { useRequireAuth } from "@/lib/useRequireAuth";
 import { PageHeader } from "@/components/klynn/PageHeader";
 import { EstadoBadge } from "@/components/klynn/TenantShell";
@@ -7,7 +7,7 @@ import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import {
   getOrdenes, getCajaAbierta, getMovimientos, getGastos, getClienteById, getClientes,
-  formatRD, formatDateTimeRD,
+  formatRD, formatDateTimeRD, type Orden, type CajaSesion, type CajaMovimiento, type Gasto, type Cliente
 } from "@/lib/storage";
 import {
   Receipt, Package, Wallet, AlertCircle, ArrowUpRight, FilePlus2, Truck, TrendingUp,
@@ -20,9 +20,6 @@ export const Route = createFileRoute("/t/$slug/")({
 
 function DashboardPage() {
   const user = useRequireAuth();
-  if (!user) return null;
-  const { tenant } = user;
-
   const [ordenes, setOrdenes] = useState<Orden[]>([]);
   const [caja, setCaja] = useState<CajaSesion | null>(null);
   const [movs, setMovs] = useState<CajaMovimiento[]>([]);
@@ -30,8 +27,11 @@ function DashboardPage() {
   const [clientes, setClientes] = useState<Cliente[]>([]);
   const [loading, setLoading] = useState(true);
 
+  const tenant = user?.tenant;
+
   useEffect(() => {
     async function load() {
+      if (!tenant || tenant.id === '__loading__') return;
       setLoading(true);
       const [oList, cSesion, gList, cList] = await Promise.all([
         getOrdenes(tenant.id),
@@ -53,9 +53,9 @@ function DashboardPage() {
       setLoading(false);
     }
     load();
-  }, [tenant.id]);
+  }, [tenant?.id]);
 
-  const { ventasHoy, activas, listas, cuentasCobrar, totalCxC, gastosHoy, efectivo, ventas7dias, max } = useMemo(() => {
+  const stats = useMemo(() => {
     const hoy = new Date(); hoy.setHours(0, 0, 0, 0);
     const ordenesHoy = ordenes.filter((o) => new Date(o.creado_en) >= hoy);
     const ventasHoy = ordenesHoy.filter((o) => o.estado !== "ANULADA").reduce((s, o) => s + o.total, 0);
@@ -79,6 +79,10 @@ function DashboardPage() {
 
     return { ventasHoy, activas, listas, cuentasCobrar, totalCxC, gastosHoy, efectivo, ventas7dias: v7, max };
   }, [ordenes, movs, gastos]);
+
+  const { ventasHoy, activas, listas, cuentasCobrar, totalCxC, gastosHoy, efectivo, ventas7dias, max } = stats;
+
+  if (!user || user.tenant.id === '__loading__') return null;
 
   if (loading) return <div className="flex h-64 items-center justify-center"><p className="text-muted-foreground animate-pulse">Cargando dashboard...</p></div>;
 

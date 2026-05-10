@@ -1,8 +1,21 @@
 import { useEffect, useState } from "react";
 import { useNavigate } from "@tanstack/react-router";
-import { getCurrentUser, type Empleado, type Tenant, seedDemoIfEmpty } from "@/lib/storage";
+import { getCurrentUser, type Empleado, type Tenant } from "@/lib/storage";
 
-/** Hook que devuelve el usuario actual o redirige a /login. Lectura síncrona desde localStorage. */
+// Dummy placeholder while loading — prevents hook ordering violations in child components
+const LOADING_TENANT: Tenant = {
+  id: '__loading__', nombre: '', slug: '', rnc: '', telefono: '', direccion: '',
+  ciudad: '', provincia: '', email: '', color_primario: '#0F4C81', color_secundario: '#E0A82E',
+  plan_id: 'basico', estado: 'TRIAL', trial_hasta: new Date().toISOString(),
+  config: {} as any, creado_en: new Date().toISOString()
+};
+const LOADING_EMPLEADO: Empleado = {
+  id: '__loading__', tenant_id: '__loading__', nombre: '', email: '',
+  password: '', rol: 'RECEPCIONISTA', activo: true, permisos: [],
+  creado_en: new Date().toISOString()
+};
+
+/** Hook que devuelve el usuario actual o redirige a /login. */
 export function useRequireAuth(): { empleado: Empleado; tenant: Tenant } | null {
   const navigate = useNavigate();
   const [user, setUser] = useState<{ empleado: Empleado; tenant: Tenant } | null>(null);
@@ -21,6 +34,6 @@ export function useRequireAuth(): { empleado: Empleado; tenant: Tenant } | null 
     check();
   }, [navigate]);
 
-  if (loading) return null;
+  if (loading) return { empleado: LOADING_EMPLEADO, tenant: LOADING_TENANT };
   return user;
 }

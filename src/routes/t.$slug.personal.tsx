@@ -13,7 +13,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import {
   getEmpleados, saveEmpleado, deleteEmpleado, getOrdenes, formatRD, uid,
   PERMISOS_SISTEMA, getPermisosPorRol, can,
-  type Empleado, type RolEmpleado
+  type Empleado, type RolEmpleado, type Orden, type Caja
 } from "@/lib/storage";
 import { toast } from "sonner";
 import { Checkbox } from "@/components/ui/checkbox";
@@ -37,34 +37,42 @@ export const Route = createFileRoute("/t/$slug/personal")({ component: PersonalP
 
 function PersonalPage() {
   const user = useRequireAuth();
+  const [refresh, setRefresh] = useState(0);
   const [edit, setEdit] = useState<Empleado | null>(null);
   const [showNew, setShowNew] = useState(false);
   const [showLimitModal, setShowLimitModal] = useState(false);
   const [emps, setEmps] = useState<Empleado[]>([]);
   const [ordenes, setOrdenes] = useState<Orden[]>([]);
+  const [limits, setLimits] = useState<any>({ employeesReached: false, employeeLimit: 0 });
   const [loading, setLoading] = useState(true);
 
-  const tenantId = user.tenant.id;
+  const tenant = user?.tenant;
+  const tenantId = tenant?.id || '';
 
   useEffect(() => {
     async function load() {
+      if (!tenantId || tenantId === '__loading__') return;
       setLoading(true);
-      const [eList, oList] = await Promise.all([
+      const [eList, oList, lim] = await Promise.all([
         getEmpleados(tenantId),
-        getOrdenes(tenantId)
+        getOrdenes(tenantId),
+        checkPlanLimits(tenantId)
       ]);
       setEmps(eList);
       setOrdenes(oList);
+      setLimits(lim);
       setLoading(false);
     }
     load();
   }, [tenantId, refresh]);
 
+  if (!user || user.tenant.id === '__loading__') return null;
+
   if (!can(user.empleado, "personal")) {
     return <NoAccess />;
   }
 
-  const limits = checkPlanLimits(user.tenant);
+
 
   function handleAdd() {
     if (limits.employeesReached) {

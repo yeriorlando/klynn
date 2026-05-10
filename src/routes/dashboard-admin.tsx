@@ -1,5 +1,5 @@
 import { createFileRoute, Link, useNavigate } from "@tanstack/react-router";
-import { useMemo, useState } from "react";
+import { useState, useEffect, useMemo } from "react";
 import { Building2, TrendingUp, Package, ExternalLink, ArrowRight, LayoutDashboard, LogOut, Shield, RefreshCw } from "lucide-react";
 import { Logo } from "@/components/klynn/Logo";
 import { Card } from "@/components/ui/card";
@@ -10,9 +10,9 @@ import {
   getTenantsForUser, 
   getOrdenes, 
   formatRD, 
-  setActiveTenant, 
+  setActiveTenant,
+  setSession,
   logout,
-  switchSession,
   type Tenant 
 } from "@/lib/storage";
 import { toast } from "sonner";
@@ -25,43 +25,41 @@ export const Route = createFileRoute("/dashboard-admin")({
 function DashboardAdminPage() {
   const auth = useRequireAuth();
   const navigate = useNavigate();
-  const [tick, setTick] = useState(0);
+  const [myTenants, setMyTenants] = useState<Tenant[]>([]);
+  const [tenantStats, setTenantStats] = useState<Record<string, { count: number; total: number }>>({}); 
+  const [stats, setStats] = useState({ totalIngresos: 0, totalOrdenesCount: 0, activasCount: 0 });
+  const [loading, setLoading] = useState(true);
 
-  // Filtrar lavanderías asociadas al email del usuario logueado
-  const myTenants = useMemo(() => {
-    if (!auth?.empleado.email) return [];
-    return getTenantsForUser(auth.empleado.email);
-  }, [auth?.empleado.email, tick]);
+  useEffect(() => {
+    async function load() {
+      if (!auth?.empleado.email || auth.empleado.id === '__loading__') return;
+      setLoading(true);
+      const tenants = await getTenantsForUser(auth.empleado.email);
+      setMyTenants(tenants);
 
-  // Cálculos agregados
-  const stats = useMemo(() => {
-    let totalIngresos = 0;
-    let totalOrdenesCount = 0;
-    let activasCount = 0;
-
-    myTenants.forEach((t) => {
-      const ords = getOrdenes(t.id);
-      totalIngresos += ords.reduce((s, o) => s + o.total, 0);
-      totalOrdenesCount += ords.length;
-      if (t.estado !== "CANCELADO") activasCount++;
-    });
-
-    return { totalIngresos, totalOrdenesCount, activasCount };
-  }, [myTenants]);
+      let totalIngresos = 0, totalOrdenesCount = 0, activasCount = 0;
+      const tStats: Record<string, { count: number; total: number }> = {};
+        for (const t of tenants) {
+          const ords = await getOrdenes(t.id);
+          const ordsArr = Array.isArray(ords) ? ords : [];
+          const ingr = ordsArr.reduce((s, o) => s + (o.total || 0), 0);
+          tStats[t.id] = { count: ordsArr.length, total: ingr };
+          totalIngresos += ingr;
+          totalOrdenesCount += ordsArr.length;
+        if (t.estado !== "CANCELADO") activasCount++;
+      }
+      setTenantStats(tStats);
+      setStats({ totalIngresos, totalOrdenesCount, activasCount });
+      setLoading(false);
+    }
+    load();
+  }, [auth?.empleado.email]);
 
   function handleManage(tenantId: string, slug: string) {
-    if (!auth?.empleado.email) return;
-    const ok = switchSession(tenantId, auth.empleado.email);
-    if (ok) {
-      toast.success(`Entrando a ${slug}...`);
-      setTimeout(() => {
-        window.location.assign(`/t/${slug}`);
-      }, 500);
-    } else {
-      // Fallback si no hay empleado con ese correo en ese tenant (raro)
-      setActiveTenant(slug);
-      window.location.assign("/login");
-    }
+    setSession({ empleado_id: auth?.empleado.id || 'admin', tenant_id: tenantId, iniciado_en: new Date().toISOString() });
+    setActiveTenant(slug);
+    toast.success(`Entrando a ${slug}...`);
+    setTimeout(() => window.location.assign(`/t/${slug}`), 500);
   }
 
   function handleLogout() {
@@ -69,7 +67,7 @@ function DashboardAdminPage() {
     navigate({ to: "/login" });
   }
 
-  if (!auth) return null;
+  if (!auth || auth.empleado.id === '__loading__') return null;
 
   return (
     <div className="min-h-screen bg-background">
@@ -134,8 +132,7 @@ function DashboardAdminPage() {
               </thead>
               <tbody>
                 {myTenants.map((t) => {
-                  const ords = getOrdenes(t.id);
-                  const ingr = ords.reduce((s, o) => s + o.total, 0);
+                  const ts = tenantStats[t.id] || { count: 0, total: 0 };
                   return (
                     <tr key={t.id} className="border-b border-border/50">
                       <td className="px-4 py-3">
@@ -151,8 +148,8 @@ function DashboardAdminPage() {
                         </div>
                       </td>
                       <td className="px-4 py-3 font-mono text-xs text-primary">{t.slug}.klynn.com.do</td>
-                      <td className="px-4 py-3 text-right">{ords.length}</td>
-                      <td className="px-4 py-3 text-right font-medium">{formatRD(ingr)}</td>
+                      <td className="px-4 py-3 text-right">{ts.count}</td>
+                      <td className="px-4 py-3 text-right font-medium">{formatRD(ts.total)}</td>
                       <td className="px-4 py-3">
                         <div className="flex justify-end gap-1">
                           <Button 

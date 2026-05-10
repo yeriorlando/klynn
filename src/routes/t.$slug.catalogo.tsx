@@ -92,7 +92,7 @@ function CatalogoPage() {
 
   useEffect(() => {
     async function load() {
-      if (!tenantId) return;
+      if (!tenantId || tenantId === '__loading__') return;
       setLoading(true);
       try {
         const [i, s] = await Promise.all([
@@ -125,7 +125,7 @@ function CatalogoPage() {
     load();
   }, [tenantId, tick, seeding]);
 
-  if (!user) return null;
+  if (!user || user.tenant.id === '__loading__') return null;
 
   const filteredItems = items.filter(i => 
     i.nombre.toLowerCase().includes(searchQuery.toLowerCase()) || 

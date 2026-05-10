@@ -32,9 +32,9 @@ import {
   getPlans, 
   getOrdenes, 
   formatRD, 
-  setActiveTenant, 
+  setActiveTenant,
+  setSession,
   logout,
-  switchSession,
   savePlan, 
   deletePlan,
   updateTenantAdmin,
@@ -108,9 +108,10 @@ function AdminPage() {
       let grandTotal = 0;
       for (const tenant of t) {
         const ords = await getOrdenes(tenant.id);
-        const ingr = ords.reduce((s: number, o: any) => s + (o.total || 0), 0);
-        ordsMap[tenant.id] = { count: ords.length, total: ingr };
-        grandTotal += ords.length;
+        const ordsArr = Array.isArray(ords) ? ords : [];
+        const ingr = ordsArr.reduce((s: number, o: any) => s + (o.total || 0), 0);
+        ordsMap[tenant.id] = { count: ordsArr.length, total: ingr };
+        grandTotal += ordsArr.length;
       }
       setOrdenesByTenant(ordsMap);
       setTotalOrdenes(grandTotal);
@@ -221,15 +222,11 @@ function AdminPage() {
                                   <DropdownMenuItem 
                                     className="rounded-lg gap-2 cursor-pointer py-2"
                                     onClick={() => {
-                                      const ok = switchSession(t.id, t.email);
-                                      if (ok) {
-                                        toast.success(`Entrando a ${t.slug}...`);
-                                        setTimeout(() => window.location.assign(`/t/${t.slug}`), 500);
-                                      } else {
-                                        setActiveTenant(t.slug);
-                                        toast.success(`Cambiando a ${t.slug}. Inicia sesión.`);
-                                        setTimeout(() => window.location.assign("/login"), 600);
-                                      }
+                                      // Admin accede directo — no necesita ser empleado
+                                      setSession({ empleado_id: 'admin', tenant_id: t.id, iniciado_en: new Date().toISOString() });
+                                      setActiveTenant(t.slug);
+                                      toast.success(`Entrando a ${t.nombre}...`);
+                                      setTimeout(() => window.location.assign(`/t/${t.slug}`), 500);
                                     }}
                                   >
                                     <ExternalLink className="h-4 w-4 text-primary" /> Visitar lavandería

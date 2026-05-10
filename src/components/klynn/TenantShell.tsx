@@ -9,7 +9,7 @@ import { BrandStyle } from "@/components/klynn/BrandStyle";
 import { Logo } from "@/components/klynn/Logo";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
-import { logout, getCajaAbierta, formatRD, can, getTenantsForUser, setActiveTenant, switchSession } from "@/lib/storage";
+import { logout, getCajaAbierta, formatRD, can, getTenantsForUser, setActiveTenant, setSession } from "@/lib/storage";
 import { Toaster } from "@/components/ui/sonner";
 import { useEffect } from "react";
 import { motion } from "framer-motion";
@@ -45,7 +45,24 @@ export function TenantShell() {
 
   const cajaAbierta = useMemo(() => (user ? getCajaAbierta(user.tenant.id) : undefined), [user, pathname]);
 
-  if (!user) {
+  // Protección de rutas — DEBE estar antes del return condicional
+  useEffect(() => {
+    if (!user || user.tenant.id === '__loading__') return;
+    const items = NAV(user.tenant.slug);
+    const current = items.find(i => {
+      if (i.exact) return pathname === i.to;
+      return pathname.startsWith(i.to);
+    });
+
+    if (current?.permission && !can(user.empleado, current.permission)) {
+      const firstAllowed = items.find(i => can(user.empleado, i.permission!));
+      if (firstAllowed) {
+        navigate({ to: firstAllowed.to });
+      }
+    }
+  }, [pathname, user, navigate]);
+
+  if (!user || user.tenant.id === '__loading__') {
     return (
       <div className="grid min-h-screen place-items-center bg-background">
         <div className="flex flex-col items-center gap-4">
@@ -66,29 +83,9 @@ export function TenantShell() {
     navigate({ to: "/login" });
   }
 
-  // Protección de rutas: si el usuario no tiene permiso para la ruta actual, redirigir
-  useEffect(() => {
-    if (!user) return;
-    const items = NAV(user.tenant.slug);
-    const current = items.find(i => {
-      if (i.exact) return pathname === i.to;
-      return pathname.startsWith(i.to);
-    });
-
-    if (current?.permission && !can(user.empleado, current.permission)) {
-      // Redirigir a la primera página permitida
-      const firstAllowed = items.find(i => can(user.empleado, i.permission!));
-      if (firstAllowed) {
-        navigate({ to: firstAllowed.to });
-      } else {
-        // Si no tiene permiso para nada (raro), logout
-        onLogout();
-      }
-    }
-  }, [pathname, user, navigate]);
-
   const isActive = (to: string, exact?: boolean) =>
     exact ? pathname === to : pathname === to || pathname.startsWith(to + "/");
+
 
   return (
     <div className="min-h-screen bg-background print:hidden">
@@ -162,17 +159,19 @@ function SidebarContent({
   onNavigate?: () => void;
 }) {
   const [showSwitcher, setShowSwitcher] = useState(false);
-  const myTenants = useMemo(() => getTenantsForUser(empleado.email), [empleado.email]);
+  const [myTenants, setMyTenants] = useState<any[]>([]);
+  useEffect(() => {
+    getTenantsForUser(empleado.email).then(setMyTenants);
+  }, [empleado.email]);
   const allowedNav = useMemo(() => {
     return NAV(tenant.slug).filter(item => !item.permission || can(empleado, item.permission));
   }, [tenant.slug, empleado]);
 
   const switchBranch = (t: any) => {
     if (t.slug === tenant.slug) return;
-    const ok = switchSession(t.id, empleado.email);
-    if (ok) {
-      window.location.href = `/t/${t.slug}`; // Forzamos carga del Dashboard de la nueva sucursal
-    }
+    setSession({ empleado_id: empleado.id, tenant_id: t.id, iniciado_en: new Date().toISOString() });
+    setActiveTenant(t.slug);
+    window.location.href = `/t/${t.slug}`;
   };
 
   return (

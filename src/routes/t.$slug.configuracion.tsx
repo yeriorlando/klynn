@@ -1,6 +1,6 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { compressImage } from "@/lib/compressImage";
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { useRequireAuth } from "@/lib/useRequireAuth";
 import { PageHeader } from "@/components/klynn/PageHeader";
 import { Card } from "@/components/ui/card";
@@ -26,7 +26,7 @@ import {
 import {
   saveTenant, DEFAULT_CONFIG, formatPhoneRD, PROVINCIAS_RD, NCF_TIPOS,
   formatAmountInput, parseAmount, getPlans, updateTenantPlan, getGlobalConfig, formatRD,
-  type Tenant, type TenantConfig, type WhatsAppConfig, type PlanId,
+  type Tenant, type TenantConfig, type WhatsAppConfig, type PlanId, type Gasto,
 } from "@/lib/storage";
 import { notificarWhatsApp } from "@/lib/whatsapp";
 import { toast } from "sonner";
@@ -52,12 +52,19 @@ function Field({ label, children, hint, span }: { label: string; children: React
 }
 
 function ConfigPage() {
-  const { tenant: initialTenant } = useRequireAuth();
-  const [tenant, setTenant] = useState<Tenant | null>(initialTenant || null);
+  const auth = useRequireAuth();
+  const [tenant, setTenant] = useState<Tenant | null>(null);
   const [activeTab, setActiveTab] = useState("perfil");
   const [billingPeriod, setBillingPeriod] = useState<"monthly" | "yearly">("monthly");
 
-  if (!tenant) return null;
+  useEffect(() => {
+    if (auth?.tenant && auth.tenant.id !== '__loading__' && !tenant) {
+      setTenant(auth.tenant);
+    }
+  }, [auth, tenant]);
+
+  if (!auth || auth.tenant.id === '__loading__' || !tenant) return null;
+
   const cfg: TenantConfig = tenant.config || DEFAULT_CONFIG;
   const plan = getPlans().find(p => p.id === tenant.plan_id);
   const hasFiscal = plan?.modulos.facturacion_fiscal;

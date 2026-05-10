@@ -458,7 +458,7 @@ function RegistroPage() {
               )}
 
               {step === 5 && createdTenant && (
-                <SuccessCard tenant={createdTenant} adminNombre={form.admin_nombre} adminEmail={form.admin_email} onEnter={() => navigate({ to: `/t/${createdTenant.slug}/login` })} />
+                <SuccessCard tenant={createdTenant} adminNombre={form.admin_nombre} adminEmail={form.admin_email} onEnter={() => navigate({ to: `/t/${createdTenant.slug}` })} />
               )}
             </motion.div>
           </AnimatePresence>

@@ -787,6 +787,33 @@ export async function getCurrentUser(): Promise<{ empleado: Empleado; tenant: Te
   const { data: { user } } = await supabase.auth.getUser();
   if (!user) return null;
 
+  // Check si es super admin visitando un tenant
+  const sessionStr = localStorage.getItem('lvx:session');
+  if (sessionStr) {
+    try {
+      const session = JSON.parse(sessionStr);
+      if (session.empleado_id === 'admin' && session.tenant_id) {
+        const ten = await getTenantById(session.tenant_id);
+        if (ten) {
+          return {
+            empleado: {
+              id: 'admin',
+              tenant_id: ten.id,
+              nombre: 'Super Admin',
+              email: user.email || 'admin@klynn.com.do',
+              password: '***',
+              rol: 'ADMIN',
+              activo: true,
+              permisos: [],
+              creado_en: new Date().toISOString()
+            } as Empleado,
+            tenant: ten
+          };
+        }
+      }
+    } catch {}
+  }
+
   const emp = await getEmpleadoById(user.id);
   if (!emp) return null;
 

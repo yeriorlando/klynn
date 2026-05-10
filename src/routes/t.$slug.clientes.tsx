@@ -42,7 +42,8 @@ function ClientesPage() {
   const [ordenes, setOrdenes] = useState<Orden[]>([]);
   const [loading, setLoading] = useState(true);
 
-  const tenantId = tenant.id;
+  const tenant = user?.tenant;
+  const tenantId = tenant?.id || '';
 
   useEffect(() => {
     async function load() {
@@ -59,6 +60,8 @@ function ClientesPage() {
   }, [tenantId, refresh]);
 
   const filt = clientes.filter((c) => c.nombre.toLowerCase().includes(q.toLowerCase()) || c.telefono.includes(q));
+
+  if (!user || user.tenant.id === '__loading__') return null;
 
   function deudaCliente(id: string) {
     return ordenes.filter((o) => o.cliente_id === id && o.estado !== "ANULADA").reduce((s, o) => s + o.saldo, 0);
