@@ -1,7 +1,7 @@
 import { createFileRoute, Link, useNavigate } from "@tanstack/react-router";
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { motion, AnimatePresence } from "framer-motion";
-import { ArrowLeft, Mail, ShieldCheck, CheckCircle2 } from "lucide-react";
+import { ArrowLeft, Lock, ShieldCheck, CheckCircle2, Eye, EyeOff, AlertCircle } from "lucide-react";
 import { Logo } from "@/components/klynn/Logo";
 import { SeedBootstrap } from "@/components/klynn/SeedBootstrap";
 import { Button } from "@/components/ui/button";
@@ -9,41 +9,61 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { supabase } from "@/lib/supabase";
 
-export const Route = createFileRoute("/recuperar")({
+export const Route = createFileRoute("/restablecer-contrasena")({
   head: () => ({
     meta: [
-      { title: "Recuperar contraseña — Klynn" },
-      { name: "description", content: "Restablece el acceso a tu cuenta de Klynn." },
+      { title: "Restablecer contraseña — Klynn" },
+      { name: "description", content: "Crea una nueva contraseña para tu cuenta de Klynn." },
     ],
   }),
-  component: RecuperarPage,
+  component: RestablecerContrasenaPage,
 });
 
-function RecuperarPage() {
+function RestablecerContrasenaPage() {
   const navigate = useNavigate();
-  const [email, setEmail] = useState("");
+  const [password, setPassword] = useState("");
+  const [confirmPassword, setConfirmPassword] = useState("");
   const [loading, setLoading] = useState(false);
-  const [sent, setSent] = useState(false);
+  const [success, setSuccess] = useState(false);
+  const [error, setError] = useState("");
+  const [showPassword, setShowPassword] = useState(false);
+
+  // Verificar si hay una sesión activa (Supabase pone el hash en la URL y lo maneja)
+  useEffect(() => {
+    supabase.auth.onAuthStateChange((event, session) => {
+      if (event === "PASSWORD_RECOVERY") {
+        console.log("Password recovery mode active");
+      }
+    });
+  }, []);
 
   async function onSubmit(e: React.FormEvent) {
     e.preventDefault();
-    if (!email) return;
+    if (!password) return;
+    if (password !== confirmPassword) {
+      setError("Las contraseñas no coinciden");
+      return;
+    }
     
     setLoading(true);
+    setError("");
+
     try {
-      const { error } = await supabase.auth.resetPasswordForEmail(email, {
-        redirectTo: `${window.location.origin}/restablecer-contrasena`,
+      const { error } = await supabase.auth.updateUser({
+        password: password
       });
 
       if (error) {
         throw error;
       }
 
-      setSent(true);
+      setSuccess(true);
+      setTimeout(() => {
+        navigate({ to: "/login" });
+      }, 3000);
     } catch (err: any) {
-      console.error("Error al enviar email de recuperación:", err);
-      // Por seguridad, siempre mostramos que se envió si no es un error crítico
-      setSent(true);
+      console.error("Error al restablecer contraseña:", err);
+      setError(err.message || "No se pudo restablecer la contraseña. El enlace puede haber expirado.");
     } finally {
       setLoading(false);
     }
@@ -73,9 +93,9 @@ function RecuperarPage() {
             <div className="mx-auto w-20 h-20 rounded-3xl bg-white/10 flex items-center justify-center backdrop-blur-xl border border-white/20 shadow-xl">
                <ShieldCheck size={40} className="text-white" />
             </div>
-            <h2 className="text-4xl font-black tracking-tighter">Seguridad ante todo</h2>
+            <h2 className="text-4xl font-black tracking-tighter">Nueva contraseña</h2>
             <p className="max-w-sm mx-auto text-white/80 text-lg">
-              Protegemos el acceso a tu cuenta. Sigue los pasos para restablecer tu contraseña de forma segura.
+              Crea una contraseña segura para proteger el acceso a tu lavandería.
             </p>
           </motion.div>
         </div>
@@ -97,33 +117,67 @@ function RecuperarPage() {
           </div>
 
           <AnimatePresence mode="wait">
-            {!sent ? (
+            {!success ? (
               <motion.div
                 key="form"
                 initial={{ opacity: 0, x: 20 }}
                 animate={{ opacity: 1, x: 0 }}
                 exit={{ opacity: 0, x: -20 }}
               >
-                <h1 className="text-4xl font-black tracking-tighter text-slate-900">Recuperar contraseña</h1>
+                <h1 className="text-4xl font-black tracking-tighter text-slate-900">Establecer contraseña</h1>
                 <p className="mt-3 text-base text-muted-foreground">
-                  Ingresa tu correo electrónico y te enviaremos un enlace para restablecer tu contraseña.
+                  Ingresa tu nueva contraseña a continuación.
                 </p>
 
                 <form onSubmit={onSubmit} className="mt-8 space-y-6">
-                  <div>
-                    <Label className="mb-2 block text-sm font-bold text-slate-700">Email de tu cuenta</Label>
-                    <div className="relative group">
-                      <Mail className="absolute left-3.5 top-1/2 -translate-y-1/2 h-4 w-4 text-slate-400 group-focus-within:text-primary transition-colors" />
-                      <Input 
-                        required
-                        value={email} 
-                        onChange={e => setEmail(e.target.value)} 
-                        type="email" 
-                        placeholder="admin@klynn.com" 
-                        className="pl-11 h-12 border-slate-200 focus:border-primary transition-all rounded-xl" 
-                      />
+                  <div className="space-y-4">
+                    <div>
+                      <Label className="mb-2 block text-sm font-bold text-slate-700">Nueva contraseña</Label>
+                      <div className="relative group">
+                        <Lock className="absolute left-3.5 top-1/2 -translate-y-1/2 h-4 w-4 text-slate-400 group-focus-within:text-primary transition-colors" />
+                        <Input 
+                          required
+                          value={password} 
+                          onChange={e => setPassword(e.target.value)} 
+                          type={showPassword ? "text" : "password"} 
+                          placeholder="••••••••" 
+                          className="pl-11 pr-11 h-12 border-slate-200 focus:border-primary transition-all rounded-xl" 
+                        />
+                        <button
+                          type="button"
+                          onClick={() => setShowPassword(!showPassword)}
+                          className="absolute right-3.5 top-1/2 -translate-y-1/2 text-slate-400 hover:text-primary transition-colors"
+                        >
+                          {showPassword ? <EyeOff size={18} /> : <Eye size={18} />}
+                        </button>
+                      </div>
+                    </div>
+
+                    <div>
+                      <Label className="mb-2 block text-sm font-bold text-slate-700">Confirmar contraseña</Label>
+                      <div className="relative group">
+                        <Lock className="absolute left-3.5 top-1/2 -translate-y-1/2 h-4 w-4 text-slate-400 group-focus-within:text-primary transition-colors" />
+                        <Input 
+                          required
+                          value={confirmPassword} 
+                          onChange={e => setConfirmPassword(e.target.value)} 
+                          type={showPassword ? "text" : "password"} 
+                          placeholder="••••••••" 
+                          className="pl-11 pr-11 h-12 border-slate-200 focus:border-primary transition-all rounded-xl" 
+                        />
+                      </div>
                     </div>
                   </div>
+
+                  {error && (
+                    <motion.div 
+                      initial={{ opacity: 0, y: -10 }}
+                      animate={{ opacity: 1, y: 0 }}
+                      className="flex items-center gap-2 rounded-xl border border-destructive/20 bg-destructive/5 p-4 text-sm text-destructive"
+                    >
+                      <AlertCircle className="h-4 w-4 shrink-0" /> {error}
+                    </motion.div>
+                  )}
 
                   <Button
                     type="submit"
@@ -134,9 +188,9 @@ function RecuperarPage() {
                     {loading ? (
                       <div className="flex items-center gap-2">
                         <div className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" />
-                        Enviando...
+                        Guardando...
                       </div>
-                    ) : "Enviar instrucciones"}
+                    ) : "Cambiar contraseña"}
                   </Button>
                 </form>
               </motion.div>
@@ -151,20 +205,17 @@ function RecuperarPage() {
                    <CheckCircle2 size={32} />
                 </div>
                 <div className="space-y-3">
-                  <h2 className="text-2xl font-black tracking-tighter">¡Correo enviado!</h2>
+                  <h2 className="text-2xl font-black tracking-tighter">¡Contraseña actualizada!</h2>
                   <p className="text-base text-muted-foreground px-4">
-                    Hemos enviado instrucciones a <strong className="text-slate-900">{email}</strong>. Si la cuenta existe, recibirás un enlace en unos minutos.
+                    Tu contraseña ha sido cambiada exitosamente. Redirigiéndote al inicio de sesión...
                   </p>
                 </div>
                 <Button 
                   onClick={() => navigate({ to: "/login" })}
                   className="w-full h-12 rounded-xl font-bold bg-white text-slate-900 border border-slate-200 hover:bg-slate-50 transition-all shadow-sm"
                 >
-                  Volver a Iniciar Sesión
+                  Ir al Inicio de Sesión ahora
                 </Button>
-                <p className="text-sm text-slate-400 font-medium">
-                  ¿No recibiste nada? <button onClick={() => setSent(false)} className="text-primary font-bold hover:underline">Intentar de nuevo</button>
-                </p>
               </motion.div>
             )}
           </AnimatePresence>
