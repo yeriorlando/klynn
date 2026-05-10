@@ -133,12 +133,10 @@ const ciudades = [
   "San Francisco de Macorís", "Baní", "Azua", "Barahona", "Mao", "Nagua",
 ];
 
-const NAV_ITEMS = [
   { href: "#features", label: "Funciones", icon: Sparkles, desc: "POS, NCF, ITBIS, tickets" },
   { href: "#sectores", label: "Para quién", icon: Users, desc: "Lavanderías, sastrerías, hoteles" },
   { href: "#planes", label: "Planes", icon: CreditCard, desc: "Desde RD$ 1,500/mes" },
   { href: "#faq", label: "FAQ", icon: MessageCircle, desc: "Preguntas frecuentes" },
-  { href: "#demo", label: "Demo", icon: Zap, desc: "Prueba la plataforma" },
 ];
 
 function LandingPage() {
@@ -203,8 +201,8 @@ function LandingPage() {
             <span className="flex items-center gap-1.5"><Clock className="h-3 w-3" /> Lun–Sáb 8:00am – 8:00pm</span>
           </div>
           <div className="flex items-center gap-5">
-            <a href="https://wa.me/18095550142" className="flex items-center gap-1.5 transition hover:text-gold">
-              <MessageCircle className="h-3 w-3" /> +1 (809) 555-0142
+            <a href="https://wa.link/vxstq4" className="flex items-center gap-1.5 transition hover:text-gold">
+              <MessageCircle className="h-3 w-3" /> +1 (829) 941-6546
             </a>
             <span className="flex items-center gap-1.5"><Shield className="h-3 w-3" /> ITBIS · NCF · DGII</span>
           </div>
@@ -215,7 +213,7 @@ function LandingPage() {
       <header className="sticky top-0 z-50 border-b border-border/60 bg-background/85 backdrop-blur-xl">
         <div className="mx-auto flex h-16 max-w-7xl items-center justify-between gap-3 px-4 md:h-18 md:gap-6 md:px-6 md:py-3">
           <Logo />
-          <nav className="hidden items-center gap-1 rounded-full border border-border bg-surface/70 p-1 text-sm font-medium text-muted-foreground shadow-card backdrop-blur lg:flex">
+          <nav className="absolute left-1/2 -translate-x-1/2 hidden items-center gap-1 rounded-full border border-border bg-surface/70 p-1 text-sm font-medium text-muted-foreground shadow-card backdrop-blur lg:flex">
             {NAV_ITEMS.map((item) => (
               <a
                 key={item.href}
@@ -229,7 +227,7 @@ function LandingPage() {
           </nav>
           <div className="flex items-center gap-2">
             <a
-              href="https://wa.me/18095550142"
+              href="https://wa.link/vxstq4"
               className="hidden h-9 w-9 items-center justify-center rounded-full border border-border bg-surface text-success transition hover:bg-accent md:inline-flex"
               aria-label="WhatsApp"
             >
@@ -339,7 +337,7 @@ function LandingPage() {
                   Contacto
                 </div>
                 <a
-                  href="https://wa.me/18095550142"
+                  href="https://wa.link/vxstq4"
                   className="flex items-center gap-3 rounded-xl border border-success/30 bg-success/5 p-3 transition hover:bg-success/10"
                 >
                   <div className="grid h-10 w-10 place-items-center rounded-lg bg-success/15 text-success">
@@ -347,7 +345,7 @@ function LandingPage() {
                   </div>
                   <div className="flex-1">
                     <div className="text-sm font-medium">WhatsApp</div>
-                    <div className="text-[11px] text-muted-foreground">+1 (809) 555-0142</div>
+                    <div className="text-[11px] text-muted-foreground">+1 (829) 941-6546</div>
                   </div>
                 </a>
               </nav>
@@ -402,11 +400,11 @@ function LandingPage() {
                   Comenzar prueba de 14 días <ArrowRight className="ml-2 h-5 w-5" />
                 </Button>
               </Link>
-              <Link to="/login">
+              <a href="https://wa.link/vxstq4">
                 <Button variant="outline" className="h-12 px-8 text-base border-slate-200 hover:bg-slate-50 font-bold">
-                  Ver demo en vivo
+                  Solicitar demostración
                 </Button>
-              </Link>
+              </a>
             </div>
             <div className="mt-8 flex flex-wrap items-center gap-x-6 gap-y-2 text-xs text-muted-foreground">
               <div className="flex items-center gap-1.5"><Check className="h-3.5 w-3.5 text-success" /> Sin tarjeta de crédito</div>
@@ -716,48 +714,13 @@ function LandingPage() {
         </div>
       </section>
 
-      {/* DEMO CTA */}
-      <section id="demo" className="mx-auto max-w-7xl px-6 py-24">
-        <div className="relative overflow-hidden rounded-3xl bg-gradient-primary p-10 text-primary-foreground shadow-elegant md:p-16">
-          <div className="absolute -right-16 -top-16 h-64 w-64 rounded-full bg-gold/30 blur-3xl" />
-          <div className="absolute -bottom-20 -left-10 h-72 w-72 rounded-full bg-primary-glow/40 blur-3xl" />
-          <div className="relative max-w-2xl">
-            <div className="mb-3 inline-flex items-center gap-2 rounded-full bg-primary-foreground/15 px-3 py-1 text-xs font-medium backdrop-blur">
-              <Zap className="h-3.5 w-3.5" /> Demo precargada
-            </div>
-            <h2 className="text-balance text-4xl text-primary-foreground md:text-5xl">
-              Entra como <em className="not-italic text-gold">Lavandería La Burbuja</em> y prueba todo.
-            </h2>
-            <p className="mt-4 text-lg text-primary-foreground/85">
-              Te dejamos un tenant demo listo. Solo entra, no necesitas registrarte.
-            </p>
-            <div className="mt-6 grid max-w-md gap-2 rounded-xl border border-primary-foreground/20 bg-primary-foreground/10 p-4 text-sm backdrop-blur">
-              <div className="flex justify-between"><span className="opacity-70">Lavandería</span><span className="font-mono">laburbuja</span></div>
-              <div className="flex justify-between"><span className="opacity-70">Email</span><span className="font-mono">admin@laburbuja.do</span></div>
-              <div className="flex justify-between"><span className="opacity-70">Contraseña</span><span className="font-mono">demo1234</span></div>
-            </div>
-            <div className="mt-7 flex flex-wrap gap-3">
-              <Link to="/login">
-                <Button size="sm" variant="secondary" className="bg-surface text-foreground hover:bg-surface/90">
-                  Entrar al demo <ArrowRight className="ml-1 h-4 w-4" />
-                </Button>
-              </Link>
-              <Link to="/registro">
-                <Button size="sm" variant="outline" className="border-primary-foreground/40 bg-transparent text-primary-foreground hover:bg-primary-foreground/10">
-                  Crear mi lavandería
-                </Button>
-              </Link>
-            </div>
-          </div>
-        </div>
-      </section>
 
       {/* CONTACTO */}
       <section className="mx-auto max-w-7xl px-6 pb-24">
         <div className="grid gap-6 md:grid-cols-3">
           {[
-            { icon: MessageCircle, t: "WhatsApp", d: "+1 (809) 555-0142", s: "Lun–Sáb 8am–8pm" },
-            { icon: Phone, t: "Teléfono", d: "+1 (809) 555-0142", s: "Soporte técnico" },
+            { icon: MessageCircle, t: "WhatsApp", d: "+1 (829) 941-6546", s: "Lun–Sáb 8am–8pm" },
+            { icon: Phone, t: "Teléfono", d: "+1 (829) 941-6546", s: "Soporte técnico" },
             { icon: Globe, t: "Oficina", d: "Av. 27 de Febrero, Santo Domingo", s: "República Dominicana" },
           ].map((c) => (
             <div key={c.t} className="rounded-2xl border border-border bg-surface p-6 shadow-card">
@@ -784,7 +747,7 @@ function LandingPage() {
               <ul className="space-y-2 text-xs text-muted-foreground">
                 <li><a href="#features" className="hover:text-foreground">Funciones</a></li>
                 <li><a href="#planes" className="hover:text-foreground">Planes y precios</a></li>
-                <li><a href="#demo" className="hover:text-foreground">Demo en vivo</a></li>
+                <li><a href="https://wa.link/vxstq4" className="hover:text-foreground">Solicitar demo</a></li>
                 <li><Link to="/registro" className="hover:text-foreground">Crear cuenta</Link></li>
               </ul>
             </div>
@@ -800,7 +763,11 @@ function LandingPage() {
             <div>
               <div className="mb-3 text-sm font-semibold">Contacto</div>
               <ul className="space-y-2 text-xs text-muted-foreground">
-                <li className="flex items-center gap-1.5"><MessageCircle className="h-3 w-3" /> +1 809-555-0142</li>
+                <li className="flex items-center gap-1.5">
+                  <a href="https://wa.link/vxstq4" className="flex items-center gap-1.5 hover:text-primary transition-colors">
+                    <MessageCircle className="h-3 w-3" /> +1 (829) 941-6546
+                  </a>
+                </li>
                 <li className="flex items-center gap-1.5"><Clock className="h-3 w-3" /> Lun–Sáb 8am–8pm</li>
                 <li className="flex items-center gap-1.5"><MapPin className="h-3 w-3" /> Santo Domingo, RD</li>
               </ul>
