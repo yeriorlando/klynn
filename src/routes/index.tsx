@@ -133,6 +133,7 @@ const ciudades = [
   "San Francisco de Macorís", "Baní", "Azua", "Barahona", "Mao", "Nagua",
 ];
 
+const NAV_ITEMS = [
   { href: "#features", label: "Funciones", icon: Sparkles, desc: "POS, NCF, ITBIS, tickets" },
   { href: "#sectores", label: "Para quién", icon: Users, desc: "Lavanderías, sastrerías, hoteles" },
   { href: "#planes", label: "Planes", icon: CreditCard, desc: "Desde RD$ 1,500/mes" },
