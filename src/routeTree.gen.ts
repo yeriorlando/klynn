@@ -11,6 +11,7 @@
 import { Route as rootRouteImport } from './routes/__root'
 import { Route as RegistroRouteImport } from './routes/registro'
 import { Route as RecuperarRouteImport } from './routes/recuperar'
+import { Route as NuevaSucursalRouteImport } from './routes/nueva-sucursal'
 import { Route as LoginRouteImport } from './routes/login'
 import { Route as DashboardAdminRouteImport } from './routes/dashboard-admin'
 import { Route as AdminRouteImport } from './routes/admin'
@@ -37,6 +38,11 @@ const RegistroRoute = RegistroRouteImport.update({
 const RecuperarRoute = RecuperarRouteImport.update({
   id: '/recuperar',
   path: '/recuperar',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const NuevaSucursalRoute = NuevaSucursalRouteImport.update({
+  id: '/nueva-sucursal',
+  path: '/nueva-sucursal',
   getParentRoute: () => rootRouteImport,
 } as any)
 const LoginRoute = LoginRouteImport.update({
@@ -130,6 +136,7 @@ export interface FileRoutesByFullPath {
   '/admin': typeof AdminRoute
   '/dashboard-admin': typeof DashboardAdminRoute
   '/login': typeof LoginRoute
+  '/nueva-sucursal': typeof NuevaSucursalRoute
   '/recuperar': typeof RecuperarRoute
   '/registro': typeof RegistroRoute
   '/t/$slug': typeof TSlugRouteWithChildren
@@ -151,6 +158,7 @@ export interface FileRoutesByTo {
   '/admin': typeof AdminRoute
   '/dashboard-admin': typeof DashboardAdminRoute
   '/login': typeof LoginRoute
+  '/nueva-sucursal': typeof NuevaSucursalRoute
   '/recuperar': typeof RecuperarRoute
   '/registro': typeof RegistroRoute
   '/t/$slug/caja': typeof TSlugCajaRoute
@@ -172,6 +180,7 @@ export interface FileRoutesById {
   '/admin': typeof AdminRoute
   '/dashboard-admin': typeof DashboardAdminRoute
   '/login': typeof LoginRoute
+  '/nueva-sucursal': typeof NuevaSucursalRoute
   '/recuperar': typeof RecuperarRoute
   '/registro': typeof RegistroRoute
   '/t/$slug': typeof TSlugRouteWithChildren
@@ -195,6 +204,7 @@ export interface FileRouteTypes {
     | '/admin'
     | '/dashboard-admin'
     | '/login'
+    | '/nueva-sucursal'
     | '/recuperar'
     | '/registro'
     | '/t/$slug'
@@ -216,6 +226,7 @@ export interface FileRouteTypes {
     | '/admin'
     | '/dashboard-admin'
     | '/login'
+    | '/nueva-sucursal'
     | '/recuperar'
     | '/registro'
     | '/t/$slug/caja'
@@ -236,6 +247,7 @@ export interface FileRouteTypes {
     | '/admin'
     | '/dashboard-admin'
     | '/login'
+    | '/nueva-sucursal'
     | '/recuperar'
     | '/registro'
     | '/t/$slug'
@@ -258,6 +270,7 @@ export interface RootRouteChildren {
   AdminRoute: typeof AdminRoute
   DashboardAdminRoute: typeof DashboardAdminRoute
   LoginRoute: typeof LoginRoute
+  NuevaSucursalRoute: typeof NuevaSucursalRoute
   RecuperarRoute: typeof RecuperarRoute
   RegistroRoute: typeof RegistroRoute
   TSlugRoute: typeof TSlugRouteWithChildren
@@ -277,6 +290,13 @@ declare module '@tanstack/react-router' {
       path: '/recuperar'
       fullPath: '/recuperar'
       preLoaderRoute: typeof RecuperarRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/nueva-sucursal': {
+      id: '/nueva-sucursal'
+      path: '/nueva-sucursal'
+      fullPath: '/nueva-sucursal'
+      preLoaderRoute: typeof NuevaSucursalRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/login': {
@@ -438,6 +458,7 @@ const rootRouteChildren: RootRouteChildren = {
   AdminRoute: AdminRoute,
   DashboardAdminRoute: DashboardAdminRoute,
   LoginRoute: LoginRoute,
+  NuevaSucursalRoute: NuevaSucursalRoute,
   RecuperarRoute: RecuperarRoute,
   RegistroRoute: RegistroRoute,
   TSlugRoute: TSlugRouteWithChildren,

@@ -20,6 +20,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "
 import {
   Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
 } from "@/components/ui/select";
+import { DatePicker } from "@/components/ui/date-picker";
 import {
   getClientes, saveCliente, getCatalogo, getServicios, getCajaAbierta, saveOrden, saveMovimiento,
   nextOrdenNumero, formatRD, formatPhoneRD, uid, DEFAULT_CONFIG,
@@ -53,11 +54,12 @@ function NuevaOrdenPage() {
   const [esUrgente, setEsUrgente] = useState(false);
   const [aplicarItbis, setAplicarItbis] = useState(true);
   const [descuento, setDescuento] = useState(0);
-  const [fechaEntrega, setFechaEntrega] = useState(() => {
-    const d = new Date(); d.setDate(d.getDate() + 2);
-    return d.toISOString().slice(0, 10);
-  });
+  const [fechaEntrega, setFechaEntrega] = useState<Date | undefined>(new Date());
+
+  const tenantId = user?.tenant.id ?? "";
   const [notas, setNotas] = useState("");
+  const [showDeliveryPOS, setShowDeliveryPOS] = useState(false);
+  const [showDiscountPOS, setShowDiscountPOS] = useState(false);
   const [servicioDomicilio, setServicioDomicilio] = useState(false);
   const [direccionDomicilio, setDireccionDomicilio] = useState("");
 
@@ -83,7 +85,6 @@ function NuevaOrdenPage() {
   const [creada, setCreada] = useState<Orden | null>(null);
   const [showTicket, setShowTicket] = useState(false);
 
-  const tenantId = user?.tenant.id ?? "";
   const [catalogo, setCatalogo] = useState<CatalogoItem[]>([]);
   const [servicios, setServicios] = useState<Servicio[]>([]);
   const [loadingCatalog, setLoadingCatalog] = useState(true);
@@ -157,9 +158,25 @@ function NuevaOrdenPage() {
     return servicios;
   }, [servicios, posSearch]);
 
+  const cfg = user?.tenant.config || DEFAULT_CONFIG;
+
+  // Efecto para calcular la fecha de entrega automáticamente
+  useEffect(() => {
+    if (!user || user.tenant.id === '__loading__') return;
+    
+    const horas = esUrgente 
+      ? (cfg.tiempo_entrega_urgente || 6) 
+      : (cfg.tiempo_entrega_estandar || 24);
+    
+    const d = new Date();
+    d.setHours(d.getHours() + horas);
+    
+    // Formato YYYY-MM-DD para el input de fecha
+    setFechaEntrega(d);
+  }, [esUrgente, cfg.tiempo_entrega_estandar, cfg.tiempo_entrega_urgente, user?.tenant.id]);
+
   if (!user || user.tenant.id === '__loading__') return null;
   const { tenant, empleado } = user;
-  const cfg = tenant.config || DEFAULT_CONFIG;
 
   const filtrados = clientes.filter((c) =>
     c.nombre.toLowerCase().includes(clienteSearch.toLowerCase()) ||
@@ -241,6 +258,14 @@ function NuevaOrdenPage() {
       
       const numero = await nextOrdenNumero(tenant.id);
       
+      // Calcular la fecha final de entrega combinando el día del input con la hora calculada
+      const deliveryDate = new Date(fechaEntrega || new Date());
+      
+      const horasAdd = esUrgente ? (cfg.tiempo_entrega_urgente || 3) : (cfg.tiempo_entrega_estandar || 24);
+      const now = new Date();
+      now.setHours(now.getHours() + horasAdd);
+      deliveryDate.setHours(now.getHours(), now.getMinutes(), 0, 0);
+
       const orden: Orden = {
         id: uid("ord"),
         tenant_id: tenant.id,
@@ -257,7 +282,7 @@ function NuevaOrdenPage() {
         saldo,
         metodo_pago: metodo,
         estado: "RECIBIDA",
-        fecha_entrega: new Date(fechaEntrega).toISOString(),
+        fecha_entrega: deliveryDate.toISOString(),
         es_urgente: esUrgente,
         notas: notas || undefined,
         creado_en: new Date().toISOString(),
@@ -296,7 +321,7 @@ function NuevaOrdenPage() {
 
       if (cliente) {
         import("@/lib/whatsapp").then(({ notificarWhatsApp }) =>
-          notificarWhatsApp(tenant, cliente, orden, "creada").then((r) => {
+          notificarWhatsApp(tenant, cliente, orden, "creada", recibido).then((r) => {
             if (r.ok) toast.success("WhatsApp enviado al cliente ✅");
           }),
         );
@@ -333,6 +358,50 @@ function NuevaOrdenPage() {
                   <X className="h-3.5 w-3.5 text-muted-foreground/30" />
                 </Button>
               )}
+            </div>
+          )}
+          {isPosMode && (
+            <div className="flex items-center gap-2 animate-in fade-in slide-in-from-left-4 duration-500 delay-150">
+              <Button 
+                size="sm"
+                onClick={() => setShowDeliveryPOS(true)}
+                className={`rounded-md px-4 font-bold transition-all border-none bg-teal-600 text-white shadow-glow hover:bg-teal-700`}
+              >
+                <Truck className="mr-2 h-4 w-4" />
+                {servicioDomicilio ? "Envío activo" : "Envío a domicilio"}
+              </Button>
+              <Button 
+                size="sm"
+                onClick={() => setShowDiscountPOS(true)}
+                className={`rounded-md px-4 font-bold transition-all border-none bg-slate-600 text-white shadow-glow hover:bg-slate-700`}
+              >
+                <Plus className="mr-2 h-4 w-4" />
+                {descuento > 0 ? `Desc. RD$${descuento}` : "Descuento"}
+              </Button>
+
+              <div className="flex items-center gap-3 px-3 h-9 rounded-md bg-card border border-primary/10 shadow-sm">
+                <div className="flex items-center gap-2">
+                  <AlertTriangle className={`h-4 w-4 ${esUrgente ? "text-amber-500" : "text-muted-foreground/40"}`} />
+                  <span className={`text-[11px] font-bold uppercase tracking-wider ${esUrgente ? "text-amber-600" : "text-muted-foreground/60"}`}>Urgente</span>
+                </div>
+                <Switch checked={esUrgente} onCheckedChange={setEsUrgente} className="scale-[0.65] origin-right" />
+              </div>
+
+              <DeliveryPOSDialog 
+                open={showDeliveryPOS} 
+                onOpenChange={setShowDeliveryPOS} 
+                enabled={servicioDomicilio}
+                setEnabled={setServicioDomicilio}
+                address={direccionDomicilio}
+                setAddress={setDireccionDomicilio}
+              />
+
+              <DiscountPOSDialog
+                open={showDiscountPOS}
+                onOpenChange={setShowDiscountPOS}
+                discount={descuento}
+                setDiscount={setDescuento}
+              />
             </div>
           )}
         </div>
@@ -386,9 +455,11 @@ function NuevaOrdenPage() {
                 <div className="animate-in fade-in slide-in-from-bottom-4 duration-500">
                   <div className="flex items-center justify-between mb-6">
                     <h2 className="text-2xl font-display font-bold text-foreground">Panel de Cobro</h2>
-                    <Button variant="secondary" size="sm" onClick={() => setStep(2)} className="bg-accent/50 hover:bg-accent/80 border-border/50 shadow-sm transition-all active:scale-95">
-                      <ArrowLeft className="mr-2 h-4 w-4" /> Volver al catálogo
-                    </Button>
+                    <div className="flex items-center gap-2">
+                      <Button size="sm" onClick={() => setStep(2)} className="bg-primary text-white shadow-glow hover:bg-primary/90 transition-all active:scale-95 rounded-md px-4 font-bold border-none">
+                        <ArrowLeft className="mr-2 h-4 w-4" /> Volver al catálogo
+                      </Button>
+                    </div>
                   </div>
                   
                   <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4 mb-8">
@@ -412,13 +483,13 @@ function NuevaOrdenPage() {
                   </div>
 
                   {metodo === "EFECTIVO" && (
-                    <div className="rounded-2xl border-2 border-border/60 bg-accent/5 p-8 mb-8">
-                      <div className="grid gap-8 md:grid-cols-2 items-center">
+                    <div className="rounded-3xl border-2 border-border/60 bg-accent/5 p-6 mb-8">
+                      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 items-center">
                         <Field label="Monto recibido">
                           <div className="relative h-24">
                             <span className="absolute left-5 top-1/2 -translate-y-1/2 font-black text-2xl text-muted-foreground/50">RD$</span>
                             <Input
-                              className="h-full pl-24 !text-5xl font-black font-display bg-background border-2 border-primary/20 focus-visible:ring-primary/30"
+                              className="!h-full pl-24 !text-5xl font-black font-display bg-background border-2 border-primary/20 focus-visible:ring-primary/30 rounded-2xl"
                               value={recibido ? formatAmountInput(String(recibido)) : ""}
                               onChange={(e) => setRecibido(parseAmount(e.target.value))}
                               placeholder="0.00"
@@ -426,7 +497,7 @@ function NuevaOrdenPage() {
                           </div>
                         </Field>
 
-                        <div className={`flex flex-col items-center justify-center h-28 rounded-xl border-2 transition-all duration-300 ${
+                        <div className={`flex flex-col items-center justify-center h-28 rounded-2xl border-2 transition-all duration-300 ${
                           faltante > 0 
                             ? "bg-destructive/5 border-destructive/30 text-destructive animate-pulse" 
                             : "bg-emerald-500/5 border-emerald-500/30 text-emerald-600"
@@ -651,7 +722,7 @@ function NuevaOrdenPage() {
             </div>
 
             {/* List: Items */}
-            <div className="flex-1 overflow-y-auto p-4 space-y-3 custom-scrollbar">
+            <div className="overflow-y-auto p-4 space-y-3 custom-scrollbar">
               {serviciosSel.length > 0 && (
                 <div className="flex flex-wrap gap-1 mb-4 border-b border-primary/10 pb-3">
                   {serviciosSel.map(sName => (
@@ -668,24 +739,24 @@ function NuevaOrdenPage() {
                 </div>
               ) : (
                 items.map((it, i) => (
-                  <div key={i} className="flex flex-col gap-2 p-3 rounded-xl border bg-accent/5 hover:bg-accent/10 transition-colors">
+                  <div key={i} className="flex flex-col gap-1 p-2 rounded-lg border bg-accent/5 hover:bg-accent/10 transition-colors">
                     <div className="flex justify-between items-start">
-                      <div className="text-sm font-bold line-clamp-1">{it.descripcion}</div>
-                      <Button variant="ghost" size="icon" className="h-6 w-6 text-destructive" onClick={() => removeItem(i)}>
+                      <div className="text-xs font-bold line-clamp-1">{it.descripcion}</div>
+                      <Button variant="ghost" size="icon" className="h-5 w-5 text-destructive" onClick={() => removeItem(i)}>
                         <X className="h-3 w-3" />
                       </Button>
                     </div>
                     <div className="flex justify-between items-center">
                       <div className="flex items-center gap-2">
-                        <Button variant="outline" size="icon" className="h-7 w-7 rounded-lg" onClick={() => updateItemQuantity(i, -1)}>
-                          <Minus className="h-3 w-3" />
+                        <Button variant="outline" size="icon" className="h-6 w-6 rounded-md" onClick={() => updateItemQuantity(i, -1)}>
+                          <Minus className="h-2 w-2" />
                         </Button>
-                        <span className="text-sm font-bold w-6 text-center">{it.cantidad}</span>
-                        <Button variant="outline" size="icon" className="h-7 w-7 rounded-lg" onClick={() => updateItemQuantity(i, 1)}>
-                          <Plus className="h-3 w-3" />
+                        <span className="text-xs font-bold w-5 text-center">{it.cantidad}</span>
+                        <Button variant="outline" size="icon" className="h-6 w-6 rounded-md" onClick={() => updateItemQuantity(i, 1)}>
+                          <Plus className="h-2 w-2" />
                         </Button>
                       </div>
-                      <div className="text-sm font-black text-primary">{formatRD(it.cantidad * it.precio_unitario)}</div>
+                      <div className="text-xs font-black text-primary">{formatRD(it.cantidad * it.precio_unitario)}</div>
                     </div>
                   </div>
                 ))
@@ -693,7 +764,7 @@ function NuevaOrdenPage() {
             </div>
 
             {/* Footer: Totals & Button */}
-            <div className="p-5 bg-primary/5 border-t border-primary/10 space-y-4">
+            <div className="p-4 bg-primary/5 border-t border-primary/10 space-y-2">
               <div className="space-y-2">
                 <div className="flex justify-between text-xs text-muted-foreground font-bold">
                   <span>SUBTOTAL</span>
@@ -705,18 +776,26 @@ function NuevaOrdenPage() {
                     <span>{formatRD(itbis)}</span>
                   </div>
                 )}
+                {descuento > 0 && (
+                  <div className="flex justify-between text-xs text-rose-600 font-bold">
+                    <span>DESCUENTO</span>
+                    <span>-{formatRD(descuento)}</span>
+                  </div>
+                )}
                 <div className="flex justify-between items-center pt-2 border-t border-primary/10">
                   <span className="text-sm font-black uppercase">Total</span>
                   <span className="text-2xl font-black text-primary">{formatRD(total)}</span>
                 </div>
               </div>
-              <Button 
-                disabled={items.length === 0 || !cliente} 
-                className="w-full h-14 text-lg font-bold bg-primary hover:bg-primary/90 text-white shadow-glow border-none transition-all active:scale-[0.98] mt-2"
-                onClick={() => { setStep(5); }}
-              >
-                COBRAR <ArrowRight className="ml-2 h-5 w-5" />
-              </Button>
+              {!(isPosMode && step === 5) && (
+                <Button 
+                  disabled={items.length === 0 || !cliente} 
+                  className="w-full h-14 text-lg font-bold bg-primary hover:bg-primary/90 text-white shadow-glow border-none transition-all active:scale-[0.98] mt-2"
+                  onClick={() => { setStep(5); }}
+                >
+                  COBRAR <ArrowRight className="ml-2 h-5 w-5" />
+                </Button>
+              )}
             </div>
           </Card>
         </div>
@@ -886,7 +965,7 @@ function NuevaOrdenPage() {
 
                   <div className="mt-5 grid gap-5 md:grid-cols-2">
                     <div className="space-y-3">
-                      <Field label="Fecha de entrega"><Input type="date" value={fechaEntrega} onChange={(e) => setFechaEntrega(e.target.value)} /></Field>
+                      <Field label="Fecha de entrega"><DatePicker date={fechaEntrega} setDate={setFechaEntrega} /></Field>
                       <Field label="Notas">
                         <Textarea value={notas} onChange={(e) => setNotas(e.target.value)} placeholder="Observaciones..." rows={3} />
                       </Field>
@@ -918,9 +997,26 @@ function NuevaOrdenPage() {
                         )}
                       </div>
 
-                      <label className="flex items-center gap-2 text-sm mt-2"><input type="checkbox" checked={esUrgente} onChange={(e) => setEsUrgente(e.target.checked)} /> Urgente (+{cfg.recargo_urgencia}%)</label>
+                      <div className="rounded-lg border border-border p-3 space-y-3 bg-accent/5">
+                        <label className="flex items-center justify-between cursor-pointer">
+                          <div className="flex items-center gap-2">
+                            <AlertTriangle className="h-4 w-4 text-amber-500" />
+                            <span className="text-sm font-medium">Urgente (+{cfg.recargo_urgencia}%)</span>
+                          </div>
+                          <Switch checked={esUrgente} onCheckedChange={setEsUrgente} />
+                        </label>
+                      </div>
+
                       {cfg.ncf_facturacion_activa && (
-                        <label className="flex items-center gap-2 text-sm"><input type="checkbox" checked={aplicarItbis} onChange={(e) => setAplicarItbis(e.target.checked)} /> Aplicar ITBIS {cfg.itbis_porcentaje}%</label>
+                        <div className="rounded-lg border border-border p-3 space-y-3 bg-accent/5">
+                          <label className="flex items-center justify-between cursor-pointer">
+                            <div className="flex items-center gap-2">
+                              <Badge className="h-4 w-4 px-0 justify-center bg-primary/20 text-primary hover:bg-primary/20 border-none text-[10px]">Tax</Badge>
+                              <span className="text-sm font-medium">Aplicar ITBIS {cfg.itbis_porcentaje}%</span>
+                            </div>
+                            <Switch checked={aplicarItbis} onCheckedChange={setAplicarItbis} />
+                          </label>
+                        </div>
                       )}
                     </div>
 
@@ -988,7 +1084,7 @@ function NuevaOrdenPage() {
                   </div>
 
                   {metodo === "EFECTIVO" && (
-                    <div className="mt-8 rounded-2xl border-2 border-border/60 bg-accent/5 p-6">
+                    <div className="mt-4 rounded-2xl border-2 border-border/60 bg-accent/5 p-6">
                       <div className="grid gap-6 md:grid-cols-2 items-center">
                         <Field label="Monto recibido">
                           <div className="relative h-24">
@@ -1032,7 +1128,7 @@ function NuevaOrdenPage() {
               )}
             </motion.div>
 
-            <div className="mt-8 flex items-center justify-between border-t border-border pt-6">
+            <div className="mt-4 flex items-center justify-between border-t border-border pt-6">
               <Button variant="ghost" onClick={() => setStep((s) => Math.max(1, s - 1))} disabled={step === 1}>
                 <ArrowLeft className="mr-1 h-4 w-4" /> Atrás
               </Button>
@@ -1058,7 +1154,7 @@ function NuevaOrdenPage() {
           </DialogHeader>
           {creada && cliente && (
             <div className="max-h-[60vh] overflow-auto rounded-lg bg-zinc-100 p-4 dark:bg-zinc-800">
-              <Ticket orden={creada} tenant={tenant} empleado={empleado} cliente={cliente} formato={cfg.formato_ticket} pagoRecibido={metodo === "EFECTIVO" ? recibido : undefined} />
+              <Ticket orden={creada} tenant={tenant} empleado={empleado} cliente={cliente} formato={cfg.formato_ticket} pagoRecibido={metodo === "EFECTIVO" ? recibido : undefined} serviciosList={servicios} />
             </div>
           )}
           <DialogFooter>
@@ -1299,8 +1395,106 @@ function AddItemDialog({
         </div>
 
         <DialogFooter className="p-4 bg-background border-t border-border/50">
-          <Button onClick={() => onOpenChange(false)} className="w-full md:w-auto px-12 h-12 text-lg font-bold bg-primary text-white rounded-2xl shadow-glow">
+          <Button onClick={() => onOpenChange(false)} className="w-full md:w-auto px-12 h-11 text-lg font-bold bg-primary text-white rounded-md shadow-glow border-none">
             Listo
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+function DeliveryPOSDialog({ 
+  open, onOpenChange, enabled, setEnabled, address, setAddress 
+}: { 
+  open: boolean; onOpenChange: (o: boolean) => void; 
+  enabled: boolean; setEnabled: (e: boolean) => void;
+  address: string; setAddress: (a: string) => void;
+}) {
+  return (
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogContent className="max-w-[400px] rounded-3xl p-6">
+        <DialogHeader>
+          <DialogTitle className="text-xl font-display font-bold flex items-center gap-2">
+            <Truck className="h-6 w-6 text-primary" />
+            Envío a Domicilio
+          </DialogTitle>
+        </DialogHeader>
+        <div className="space-y-6 py-4">
+          <div className="flex items-center justify-between p-4 rounded-2xl bg-accent/5 border border-primary/10">
+            <div className="space-y-0.5">
+              <Label className="text-base font-bold">Habilitar Envío</Label>
+              <p className="text-xs text-muted-foreground">¿Esta orden requiere delivery?</p>
+            </div>
+            <Switch checked={enabled} onCheckedChange={setEnabled} />
+          </div>
+          
+          {enabled && (
+            <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} className="space-y-2">
+              <Label className="font-bold text-sm">Dirección de Entrega</Label>
+              <Input 
+                value={address} 
+                onChange={(e) => setAddress(e.target.value)} 
+                placeholder="Calle, No., Sector..."
+                className="h-12 rounded-xl bg-card border-primary/20 focus-visible:ring-primary/30"
+                autoFocus
+              />
+            </motion.div>
+          )}
+        </div>
+        <DialogFooter>
+          <Button onClick={() => onOpenChange(false)} className="w-full h-11 rounded-md bg-primary text-white font-bold shadow-glow border-none">
+            Confirmar
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+function DiscountPOSDialog({ 
+  open, onOpenChange, discount, setDiscount 
+}: { 
+  open: boolean; onOpenChange: (o: boolean) => void; 
+  discount: number; setDiscount: (d: number) => void;
+}) {
+  const [val, setVal] = useState(discount > 0 ? String(discount) : "");
+  
+  function apply() {
+    setDiscount(Number(val) || 0);
+    onOpenChange(false);
+  }
+
+  return (
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogContent className="max-w-[400px] rounded-3xl p-6">
+        <DialogHeader>
+          <DialogTitle className="text-xl font-display font-bold flex items-center gap-2">
+            <Plus className="h-6 w-6 text-amber-500" />
+            Aplicar Descuento
+          </DialogTitle>
+        </DialogHeader>
+        <div className="space-y-4 py-4">
+          <div className="relative h-24">
+            <span className="absolute left-6 top-1/2 -translate-y-1/2 font-black text-2xl text-muted-foreground/30">RD$</span>
+            <Input
+              className="!h-full pl-24 !text-5xl font-black font-display bg-accent/5 border-2 border-primary/20 focus-visible:ring-primary/30 rounded-3xl text-center"
+              value={val}
+              onChange={(e) => setVal(formatAmountInput(e.target.value))}
+              placeholder="0"
+              autoFocus
+              type="text"
+              inputMode="decimal"
+            />
+          </div>
+          <p className="text-xs text-muted-foreground text-center">El descuento se restará del total final de la orden.</p>
+        </div>
+        <DialogFooter className="gap-2">
+          <Button variant="outline" onClick={() => { setDiscount(0); onOpenChange(false); }} className="flex-1 h-11 rounded-md border-rose-200 text-rose-600 hover:bg-rose-50 font-bold">
+            Quitar Desc.
+          </Button>
+          <Button onClick={apply} className="flex-1 h-11 rounded-md bg-primary text-white font-bold shadow-glow border-none">
+            Aplicar
           </Button>
         </DialogFooter>
       </DialogContent>

@@ -54,33 +54,39 @@ function LoginPage() {
       }
 
       // 2. Check si es Super Admin
-      const ADMIN_EMAILS = ['admin@klynn.com.do'];
+      const ADMIN_EMAILS = ['admin@klynn.com.do', 'admin@flowchat.do'];
       if (ADMIN_EMAILS.includes(email.toLowerCase())) {
         setLoading(false);
         navigate({ to: '/admin' });
         return;
       }
 
-      // 3. Buscar lavanderías asociadas a este email
-      const tenants = await getTenantsForUser(email);
+      // 3. Buscar todos los perfiles de empleado asociados a este email
+      const { data: allEmps, error: errEmps } = await supabase.from('empleados')
+        .select('*')
+        .eq('email', email.toLowerCase())
+        .eq('activo', true);
 
-      if (tenants.length === 0) {
+      if (errEmps || !allEmps || allEmps.length === 0) {
         setLoading(false);
         setError("No se encontraron lavanderías asociadas a tu cuenta");
         return;
       }
 
-      // 4. Obtener el perfil de empleado del usuario actual
-      const emp = await getEmpleadoById(authData.user.id);
+      const tenantIds = allEmps.map(e => e.tenant_id);
+      const { data: tenants } = await supabase.from('tenants').select('*').in('id', tenantIds);
 
-      if (!emp) {
+      if (!tenants || tenants.length === 0) {
         setLoading(false);
-        setError("Perfil de usuario no encontrado en la base de datos");
+        setError("Error al cargar la información de las lavanderías");
         return;
       }
 
       if (tenants.length === 1) {
         const tenant = tenants[0];
+        const emp = allEmps.find(e => e.tenant_id === tenant.id);
+        if (!emp) throw new Error("Empleado no encontrado para este tenant");
+        
         setSession({
           empleado_id: emp.id,
           tenant_id: tenant.id,
@@ -90,7 +96,10 @@ function LoginPage() {
         setLoading(false);
         navigate({ to: "/t/$slug", params: { slug: tenant.slug } });
       } else {
-        const accounts = tenants.map(t => ({ emp, tenant: t }));
+        const accounts = tenants.map(t => {
+          const emp = allEmps.find(e => e.tenant_id === t.id);
+          return { emp, tenant: t };
+        });
         setMatchingAccounts(accounts);
         setLoading(false);
       }
@@ -182,7 +191,7 @@ function LoginPage() {
                       </div>
                       <div className="flex-1">
                         <p className="font-bold text-slate-900 text-lg">{acc.tenant.nombre}</p>
-                        <p className="text-[11px] text-slate-400 lowercase tracking-[0.05em]">{acc.tenant.slug}.klynn.com.do</p>
+                        <p className="text-[11px] text-slate-400 lowercase tracking-[0.05em]">klynn.com.do/t/{acc.tenant.slug}</p>
                       </div>
                       <div className="h-8 w-8 rounded-full bg-slate-100 group-hover:bg-primary group-hover:text-white flex items-center justify-center transition-colors">
                         <ArrowRight size={16} />

@@ -1,4 +1,5 @@
 import { supabase } from './supabase';
+import { createClient } from '@supabase/supabase-js';
 
 export type PlanId = "basico" | "pro" | "enterprise";
 
@@ -63,8 +64,8 @@ export interface TenantConfig {
   itbis_porcentaje: number;
   formato_ticket: "57mm" | "80mm";
   ticket_mostrar_rnc: boolean;
-  ticket_mostrar_empleado: boolean;
-  ticket_pie: string;
+  mostrar_empleado: boolean;
+  pie_pagina_ticket: string;
   recargo_urgencia: number; // %
   umbral_diferencia_caja: number;
   monto_max_caja_chica: number;
@@ -74,6 +75,8 @@ export interface TenantConfig {
   ncf_facturacion_activa?: boolean;
   usar_color_secundario?: boolean;
   bancarios?: string;
+  tiempo_entrega_estandar: number; // en horas
+  tiempo_entrega_urgente: number;  // en horas
   whatsapp?: WhatsAppConfig;
 }
 
@@ -81,7 +84,7 @@ export interface WhatsAppConfig {
   enabled: boolean;
   api_key: string;
   instance: string; // nombre de instancia WapiSender
-  base_url?: string; // por defecto https://api.wapisender.com
+  base_url?: string; // por defecto https://wasenderapi.com
   notif_orden_creada: boolean;
   notif_orden_lista: boolean;
   notif_orden_entregada: boolean;
@@ -263,8 +266,8 @@ export const DEFAULT_CONFIG: TenantConfig = {
   itbis_porcentaje: 18,
   formato_ticket: "80mm",
   ticket_mostrar_rnc: true,
-  ticket_mostrar_empleado: true,
-  ticket_pie: "¡Gracias por su preferencia!",
+  mostrar_empleado: true,
+  pie_pagina_ticket: "¡Gracias por su preferencia!",
   recargo_urgencia: 30,
   umbral_diferencia_caja: 100,
   monto_max_caja_chica: 2000,
@@ -273,17 +276,46 @@ export const DEFAULT_CONFIG: TenantConfig = {
   ncf_tipos: ["B02"],
   ncf_facturacion_activa: false,
   usar_color_secundario: false,
+  tiempo_entrega_estandar: 24,
+  tiempo_entrega_urgente: 6,
   whatsapp: {
     enabled: false,
     api_key: "",
     instance: "",
-    base_url: "https://api.wapisender.com",
+    base_url: "https://wasenderapi.com",
     notif_orden_creada: true,
     notif_orden_lista: true,
     notif_orden_entregada: false,
-    plantilla_creada: "Hola {cliente} 👋, recibimos tu orden {numero} en {lavanderia}. Total: {total}. Entrega estimada: {entrega}. ¡Gracias!",
-    plantilla_lista: "Hola {cliente} ✨, tu orden {numero} en {lavanderia} ya está LISTA para retirar. ¡Te esperamos!",
-    plantilla_entregada: "Hola {cliente}, tu orden {numero} fue entregada. ¡Gracias por preferir {lavanderia}!",
+    plantilla_creada: `✨ *FACTURA DIGITAL* ✨
+-----------------------------------
+🧺 *{lavanderia}*
+📞 Tel: {lavanderia_tel}
+📍 {lavanderia_dir}
+-----------------------------------
+📄 *ORDEN:* {numero}
+📅 *Fecha:* {fecha}
+-----------------------------------
+👤 *CLIENTE:* {cliente}
+📞 Tel: {cliente_tel}
+📍 Dir: {cliente_dir}
+-----------------------------------
+✨ *SERVICIOS:*
+{servicios}
+-----------------------------------
+👕 *DETALLE:*
+{detalle}
+-----------------------------------
+💰 *SUBTOTAL:* {subtotal}
+🔥 *TOTAL:* {total}
+💵 *Vuelto:* {vuelto}
+💳 *Pago:* {metodo_pago}
+-----------------------------------
+🚚 *Entrega:* {entrega}
+✅ *Estado:* {estado}
+
+¡Gracias por su preferencia!`,
+    plantilla_lista: "Hola 👋, {cliente} ✨, tu orden {numero} de {detalle} en {lavanderia} ya está LISTA para retirar. ¡Te esperamos!",
+    plantilla_entregada: "Hola 👋, {cliente}, tu orden {numero} fue entregada. ¡Gracias por preferir {lavanderia}!",
   },
 };
 
@@ -441,6 +473,31 @@ export async function registerTenant(tenant: Tenant, admin: Empleado) {
   return { tenant, user: authData.user };
 }
 
+export async function registerBranch(tenant: Tenant, admin: Empleado, userId: string) {
+  // 1. Guardar la lavandería
+  const { error: tenantError } = await supabase.from('tenants').insert(tenant);
+  if (tenantError) {
+    throw new Error("Error al crear sucursal: " + tenantError.message + ". Por favor contacta soporte.");
+  }
+
+  // 2. Guardar el Administrador vinculado al ID de Auth existente
+  const { password: _pw, ...empData } = admin;
+  const { error: empError } = await supabase.from('empleados').insert({
+    ...empData,
+    id: crypto.randomUUID(),
+    tenant_id: tenant.id,
+    password: '***'
+  });
+  
+  if (empError) {
+    // Rollback: eliminar el tenant creado
+    await supabase.from('tenants').delete().eq('id', tenant.id);
+    throw new Error("Error al crear empleado: " + empError.message + ". Por favor intenta de nuevo.");
+  }
+
+  return { tenant };
+}
+
 export async function deleteTenant(id: string) {
   const { error } = await supabase.from('tenants').delete().eq('id', id);
   if (error) throw error;
@@ -488,7 +545,14 @@ export async function updateTenantAdmin(tenant_id: string, newEmail: string, new
   const admin = emps.find(e => e.rol === "ADMIN");
   if (admin) {
     const updates: Partial<Empleado> = { email: newEmail };
-    if (newPassword) updates.password = newPassword;
+    if (newPassword) {
+      updates.password = '***'; // No guardamos texto plano
+      // Actualizar en Auth mediante la función RPC segura
+      await supabase.rpc('admin_set_user_password', { 
+        target_user_id: admin.id, 
+        new_password: newPassword 
+      });
+    }
     await supabase.from('empleados').update(updates).eq('id', admin.id);
   }
 }
@@ -522,7 +586,38 @@ export async function getEmpleados(tenant_id?: string): Promise<Empleado[]> {
 }
 
 export async function saveEmpleado(e: Empleado) {
-  const { error } = await supabase.from('empleados').upsert(e);
+  // 1. Manejo de contraseña en Supabase Auth
+  if (e.password && e.password.length >= 6 && e.password !== '***') {
+    const isNew = e.id.startsWith('emp-');
+
+    if (!isNew) {
+      // Si el usuario ya existe, usamos la función administrativa para resetear contraseña
+      await supabase.rpc('admin_set_user_password', { 
+        target_user_id: e.id, 
+        new_password: e.password 
+      });
+    } else {
+      // Si es nuevo, usamos el flujo de signUp
+      const tempClient = createClient(
+        import.meta.env.VITE_SUPABASE_URL || '',
+        import.meta.env.VITE_SUPABASE_ANON_KEY || '',
+        { auth: { persistSession: false, autoRefreshToken: false } }
+      );
+      
+      const { data: authData } = await tempClient.auth.signUp({
+        email: e.email,
+        password: e.password
+      });
+      
+      if (authData?.user) {
+         e.id = authData.user.id;
+      }
+    }
+  }
+
+  // 2. Guardar/Actualizar en la tabla empleados (ocultando la contraseña)
+  const dataToSave = { ...e, password: '***' };
+  const { error } = await supabase.from('empleados').upsert(dataToSave);
   if (error) throw error;
 }
 
@@ -567,6 +662,26 @@ export async function getOrdenes(tenant_id: string): Promise<Orden[]> {
   return data || [];
 }
 
+export async function getOrdenesByPeriod(filters: { tenant_id: string; empleado_id?: string; desde?: string; hasta?: string }): Promise<Orden[]> {
+  let query = supabase.from('ordenes').select('*').eq('tenant_id', filters.tenant_id);
+  
+  if (filters.empleado_id && filters.empleado_id !== 'all') {
+    query = query.eq('empleado_id', filters.empleado_id);
+  }
+  
+  if (filters.desde) {
+    query = query.gte('creado_en', filters.desde);
+  }
+  
+  if (filters.hasta) {
+    query = query.lte('creado_en', filters.hasta + 'T23:59:59Z');
+  }
+  
+  const { data, error } = await query.order('creado_en', { ascending: false });
+  if (error) { console.error("Error getOrdenesByPeriod:", error); return []; }
+  return data || [];
+}
+
 export async function saveOrden(o: Orden) {
   const { error } = await supabase.from('ordenes').upsert(o);
   if (error) throw error;
@@ -603,6 +718,26 @@ export async function nextOrdenNumero(tenant_id: string): Promise<string> {
 export async function getCajas(tenant_id: string): Promise<Caja[]> {
   const { data, error } = await supabase.from('cajas').select('*').eq('tenant_id', tenant_id).order('abierta_en', { ascending: false });
   if (error) return [];
+  return data || [];
+}
+
+export async function getHistoricoCierres(filters: { tenant_id: string; empleado_id?: string; desde?: string; hasta?: string }): Promise<Caja[]> {
+  let query = supabase.from('cajas').select('*').eq('tenant_id', filters.tenant_id).eq('estado', 'CERRADA');
+  
+  if (filters.empleado_id && filters.empleado_id !== 'all') {
+    query = query.eq('empleado_id', filters.empleado_id);
+  }
+  
+  if (filters.desde) {
+    query = query.gte('abierta_en', filters.desde);
+  }
+  
+  if (filters.hasta) {
+    query = query.lte('abierta_en', filters.hasta + 'T23:59:59Z');
+  }
+  
+  const { data, error } = await query.order('cerrada_en', { ascending: false });
+  if (error) { console.error("Error getHistoricoCierres:", error); return []; }
   return data || [];
 }
 
@@ -804,16 +939,24 @@ export async function getCurrentUser(): Promise<{ empleado: Empleado; tenant: Te
               password: '***',
               rol: 'ADMIN',
               activo: true,
-              permisos: [],
+              permisos: PERMISOS_SISTEMA.map(p => p.id), // Todos los permisos
               creado_en: new Date().toISOString()
             } as Empleado,
             tenant: ten
           };
         }
+      } else if (session.empleado_id) {
+        // Usar el empleado seleccionado en el dropdown de sucursales
+        const emp = await getEmpleadoById(session.empleado_id);
+        if (emp && emp.email.toLowerCase() === user.email?.toLowerCase()) {
+          const ten = await getTenantById(emp.tenant_id);
+          if (ten) return { empleado: emp, tenant: ten };
+        }
       }
     } catch {}
   }
 
+  // Fallback al empleado original (el ID del auth coincide con la primera sucursal)
   const emp = await getEmpleadoById(user.id);
   if (!emp) return null;
 

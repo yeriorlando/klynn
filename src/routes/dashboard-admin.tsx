@@ -99,7 +99,7 @@ function DashboardAdminPage() {
             <h1 className="font-display text-4xl tracking-tight">Panel central de Propietario</h1>
             <p className="mt-1 text-muted-foreground">Administra tus lavanderías registradas en Klynn.</p>
           </div>
-          <Link to="/registro">
+          <Link to="/nueva-sucursal">
             <Button className="bg-primary text-white hover:bg-primary/90 h-9 px-5 rounded-lg shadow-md transition-all active:scale-95 font-bold">
               <Building2 className="mr-2 h-4 w-4" /> Registrar nueva sucursal
             </Button>
@@ -147,7 +147,7 @@ function DashboardAdminPage() {
                           </div>
                         </div>
                       </td>
-                      <td className="px-4 py-3 font-mono text-xs text-primary">{t.slug}.klynn.com.do</td>
+                      <td className="px-4 py-3 font-mono text-xs text-primary">klynn.com.do/t/{t.slug}</td>
                       <td className="px-4 py-3 text-right">{ts.count}</td>
                       <td className="px-4 py-3 text-right font-medium">{formatRD(ts.total)}</td>
                       <td className="px-4 py-3">

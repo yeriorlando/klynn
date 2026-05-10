@@ -9,8 +9,8 @@ import { BrandStyle } from "@/components/klynn/BrandStyle";
 import { Logo } from "@/components/klynn/Logo";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
-import { logout, getCajaAbierta, formatRD, can, getTenantsForUser, setActiveTenant, setSession } from "@/lib/storage";
-import { Toaster } from "@/components/ui/sonner";
+import { logout, getCajaAbierta, formatRD, can, getTenantsForUser, setActiveTenant, setSession, switchSession } from "@/lib/storage";
+import { Toaster, toast } from "sonner";
 import { useEffect } from "react";
 import { motion } from "framer-motion";
 
@@ -43,7 +43,12 @@ export function TenantShell() {
   const pathname = useRouterState({ select: (s) => s.location.pathname });
   const [mobileOpen, setMobileOpen] = useState(false);
 
-  const cajaAbierta = useMemo(() => (user ? getCajaAbierta(user.tenant.id) : undefined), [user, pathname]);
+  const [cajaAbierta, setCajaAbierta] = useState<boolean>(false);
+
+  useEffect(() => {
+    if (!user || user.tenant.id === '__loading__') return;
+    getCajaAbierta(user.tenant.id).then(caja => setCajaAbierta(!!caja));
+  }, [user, pathname]);
 
   // Protección de rutas — DEBE estar antes del return condicional
   useEffect(() => {
@@ -167,11 +172,14 @@ function SidebarContent({
     return NAV(tenant.slug).filter(item => !item.permission || can(empleado, item.permission));
   }, [tenant.slug, empleado]);
 
-  const switchBranch = (t: any) => {
+  const switchBranch = async (t: any) => {
     if (t.slug === tenant.slug) return;
-    setSession({ empleado_id: empleado.id, tenant_id: t.id, iniciado_en: new Date().toISOString() });
-    setActiveTenant(t.slug);
-    window.location.href = `/t/${t.slug}`;
+    const ok = await switchSession(t.id, empleado.email);
+    if (ok) {
+      window.location.href = `/t/${t.slug}`;
+    } else {
+      toast.error("No tienes acceso a esta sucursal");
+    }
   };
 
   return (
@@ -205,7 +213,7 @@ function SidebarContent({
               <div className="truncate font-display text-sm font-semibold" style={{ color: tenant.color_primario }}>{tenant.nombre}</div>
               {empleado.rol === "ADMIN" && myTenants.length > 1 && <ChevronDown className={`h-3 w-3 transition-transform ${showSwitcher ? "rotate-180" : ""}`} />}
             </div>
-            <div className="truncate text-xs text-muted-foreground lowercase">{tenant.slug}.klynn.com.do</div>
+            <div className="truncate text-xs text-muted-foreground lowercase">klynn.com.do/t/{tenant.slug}</div>
           </div>
         </div>
 
@@ -227,7 +235,7 @@ function SidebarContent({
                     </div>
                     <div className="min-w-0 flex-1">
                       <div className="truncate text-xs font-semibold">{t.nombre}</div>
-                      <div className="truncate text-[10px] text-muted-foreground">{t.slug}.klynn.com.do</div>
+                      <div className="truncate text-[10px] text-muted-foreground">klynn.com.do/t/{t.slug}</div>
                     </div>
                     {t.id === tenant.id && <Check className="h-3 w-3 text-primary" />}
                   </button>

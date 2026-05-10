@@ -1,5 +1,6 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { useMemo, useState, useEffect } from "react";
+import { createPortal } from "react-dom";
 import { Search, Printer, Eye, XCircle, MessageCircle } from "lucide-react";
 import { useRequireAuth } from "@/lib/useRequireAuth";
 import { PageHeader } from "@/components/klynn/PageHeader";
@@ -33,6 +34,7 @@ function OrdenesPage() {
   const [anular, setAnular] = useState<Orden | null>(null);
   const [motivoAnular, setMotivoAnular] = useState("");
   const [refresh, setRefresh] = useState(0);
+  const [showPrint, setShowPrint] = useState<Orden | null>(null);
   const navigate = useNavigate();
 
   const [ordenes, setOrdenes] = useState<Orden[]>([]);
@@ -165,8 +167,7 @@ function OrdenesPage() {
               </div>
             </div>
             <Button 
-              size="sm" 
-              className="bg-gradient-primary text-white rounded-xl h-9 px-4 font-bold shrink-0"
+              className="bg-gradient-primary text-white h-9 px-5 font-bold shrink-0 shadow-sm border-0 transition-all active:scale-95"
               onClick={() => navigate({ to: "/t/$slug/configuracion", params: { slug: tenant.slug } })}
             >
               🚀 Ver planes
@@ -249,10 +250,19 @@ function OrdenesPage() {
               clientes={clientes} 
               cambiarEstado={cambiarEstado} 
               setView={setView} 
+              onPrint={() => setShowPrint(view)}
             />
           )}
         </DialogContent>
       </Dialog>
+
+      {showPrint && (
+        <TicketPrintPortal 
+          orden={showPrint} 
+          tenant={tenant} 
+          onClose={() => setShowPrint(null)} 
+        />
+      )}
 
       {/* Anular */}
       <Dialog open={!!anular} onOpenChange={(o) => !o && setAnular(null)}>
@@ -272,8 +282,8 @@ function OrdenesPage() {
   );
 }
 
-function OrderDetail({ view, tenant, clientes, cambiarEstado, setView }: { 
-  view: Orden; tenant: any; clientes: any[]; cambiarEstado: any; setView: any;
+function OrderDetail({ view, tenant, clientes, cambiarEstado, setView, onPrint }: { 
+  view: Orden; tenant: any; clientes: any[]; cambiarEstado: any; setView: any; onPrint: () => void;
 }) {
   const [empleadoView, setEmpleadoView] = useState<any>(null);
   
@@ -315,7 +325,7 @@ function OrderDetail({ view, tenant, clientes, cambiarEstado, setView }: {
             <Button variant="outline" className="flex-1" onClick={() => toast.success("Mensaje enviado por WhatsApp (simulado)")}>
               <MessageCircle className="mr-1.5 h-4 w-4" /> Enviar WhatsApp
             </Button>
-            <Button className="flex-1 bg-gradient-primary text-white" onClick={() => window.print()}>
+            <Button className="flex-1 bg-gradient-primary text-white" onClick={onPrint}>
               <Printer className="mr-1.5 h-4 w-4" /> Imprimir
             </Button>
           </div>
@@ -325,5 +335,95 @@ function OrderDetail({ view, tenant, clientes, cambiarEstado, setView }: {
         </div>
       </div>
     </>
+  );
+}
+function TicketPrintPortal({ orden, tenant, onClose }: { orden: Orden; tenant: any; onClose: () => void }) {
+  const [emp, setEmp] = useState<any>(null);
+  const [cli, setCli] = useState<any>(null);
+
+  useEffect(() => {
+    Promise.all([
+      getEmpleadoById(orden.empleado_id),
+      getClientes(tenant.id).then(list => list.find(c => c.id === orden.cliente_id))
+    ]).then(([e, c]) => {
+      setEmp(e);
+      setCli(c);
+    });
+  }, [orden, tenant.id]);
+
+  if (!emp || !cli) return null;
+
+  return createPortal(
+    <div className="fixed inset-0 bg-white z-[99999] overflow-y-auto pointer-events-auto atomic-print-target">
+      <div className="max-w-md mx-auto p-8 print:p-0 print:max-w-none print:m-0">
+        <div className="flex justify-between items-start border-b-2 border-primary/20 pb-4 mb-8 print:hidden relative z-[100000]">
+          <Button 
+            variant="outline" 
+            onClick={(e) => { e.preventDefault(); e.stopPropagation(); onClose(); }}
+            className="cursor-pointer"
+          >
+            Cerrar vista de impresión
+          </Button>
+          <Button 
+            onClick={(e) => { e.preventDefault(); e.stopPropagation(); window.print(); }} 
+            className="bg-primary text-white gap-2 cursor-pointer"
+          >
+            <Printer className="h-4 w-4" /> Imprimir ahora
+          </Button>
+        </div>
+
+        <Ticket 
+          orden={orden} 
+          tenant={tenant} 
+          empleado={emp} 
+          cliente={cli} 
+          formato={tenant.config?.formato_ticket || "80mm"} 
+        />
+      </div>
+
+      <style dangerouslySetInnerHTML={{ __html: `
+        @media print {
+          @page {
+            size: ${tenant.config?.formato_ticket === "57mm" ? "57mm 210mm" : "80mm 297mm"};
+            margin: 0;
+          }
+
+          html,
+          body {
+            width: ${tenant.config?.formato_ticket === "57mm" ? "57mm" : "80mm"};
+            margin: 0 !important;
+            padding: 0 !important;
+            background: #fff;
+            overflow: visible !important;
+            height: auto !important;
+          }
+
+          /* Ocultar todo el sitio */
+          body > *:not(.atomic-print-target) { display: none !important; }
+
+          /* Mostrar solo el ticket */
+          .atomic-print-target {
+            display: block !important;
+            visibility: visible !important;
+            position: static !important;
+            width: ${tenant.config?.formato_ticket === "57mm" ? "57mm" : "80mm"} !important;
+            max-width: ${tenant.config?.formato_ticket === "57mm" ? "57mm" : "80mm"} !important;
+            padding: ${tenant.config?.formato_ticket === "57mm" ? "2.5mm" : "4mm"};
+            margin: 0;
+            background: white;
+            color: black;
+            font-family: monospace;
+            font-size: ${tenant.config?.formato_ticket === "57mm" ? "10px" : "12px"};
+            line-height: ${tenant.config?.formato_ticket === "57mm" ? "1.2" : "1.3"};
+            box-sizing: border-box;
+          }
+
+          .no-print, nav, aside, header, footer, button {
+            display: none !important;
+          }
+        }
+      `}} />
+    </div>,
+    document.body
   );
 }

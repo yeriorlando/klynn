@@ -79,7 +79,8 @@ function ConfigPage() {
       toast.success("Guardado");
       setTimeout(() => window.location.reload(), 400);
     } catch (err: any) {
-      toast.error("Error al guardar cambios");
+      console.error("Error saving tenant:", err);
+      toast.error("Error al guardar: " + (err.message || "desconocido"));
     }
   }
   async function saveCfg(c: Partial<TenantConfig>) {
@@ -89,7 +90,8 @@ function ConfigPage() {
       setTenant(next);
       toast.success("Guardado");
     } catch (err: any) {
-      toast.error("Error al guardar configuración");
+      console.error("Error saving config:", err);
+      toast.error("Error al guardar configuración: " + (err.message || "desconocido"));
     }
   }
   async function saveWA(w: Partial<WhatsAppConfig>) {
@@ -169,14 +171,14 @@ function ConfigPage() {
                 <div className="flex flex-col items-center gap-4">
                   {tenant.logo_url ? (
                     <div className="relative group">
-                      <img src={tenant.logo_url} alt="Logo" className="h-32 w-32 rounded-xl object-contain bg-white p-4 shadow-sm border" />
+                      <img src={tenant.logo_url} alt="Logo" className="h-32 w-32 rounded-full object-contain bg-white p-4 shadow-sm border" />
                       <button onClick={() => setTenant({ ...tenant, logo_url: undefined })} 
                         className="absolute -right-2 -top-2 rounded-full bg-destructive p-1.5 text-white opacity-0 transition group-hover:opacity-100 shadow-lg">
                         <Trash2 className="h-4 w-4" />
                       </button>
                     </div>
                   ) : (
-                    <div className="flex h-32 w-32 items-center justify-center rounded-xl bg-accent/50 text-muted-foreground border-2 border-dashed border-border/60">
+                    <div className="flex h-32 w-32 items-center justify-center rounded-full bg-accent/50 text-muted-foreground border-2 border-dashed border-border/60">
                       <ImageIcon className="h-10 w-10 opacity-20" />
                     </div>
                   )}
@@ -232,13 +234,47 @@ function ConfigPage() {
 
         <TabsContent value="factura">
           <Card className={CARD}>
-            <div className="grid gap-4 md:grid-cols-2">
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
               <Field label="Formato impresora">
-                <Select value={cfg.formato_ticket} onValueChange={(v) => saveCfg({ formato_ticket: v as "57mm" | "80mm" })}>
-                  <SelectTrigger className={FIELD}><SelectValue /></SelectTrigger>
-                  <SelectContent><SelectItem value="57mm">57mm</SelectItem><SelectItem value="80mm">80mm</SelectItem></SelectContent>
+                <Select value={cfg.formato_ticket} onValueChange={(v: any) => saveCfg({ formato_ticket: v })}>
+                  <SelectTrigger className="rounded-xl border-input">
+                    <SelectValue placeholder="Seleccionar formato" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="57mm">57mm</SelectItem>
+                    <SelectItem value="80mm">80mm</SelectItem>
+                  </SelectContent>
                 </Select>
               </Field>
+
+              <Field label="Tiempo de entrega estándar">
+                <Select value={String(cfg.tiempo_entrega_estandar || 24)} onValueChange={(v) => saveCfg({ tiempo_entrega_estandar: Number(v) })}>
+                  <SelectTrigger className="rounded-xl border-input">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="24">1 DÍA (24 HORAS)</SelectItem>
+                    <SelectItem value="48">2 DÍAS (48 HORAS)</SelectItem>
+                    <SelectItem value="72">3 DÍAS (72 HORAS)</SelectItem>
+                    <SelectItem value="96">4 DÍAS (96 HORAS)</SelectItem>
+                  </SelectContent>
+                </Select>
+              </Field>
+
+              <Field label="Tiempo de entrega URGENTE">
+                <Select value={String(cfg.tiempo_entrega_urgente || 6)} onValueChange={(v) => saveCfg({ tiempo_entrega_urgente: Number(v) })}>
+                  <SelectTrigger className="rounded-xl border-input">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="3">3 HORAS</SelectItem>
+                    <SelectItem value="6">6 HORAS</SelectItem>
+                    <SelectItem value="12">12 HORAS</SelectItem>
+                    <SelectItem value="24">1 DÍA (24 HORAS)</SelectItem>
+                  </SelectContent>
+                </Select>
+              </Field>
+
               {cfg.ncf_facturacion_activa && (
                 <>
                   <Field label="NCF serie (ej: B01 o B02)"><Input className={FIELD} value={cfg.ncf_secuencia} onChange={(e) => saveCfg({ ncf_secuencia: e.target.value.toUpperCase() })} /></Field>
@@ -347,8 +383,8 @@ function ConfigPage() {
         <TabsContent value="whatsapp">
           <WhatsAppTab 
             tenant={tenant} 
-            wa={tenant.whatsapp || { active: false, config: {} }} 
-            saveWA={(w) => save({ ...tenant, whatsapp: { ...tenant.whatsapp, ...w } })} 
+            wa={cfg.whatsapp || DEFAULT_CONFIG.whatsapp!} 
+            saveWA={(w) => saveCfg({ whatsapp: { ...wa, ...w } })} 
             enabled={!!hasWA}
           />
         </TabsContent>
@@ -361,17 +397,19 @@ function ConfigPage() {
             </div>
             <div className="flex items-center bg-muted/50 p-1 rounded-xl border border-border/50">
               <Button 
-                variant={billingPeriod === "monthly" ? "secondary" : "ghost"} 
+                variant={billingPeriod === "monthly" ? "default" : "ghost"} 
                 size="sm" 
-                className="rounded-lg font-bold text-xs px-4 h-8"
+                className={`rounded-lg font-bold text-xs px-4 h-8 transition-all ${billingPeriod === "monthly" ? "text-white shadow-sm" : "text-muted-foreground"}`}
+                style={{ backgroundColor: billingPeriod === "monthly" ? tenant.color_primario : undefined }}
                 onClick={() => setBillingPeriod("monthly")}
               >
                 Mensual
               </Button>
               <Button 
-                variant={billingPeriod === "yearly" ? "secondary" : "ghost"} 
+                variant={billingPeriod === "yearly" ? "default" : "ghost"} 
                 size="sm" 
-                className="rounded-lg font-bold text-xs px-4 h-8"
+                className={`rounded-lg font-bold text-xs px-4 h-8 transition-all ${billingPeriod === "yearly" ? "text-white shadow-sm" : "text-muted-foreground"}`}
+                style={{ backgroundColor: billingPeriod === "yearly" ? tenant.color_primario : undefined }}
                 onClick={() => setBillingPeriod("yearly")}
               >
                 Anual
@@ -476,13 +514,18 @@ function ConfigPage() {
 function WhatsAppTab({ tenant, wa, saveWA, enabled }: { 
   tenant: Tenant; wa: WhatsAppConfig; saveWA: (w: Partial<WhatsAppConfig>) => void; enabled: boolean;
 }) {
-  const [draft, setDraft] = useState<WhatsAppConfig>(() => ({
-    ...DEFAULT_CONFIG.whatsapp,
-    ...wa,
-    plantilla_creada: wa.plantilla_creada || DEFAULT_CONFIG.whatsapp.plantilla_creada,
-    plantilla_lista: wa.plantilla_lista || DEFAULT_CONFIG.whatsapp.plantilla_lista,
-    plantilla_entregada: wa.plantilla_entregada || DEFAULT_CONFIG.whatsapp.plantilla_entregada,
-  }));
+  const [draft, setDraft] = useState<WhatsAppConfig>(() => {
+    const baseWa = { ...DEFAULT_CONFIG.whatsapp, ...wa };
+    if (baseWa.base_url?.includes("wapisender")) {
+      baseWa.base_url = "https://wasenderapi.com";
+    }
+    return {
+      ...baseWa,
+      plantilla_creada: wa.plantilla_creada || DEFAULT_CONFIG.whatsapp.plantilla_creada,
+      plantilla_lista: wa.plantilla_lista || DEFAULT_CONFIG.whatsapp.plantilla_lista,
+      plantilla_entregada: wa.plantilla_entregada || DEFAULT_CONFIG.whatsapp.plantilla_entregada,
+    };
+  });
   const [testPhone, setTestPhone] = useState(tenant.telefono || "");
   const [sending, setSending] = useState(false);
 
@@ -490,19 +533,43 @@ function WhatsAppTab({ tenant, wa, saveWA, enabled }: {
     setSending(true);
     saveWA(draft);
     const ordenDemo = {
-      id: "demo", tenant_id: tenant.id, numero: "LX-DEMO-0001", cliente_id: "demo",
-      empleado_id: "demo", servicios: [], items: [], subtotal: 500, itbis: 90, descuento: 0,
-      total: 590, pagado: 590, saldo: 0, metodo_pago: "EFECTIVO", estado: "RECIBIDA",
-      fecha_entrega: new Date(Date.now() + 86400000).toISOString(), es_urgente: false,
+      id: "demo", tenant_id: tenant.id, numero: "KL-202605-0003", cliente_id: "demo",
+      empleado_id: "demo", servicios: [], 
+      items: [
+        { descripcion: "Body de bebé", cantidad: 1, precio_unitario: 70 },
+        { descripcion: "Manta de bebé", cantidad: 1, precio_unitario: 140 },
+        { descripcion: "Camisa manga corta", cantidad: 1, precio_unitario: 150 },
+        { descripcion: "Camisa manga larga", cantidad: 1, precio_unitario: 180 }
+      ], 
+      subtotal: 540, itbis: 0, descuento: 0,
+      total: 540, pagado: 540, saldo: 0, metodo_pago: "EFECTIVO", estado: "RECIBIDA",
+      fecha_entrega: "11/5/2026",
+      es_urgente: false,
       creado_en: new Date().toISOString(),
     } as any;
-    const cliDemo = { id: "demo", tenant_id: tenant.id, nombre: "Cliente Prueba", telefono: testPhone, tipo: "REGULAR", limite_credito: 0, creado_en: "" } as any;
+    const cliDemo = { 
+      id: "demo", 
+      tenant_id: tenant.id, 
+      nombre: "Yeri", 
+      telefono: testPhone, 
+      direccion: "Los Arroyos Del Norte #51",
+      tipo: "REGULAR", 
+      limite_credito: 0, 
+      creado_en: "" 
+    } as any;
     const tenantDraft = { ...tenant, config: { ...(tenant.config || {}), whatsapp: draft } } as Tenant;
     const r = await notificarWhatsApp(tenantDraft, cliDemo, ordenDemo, "creada");
     setSending(false);
     if (r.ok) toast.success("Mensaje enviado ✓");
     else toast.error("Error: " + (r.reason || "desconocido"));
   }
+
+  const formatPhone = (val: string) => {
+    const d = val.replace(/\D/g, "").substring(0, 10);
+    if (d.length <= 3) return d;
+    if (d.length <= 6) return `${d.substring(0, 3)}-${d.substring(3)}`;
+    return `${d.substring(0, 3)}-${d.substring(3, 6)}-${d.substring(6)}`;
+  };
 
   return (
     <Card className={CARD + " relative overflow-hidden"}>
@@ -536,21 +603,21 @@ function WhatsAppTab({ tenant, wa, saveWA, enabled }: {
             <h3 className="font-display text-xl">Notificaciones WhatsApp</h3>
             <p className="text-sm text-muted-foreground">
               Envía avisos automáticos a tus clientes desde tu propio número. Powered by{" "}
-              <a className="text-primary underline" href="https://wapisender.com/docs" target="_blank" rel="noreferrer">WapiSender</a>.
+              <a className="text-primary underline" href="https://wasenderapi.com/api-docs" target="_blank" rel="noreferrer">WASenderAPI</a>.
             </p>
           </div>
           <Switch checked={draft.enabled} onCheckedChange={(v) => setDraft({ ...draft, enabled: v })} />
         </div>
 
         <div className="grid gap-4 md:grid-cols-2">
-          <Field label="API Key" span>
-            <Input className={FIELD} type="password" placeholder="sk_live_•••" value={draft.api_key} onChange={(e) => setDraft({ ...draft, api_key: e.target.value })} />
+          <Field label="API Token (Personal Access Token)" span>
+            <Input className={FIELD} type="password" placeholder="Tu token de wasenderapi.com" value={draft.api_key} onChange={(e) => setDraft({ ...draft, api_key: e.target.value })} />
           </Field>
-          <Field label="Nombre de instancia">
-            <Input className={FIELD} placeholder="mi-lavanderia" value={draft.instance} onChange={(e) => setDraft({ ...draft, instance: e.target.value })} />
+          <Field label="Session ID / Instance (Opcional)" hint="Solo si usas múltiples sesiones.">
+            <Input className={FIELD} placeholder="default" value={draft.instance} onChange={(e) => setDraft({ ...draft, instance: e.target.value })} />
           </Field>
-          <Field label="Base URL (opcional)">
-            <Input className={FIELD} placeholder="https://api.wapisender.com" value={draft.base_url || ""} onChange={(e) => setDraft({ ...draft, base_url: e.target.value })} />
+          <Field label="Base URL (Servidor)">
+            <Input className={FIELD} placeholder="https://wasenderapi.com" value={draft.base_url || ""} onChange={(e) => setDraft({ ...draft, base_url: e.target.value })} />
           </Field>
         </div>
 
@@ -574,7 +641,7 @@ function WhatsAppTab({ tenant, wa, saveWA, enabled }: {
         </div>
 
         <div className="mt-8 grid gap-4">
-          <Field label="Plantilla — Orden creada" hint="Variables: {cliente} {numero} {total} {entrega} {lavanderia}">
+          <Field label="Plantilla — Orden creada" hint="Variables: {lavanderia} {lavanderia_tel} {lavanderia_dir} {numero} {fecha} {cliente} {cliente_tel} {cliente_dir} {detalle} {subtotal} {total} {metodo_pago} {pagado} {saldo} {entrega} {estado} {web_url}">
             <Textarea className="rounded-xl border-input focus-visible:ring-1 focus-visible:ring-ring" rows={2} value={draft.plantilla_creada} onChange={(e) => setDraft({ ...draft, plantilla_creada: e.target.value })} />
           </Field>
           <Field label="Plantilla — Orden lista">
@@ -587,9 +654,9 @@ function WhatsAppTab({ tenant, wa, saveWA, enabled }: {
 
         <div className="mt-8 flex flex-wrap items-end gap-3 rounded-2xl bg-muted/30 p-6 border border-border/50">
           <Field label="Probar al número">
-            <Input className={FIELD + " w-56 bg-background"} value={testPhone} onChange={(e) => setTestPhone(e.target.value)} placeholder="809-000-0000" />
+            <Input className={FIELD + " w-56 bg-background"} value={testPhone} onChange={(e) => setTestPhone(formatPhone(e.target.value))} placeholder="829-000-0000" />
           </Field>
-          <Button variant="outline" className="h-11 rounded-xl font-bold" disabled={sending || !draft.api_key || !draft.instance} onClick={probar}>
+          <Button variant="outline" className="h-11 rounded-xl font-bold" disabled={sending || !draft.api_key} onClick={probar}>
             {sending ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Send className="mr-2 h-4 w-4" />} Enviar prueba
           </Button>
           <div className="flex-1" />

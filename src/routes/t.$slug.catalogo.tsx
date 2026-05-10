@@ -100,17 +100,20 @@ function CatalogoPage() {
           getServicios(tenantId)
         ]);
         
-        // Auto-seed si está vacío
-        if (i.length === 0 && !seeding) {
-          console.log("Auto-seeding prendas...");
+        // Auto-sincronizar siempre para reparar rutas rotas o actualizar a webp
+        if (!seeding) {
+          setSeeding(true);
+          console.log("Sincronizando catálogo con muestras...");
           await seedSamplePrendas(tenantId);
-          setTick(t => t + 1);
-          return;
-        }
-        if (s.length === 0 && !seeding) {
-          console.log("Auto-seeding servicios...");
           await seedSampleServicios(tenantId);
-          setTick(t => t + 1);
+          
+          // Re-fetch para asegurar que tenemos la versión más reciente
+          const [updatedI, updatedS] = await Promise.all([
+            getCatalogo(tenantId),
+            getServicios(tenantId)
+          ]);
+          setItems(updatedI);
+          setServicios(updatedS);
           return;
         }
 
@@ -845,65 +848,65 @@ function ServDialog({ open, onOpenChange, tenantId, initial, onSaved }: {
 
 const SAMPLE_PRENDAS: Array<Omit<CatalogoItem, "id" | "tenant_id">> = [
   // Camisas
-  { categoria: "Camisas", nombre: "Camisa manga larga", precio: 180, activo: true, icono: "👔", imagen_url: "/samples/Prendas/Camina manga larga.png" },
-  { categoria: "Camisas", nombre: "Camisa manga corta", precio: 150, activo: true, icono: "👔", imagen_url: "/samples/Prendas/Camisa manga corta.png" },
-  { categoria: "Camisas", nombre: "Polo", precio: 120, activo: true, icono: "👕", imagen_url: "/samples/Prendas/Polo.png" },
-  { categoria: "Camisas", nombre: "Camiseta básica", precio: 90, activo: true, icono: "👕", imagen_url: "/samples/Prendas/Camiseta basica.png" },
+  { categoria: "Camisas", nombre: "Camisa manga larga", precio: 180, activo: true, icono: "👔", imagen_url: "/samples/Prendas/Camisa manga larga.webp" },
+  { categoria: "Camisas", nombre: "Camisa manga corta", precio: 150, activo: true, icono: "👔", imagen_url: "/samples/Prendas/Camisa manga corta.webp" },
+  { categoria: "Camisas", nombre: "Polo", precio: 120, activo: true, icono: "👕", imagen_url: "/samples/Prendas/Polo.webp" },
+  { categoria: "Camisas", nombre: "Camiseta básica", precio: 90, activo: true, icono: "👕", imagen_url: "/samples/Prendas/Camiseta basica.webp" },
   // Pantalones
-  { categoria: "Pantalones", nombre: "Pantalón casual", precio: 180, activo: true, icono: "👖", imagen_url: "/samples/Prendas/Pantalón casual.png" },
-  { categoria: "Pantalones", nombre: "Pantalón de vestir", precio: 200, activo: true, icono: "👖", imagen_url: "/samples/Prendas/Pantalón de vestir.png" },
-  { categoria: "Pantalones", nombre: "Jeans", precio: 170, activo: true, icono: "👖", imagen_url: "/samples/Prendas/Jeans.png" },
-  { categoria: "Pantalones", nombre: "Short", precio: 110, activo: true, icono: "🩳", imagen_url: "/samples/Prendas/Short.png" },
+  { categoria: "Pantalones", nombre: "Pantalón casual", precio: 180, activo: true, icono: "👖", imagen_url: "/samples/Prendas/Pantalon casual.webp" },
+  { categoria: "Pantalones", nombre: "Pantalón de vestir", precio: 200, activo: true, icono: "👖", imagen_url: "/samples/Prendas/Pantalon de vestir.webp" },
+  { categoria: "Pantalones", nombre: "Jeans", precio: 170, activo: true, icono: "👖", imagen_url: "/samples/Prendas/Jeans.webp" },
+  { categoria: "Pantalones", nombre: "Short", precio: 110, activo: true, icono: "🩳", imagen_url: "/samples/Prendas/Short.webp" },
   // Vestir
-  { categoria: "Vestir", nombre: "Vestido corto", precio: 320, activo: true, icono: "👗", imagen_url: "/samples/Prendas/Vestido corto.png" },
-  { categoria: "Vestir", nombre: "Vestido largo", precio: 420, activo: true, icono: "👗", imagen_url: "/samples/Prendas/Vestido largo.png" },
-  { categoria: "Vestir", nombre: "Blusa", precio: 130, activo: true, icono: "👚", imagen_url: "/samples/Prendas/Blusa.png" },
-  { categoria: "Vestir", nombre: "Falda", precio: 160, activo: true, icono: "🩱", imagen_url: "/samples/Prendas/Falda.png" },
-  { categoria: "Vestir", nombre: "Blazer / chaqueta", precio: 280, activo: true, icono: "🧥", imagen_url: "/samples/Prendas/Blazer chaqueta.png" },
-  { categoria: "Vestir", nombre: "Traje completo (2 pzs)", precio: 550, activo: true, icono: "🤵", imagen_url: "/samples/Prendas/Traje completo (2 pzs).png" },
-  { categoria: "Vestir", nombre: "Corbata", precio: 80, activo: true, icono: "👔", imagen_url: "/samples/Prendas/Corbata.png" },
-  { categoria: "Vestir", nombre: "Abrigo", precio: 480, activo: true, icono: "🧥", imagen_url: "/samples/Prendas/Abrigo.png" },
+  { categoria: "Vestir", nombre: "Vestido corto", precio: 320, activo: true, icono: "👗", imagen_url: "/samples/Prendas/Vestido corto.webp" },
+  { categoria: "Vestir", nombre: "Vestido largo", precio: 420, activo: true, icono: "👗", imagen_url: "/samples/Prendas/Vestido largo.webp" },
+  { categoria: "Vestir", nombre: "Blusa", precio: 130, activo: true, icono: "👚", imagen_url: "/samples/Prendas/Blusa.webp" },
+  { categoria: "Vestir", nombre: "Falda", precio: 160, activo: true, icono: "🩱", imagen_url: "/samples/Prendas/Falda.webp" },
+  { categoria: "Vestir", nombre: "Blazer / chaqueta", precio: 280, activo: true, icono: "🧥", imagen_url: "/samples/Prendas/Blazer chaqueta.webp" },
+  { categoria: "Vestir", nombre: "Traje completo (2 pzs)", precio: 550, activo: true, icono: "🤵", imagen_url: "/samples/Prendas/Traje completo (2 pzs).webp" },
+  { categoria: "Vestir", nombre: "Corbata", precio: 80, activo: true, icono: "👔", imagen_url: "/samples/Prendas/Corbata.webp" },
+  { categoria: "Vestir", nombre: "Abrigo", precio: 480, activo: true, icono: "🧥", imagen_url: "/samples/Prendas/Abrigo.webp" },
   // Hogar
-  { categoria: "Hogar", nombre: "Sábana individual", precio: 180, activo: true, icono: "🛏️", imagen_url: "/samples/Prendas/Sábana individual.png" },
-  { categoria: "Hogar", nombre: "Sábana matrimonial", precio: 220, activo: true, icono: "🛏️", imagen_url: "/samples/Prendas/Sábana individual.png" },
-  { categoria: "Hogar", nombre: "Sábana king", precio: 280, activo: true, icono: "🛏️", imagen_url: "/samples/Prendas/Sábana individual.png" },
-  { categoria: "Hogar", nombre: "Edredón matrimonial", precio: 450, activo: true, icono: "🛌", imagen_url: "/samples/Prendas/Edredón.png" },
-  { categoria: "Hogar", nombre: "Edredón king", precio: 550, activo: true, icono: "🛌", imagen_url: "/samples/Prendas/Edredón.png" },
-  { categoria: "Hogar", nombre: "Funda de almohada", precio: 60, activo: true, icono: "🛋️", imagen_url: "/samples/Prendas/Funda de almohada.png" },
-  { categoria: "Hogar", nombre: "Toalla pequeña", precio: 60, activo: true, icono: "🧻", imagen_url: "/samples/Prendas/Toalla pequeña.png" },
-  { categoria: "Hogar", nombre: "Toalla grande", precio: 100, activo: true, icono: "🧖", imagen_url: "/samples/Prendas/Toalla grande.png" },
-  { categoria: "Hogar", nombre: "Mantel", precio: 180, activo: true, icono: "🍽️", imagen_url: "/samples/Prendas/Mantel.png" },
-  { categoria: "Hogar", nombre: "Cortina", precio: 320, activo: true, icono: "🪟", imagen_url: "/samples/Prendas/Cortina.png" },
-  { categoria: "Hogar", nombre: "Cobertor / frazada", precio: 380, activo: true, icono: "🧶", imagen_url: "/samples/Prendas/Cobertor  frazada.png" },
+  { categoria: "Hogar", nombre: "Sábana individual", precio: 180, activo: true, icono: "🛏️", imagen_url: "/samples/Prendas/Sabana individual.webp" },
+  { categoria: "Hogar", nombre: "Sábana matrimonial", precio: 220, activo: true, icono: "🛏️", imagen_url: "/samples/Prendas/Sabana individual.webp" },
+  { categoria: "Hogar", nombre: "Sábana king", precio: 280, activo: true, icono: "🛏️", imagen_url: "/samples/Prendas/Sabana individual.webp" },
+  { categoria: "Hogar", nombre: "Edredón matrimonial", precio: 450, activo: true, icono: "🛌", imagen_url: "/samples/Prendas/Edredon.webp" },
+  { categoria: "Hogar", nombre: "Edredón king", precio: 550, activo: true, icono: "🛌", imagen_url: "/samples/Prendas/Edredon.webp" },
+  { categoria: "Hogar", nombre: "Funda de almohada", precio: 60, activo: true, icono: "🛋️", imagen_url: "/samples/Prendas/Funda de almohada.webp" },
+  { categoria: "Hogar", nombre: "Toalla pequeña", precio: 60, activo: true, icono: "🧻", imagen_url: "/samples/Prendas/Toalla pequena.webp" },
+  { categoria: "Hogar", nombre: "Toalla grande", precio: 100, activo: true, icono: "🧖", imagen_url: "/samples/Prendas/Toalla grande.webp" },
+  { categoria: "Hogar", nombre: "Mantel", precio: 180, activo: true, icono: "🍽️", imagen_url: "/samples/Prendas/Mantel.webp" },
+  { categoria: "Hogar", nombre: "Cortina", precio: 320, activo: true, icono: "🪟", imagen_url: "/samples/Prendas/Cortina.webp" },
+  { categoria: "Hogar", nombre: "Cobertor / frazada", precio: 380, activo: true, icono: "🧶", imagen_url: "/samples/Prendas/Cobertor frazada.webp" },
   // Por libra
-  { categoria: "Por libra", nombre: "Lavado por libra", precio: 80, por_libra: true, activo: true, icono: "⚖️", imagen_url: "/samples/Prendas/Lavado por libra.png" },
-  { categoria: "Por libra", nombre: "Lavado y planchado por libra", precio: 110, por_libra: true, activo: true, icono: "⚖️", imagen_url: "/samples/Prendas/Lavado y planchado por libra.png" },
+  { categoria: "Por libra", nombre: "Lavado por libra", precio: 80, por_libra: true, activo: true, icono: "⚖️", imagen_url: "/samples/Prendas/Lavado por libra.webp" },
+  { categoria: "Por libra", nombre: "Lavado y planchado por libra", precio: 110, por_libra: true, activo: true, icono: "⚖️", imagen_url: "/samples/Prendas/Lavado y planchado por libra.webp" },
   // Especial
-  { categoria: "Especial", nombre: "Uniforme escolar", precio: 200, activo: true, icono: "🎒", imagen_url: "/samples/Prendas/Uniforme escolar.png" },
-  { categoria: "Especial", nombre: "Uniforme médico", precio: 220, activo: true, icono: "🥼", imagen_url: "/samples/Prendas/Uniforme médico.png" },
-  { categoria: "Especial", nombre: "Bata / kimono", precio: 240, activo: true, icono: "🥻", imagen_url: "/samples/Prendas/Bata  kimono.png" },
-  { categoria: "Especial", nombre: "Pijama", precio: 150, activo: true, icono: "🛌", imagen_url: "/samples/Prendas/Pijama.png" },
-  { categoria: "Especial", nombre: "Ropa interior hombre", precio: 40, activo: true, icono: "🩲", imagen_url: "/samples/Prendas/Ropa interior hombre.png" },
-  { categoria: "Especial", nombre: "Ropa interior mujer", precio: 40, activo: true, icono: "👙", imagen_url: "/samples/Prendas/Ropa interior mujer.png" },
-  { categoria: "Especial", nombre: "Calcetines (par)", precio: 40, activo: true, icono: "🧦", imagen_url: "/samples/Prendas/Calcetines (par).png" },
-  { categoria: "Especial", nombre: "Bufanda", precio: 120, activo: true, icono: "🧣", imagen_url: "/samples/Prendas/Bufanda.png" },
-  { categoria: "Especial", nombre: "Gorra", precio: 90, activo: true, icono: "🧢", imagen_url: "/samples/Prendas/Gorra.png" },
-  { categoria: "Especial", nombre: "Mochila", precio: 250, activo: true, icono: "🎒", imagen_url: "/samples/Prendas/Mochila.png" },
-  { categoria: "Especial", nombre: "Tenis / zapatillas", precio: 300, activo: true, icono: "👟", imagen_url: "/samples/Prendas/Tenis  zapatillas.png" },
+  { categoria: "Especial", nombre: "Uniforme escolar", precio: 200, activo: true, icono: "🎒", imagen_url: "/samples/Prendas/Uniforme escolar.webp" },
+  { categoria: "Especial", nombre: "Uniforme médico", precio: 220, activo: true, icono: "🥼", imagen_url: "/samples/Prendas/Uniforme medico.webp" },
+  { categoria: "Especial", nombre: "Bata / kimono", precio: 240, activo: true, icono: "🥻", imagen_url: "/samples/Prendas/Bata kimono.webp" },
+  { categoria: "Especial", nombre: "Pijama", precio: 150, activo: true, icono: "🛌", imagen_url: "/samples/Prendas/Pijama.webp" },
+  { categoria: "Especial", nombre: "Ropa interior hombre", precio: 40, activo: true, icono: "🩲", imagen_url: "/samples/Prendas/Ropa interior hombre.webp" },
+  { categoria: "Especial", nombre: "Ropa interior mujer", precio: 40, activo: true, icono: "👙", imagen_url: "/samples/Prendas/Ropa interior mujer.webp" },
+  { categoria: "Especial", nombre: "Calcetines (par)", precio: 40, activo: true, icono: "🧦", imagen_url: "/samples/Prendas/Calcetines (par).webp" },
+  { categoria: "Especial", nombre: "Bufanda", precio: 120, activo: true, icono: "🧣", imagen_url: "/samples/Prendas/Bufanda.webp" },
+  { categoria: "Especial", nombre: "Gorra", precio: 90, activo: true, icono: "🧢", imagen_url: "/samples/Prendas/Gorra.webp" },
+  { categoria: "Especial", nombre: "Mochila", precio: 250, activo: true, icono: "🎒", imagen_url: "/samples/Prendas/Mochila.webp" },
+  { categoria: "Especial", nombre: "Tenis / zapatillas", precio: 300, activo: true, icono: "👟", imagen_url: "/samples/Prendas/Tenis zapatillas.webp" },
   // Bebé
-  { categoria: "Bebé", nombre: "Body de bebé", precio: 70, activo: true, icono: "👶", imagen_url: "/samples/Prendas/Body de bebé.png" },
-  { categoria: "Bebé", nombre: "Manta de bebé", precio: 140, activo: true, icono: "🧸", imagen_url: "/samples/Prendas/Manta de bebé.png" },
+  { categoria: "Bebé", nombre: "Body de bebé", precio: 70, activo: true, icono: "👶", imagen_url: "/samples/Prendas/Body de bebe.webp" },
+  { categoria: "Bebé", nombre: "Manta de bebé", precio: 140, activo: true, icono: "🧸", imagen_url: "/samples/Prendas/Manta de bebe.webp" },
 ];
 
 const SAMPLE_SERVICIOS: Array<Omit<Servicio, "id" | "tenant_id">> = [
-  { nombre: "Lavado y secado", descripcion: "Lavado completo + secadora", icono: "🧺", activo: true, precio: 0, imagen_url: "/samples/Servicios/Lavado y secado.png" },
-  { nombre: "Solo lavado", descripcion: "Solo lavado en agua", icono: "💧", activo: true, precio: 0, imagen_url: "/samples/Servicios/Solo lavado.png" },
-  { nombre: "Solo secado", descripcion: "Únicamente secadora", icono: "🌬️", activo: true, precio: 0, imagen_url: "/samples/Servicios/Solo secado.png" },
-  { nombre: "Planchado", descripcion: "Planchado profesional", icono: "♨️", activo: true, precio: 0, imagen_url: "/samples/Servicios/Planchado.png" },
-  { nombre: "Lavado en seco", descripcion: "Dry cleaning para prendas delicadas", icono: "✨", activo: true, precio: 50, imagen_url: "/samples/Servicios/Lavado en seco.png" },
-  { nombre: "Sastrería", descripcion: "Arreglos y costura", icono: "🪡", activo: true, precio: 100, imagen_url: "/samples/Servicios/Sastreria.png" },
-  { nombre: "Tapicería", descripcion: "Limpieza de muebles y tapizados", icono: "🛋️", activo: true, precio: 500, imagen_url: "/samples/Servicios/Tapiceria.png" },
-  { nombre: "Alfombras", descripcion: "Lavado de alfombras y tapetes", icono: "🟫", activo: true, precio: 300, imagen_url: "/samples/Servicios/Alfombras.png" },
+  { nombre: "Lavado y secado", descripcion: "Lavado completo + secadora", icono: "🧺", activo: true, precio: 0, imagen_url: "/samples/Servicios/Lavado y secado.webp" },
+  { nombre: "Solo lavado", descripcion: "Solo lavado en agua", icono: "💧", activo: true, precio: 0, imagen_url: "/samples/Servicios/Solo lavado.webp" },
+  { nombre: "Solo secado", descripcion: "Únicamente secadora", icono: "🌬️", activo: true, precio: 0, imagen_url: "/samples/Servicios/Solo secado.webp" },
+  { nombre: "Planchado", descripcion: "Planchado profesional", icono: "♨️", activo: true, precio: 0, imagen_url: "/samples/Servicios/Planchado.webp" },
+  { nombre: "Lavado en seco", descripcion: "Dry cleaning para prendas delicadas", icono: "✨", activo: true, precio: 50, imagen_url: "/samples/Servicios/Lavado en seco.webp" },
+  { nombre: "Sastrería", descripcion: "Arreglos y costura", icono: "🪡", activo: true, precio: 100, imagen_url: "/samples/Servicios/Sastreria.webp" },
+  { nombre: "Tapicería", descripcion: "Limpieza de muebles y tapizados", icono: "🛋️", activo: true, precio: 500, imagen_url: "/samples/Servicios/Tapiceria.webp" },
+  { nombre: "Alfombras", descripcion: "Lavado de alfombras y tapetes", icono: "🟫", activo: true, precio: 300, imagen_url: "/samples/Servicios/Alfombras.webp" },
 ];
 
 async function seedSamplePrendas(tenantId: string) {

@@ -3,62 +3,49 @@ import { compressImage } from "@/lib/compressImage";
 import { useEffect, useMemo, useState, useRef } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import {
-  ArrowLeft, ArrowRight, Check, Building2, Palette, Package, UserCircle2, PartyPopper,
-  AlertCircle, Search, MapPin, Upload, Image as ImageIcon, Receipt, MessageCircle, Sparkles,
-  Eye, EyeOff, Cloud, Loader2, Droplet,
+  ArrowLeft, ArrowRight, Check, Building2, Palette, Package, PartyPopper,
+  AlertCircle, Search, MapPin, Upload, Image as ImageIcon, Sparkles,
+  Cloud, Loader2, Droplet,
 } from "lucide-react";
 import { Logo } from "@/components/klynn/Logo";
 import { SeedBootstrap } from "@/components/klynn/SeedBootstrap";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { Textarea } from "@/components/ui/textarea";
 import {
-  PLANS, formatRD, formatPhoneRD, isSlugAvailable, registerTenant,
-  setActiveTenant, uid, PROVINCIAS_RD, NCF_TIPOS, DEFAULT_CONFIG, getGlobalConfig,
-  type PlanId, type Tenant, type TenantConfig, type GlobalConfig, type Empleado
+  PLANS, formatRD, formatPhoneRD, isSlugAvailable, registerBranch,
+  setActiveTenant, uid, PROVINCIAS_RD, DEFAULT_CONFIG, getGlobalConfig,
+  setSession,
+  type PlanId, type Tenant, type TenantConfig, type Empleado
 } from "@/lib/storage";
+import { useRequireAuth } from "@/lib/useRequireAuth";
 
-export const Route = createFileRoute("/registro")({
+export const Route = createFileRoute("/nueva-sucursal")({
   head: () => ({
     meta: [
-      { title: "Registra tu lavandería — Klynn" },
-      { name: "description", content: "Crea tu cuenta en Klynn en pocos pasos. 14 días gratis sin tarjeta." },
+      { title: "Nueva Sucursal — Klynn" },
     ],
   }),
-  component: RegistroPage,
+  component: NuevaSucursalPage,
 });
 
 const STEPS = [
   { id: 1, label: "Empresa", icon: Building2 },
   { id: 2, label: "Marca", icon: Palette },
   { id: 3, label: "Plan", icon: Package },
-  { id: 4, label: "Admin", icon: UserCircle2 },
-  { id: 5, label: "Listo", icon: PartyPopper },
+  { id: 4, label: "Listo", icon: PartyPopper },
 ];
 
 interface FormState {
-  // empresa
   nombre: string;
   telefono: string;
   provincia: string;
-  // marca
   slug: string;
   slugTouched: boolean;
   color_primario: string;
   color_secundario: string;
   logo_url: string;
-  // fiscal
-  itbis_porcentaje: number;
-  ncf_tipos: string[];
-  ticket_pie: string;
-  // plan
   plan_id: PlanId;
-  // admin
-  admin_nombre: string;
-  admin_email: string;
-  admin_password: string;
-  admin_password_confirm: string;
 }
 
 const initial: FormState = {
@@ -70,21 +57,15 @@ const initial: FormState = {
   color_primario: "#0F4C81",
   color_secundario: "#E0A82E",
   logo_url: "",
-  itbis_porcentaje: 18,
-  ncf_tipos: ["B01", "B02"],
-  ticket_pie: "¡Gracias por su preferencia!",
   plan_id: "pro",
-  admin_nombre: "",
-  admin_email: "",
-  admin_password: "",
-  admin_password_confirm: "",
 };
 
 function slugify(s: string) {
   return s.toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "").replace(/[^a-z0-9]+/g, "").slice(0, 24);
 }
 
-function RegistroPage() {
+function NuevaSucursalPage() {
+  const auth = useRequireAuth();
   const navigate = useNavigate();
   const globalConfig = useMemo(() => getGlobalConfig(), []);
   const [step, setStep] = useState(1);
@@ -95,8 +76,6 @@ function RegistroPage() {
   const [errors, setErrors] = useState<Partial<Record<keyof FormState, string>>>({});
   const [provOpen, setProvOpen] = useState(false);
   const [createdTenant, setCreatedTenant] = useState<Tenant | null>(null);
-  const [showPass, setShowPass] = useState(false);
-  const [showConfirm, setShowConfirm] = useState(false);
   const [isProvisioning, setIsProvisioning] = useState(false);
   const [provisioningStep, setProvisioningStep] = useState(0);
 
@@ -113,7 +92,6 @@ function RegistroPage() {
   function update<K extends keyof FormState>(k: K, v: FormState[K]) {
     setForm((f) => {
       const next = { ...f, [k]: v };
-      // autollenar slug desde nombre si el usuario no lo ha tocado
       if (k === "nombre" && !f.slugTouched) {
         next.slug = slugify(String(v));
       }
@@ -132,17 +110,13 @@ function RegistroPage() {
     if (step === 2) {
       if (!slugOk) e.slug = "Subdominio inválido o no disponible";
     }
-    if (step === 4) {
-      if (!form.admin_nombre.trim()) e.admin_nombre = "Requerido";
-      if (!form.admin_email.includes("@")) e.admin_email = "Email inválido";
-      if (form.admin_password.length < 8) e.admin_password = "Mínimo 8 caracteres";
-      if (form.admin_password !== form.admin_password_confirm) e.admin_password_confirm = "No coincide";
-    }
     setErrors(e);
     return Object.keys(e).length === 0;
   }
 
   async function handleFinalize() {
+    if (!auth) return;
+
     const config: TenantConfig = {
       ...DEFAULT_CONFIG,
     };
@@ -153,7 +127,7 @@ function RegistroPage() {
       telefono: form.telefono,
       direccion: "",
       provincia: form.provincia,
-      email: form.admin_email,
+      email: auth.empleado.email, // Usa el email del usuario actual
       logo_url: form.logo_url || undefined,
       color_primario: form.color_primario,
       color_secundario: form.color_secundario,
@@ -165,11 +139,11 @@ function RegistroPage() {
     };
 
     const admin: Empleado = {
-      id: "", // Se llenará en registerTenant con el ID de Auth
+      id: "", // Se llenará en registerBranch con el ID actual
       tenant_id: tenant.id,
-      nombre: form.admin_nombre,
-      email: form.admin_email,
-      password: form.admin_password,
+      nombre: auth.empleado.nombre,
+      email: auth.empleado.email,
+      password: "", // no se usa aquí
       rol: "ADMIN",
       activo: true,
       creado_en: new Date().toISOString(),
@@ -179,14 +153,21 @@ function RegistroPage() {
     setProvisioningStep(0);
 
     try {
-      await registerTenant(tenant, admin);
+      await registerBranch(tenant, admin, auth.empleado.id);
+      
+      // Actualizar sesión activa
+      setSession({
+        empleado_id: auth.empleado.id,
+        tenant_id: tenant.id,
+        iniciado_en: new Date().toISOString()
+      });
       setActiveTenant(tenant.slug);
       setCreatedTenant(tenant);
 
       const steps = [
         "Configurando subdominio en Cloudflare...",
         "Asignando certificados SSL...",
-        "Aislando base de datos para el tenant...",
+        "Aislando base de datos para la sucursal...",
         "Configurando entorno de producción...",
         "¡Listo!"
       ];
@@ -199,18 +180,14 @@ function RegistroPage() {
           clearInterval(interval);
           setTimeout(() => {
             setIsProvisioning(false);
-            setStep(5);
+            setStep(4); // "Listo"
           }, 800);
         }
       }, 1200);
     } catch (err: any) {
       setIsProvisioning(false);
-      let errMsg = err.message || "Error al registrar";
-      if (errMsg === "User already registered") {
-        errMsg = "El usuario ya está registrado";
-      }
-      setErrors({ admin_email: errMsg });
-      setStep(4);
+      setErrors({ nombre: err.message || "Error al crear la sucursal" });
+      setStep(1); // Devolver al primer paso para mostrar el error
     }
   }
 
@@ -220,8 +197,8 @@ function RegistroPage() {
     if (nextStep === 3 && !globalConfig.requirePlanOnRegistration) {
       nextStep = 4;
     }
-    if (nextStep <= 4) setStep(nextStep);
-    else if (step === 4) {
+    if (nextStep <= 3) setStep(nextStep);
+    else if (step === 3 || (step === 2 && !globalConfig.requirePlanOnRegistration)) {
       handleFinalize();
     }
   }
@@ -234,14 +211,15 @@ function RegistroPage() {
     setStep((s) => Math.max(1, prevStep)); 
   }
 
+  if (!auth || auth.empleado.id === '__loading__') return null;
+
   return (
     <div className="min-h-screen bg-gradient-hero">
       <SeedBootstrap />
       <header className="flex h-24 items-center justify-center px-6 relative">
-        <Link to="/"><Logo size="lg" /></Link>
+        <Link to="/dashboard-admin"><Logo size="lg" /></Link>
         <div className="absolute right-6 hidden text-sm md:block">
-          <span className="text-muted-foreground">¿Ya tienes cuenta? </span>
-          <Link to="/login" className="font-semibold text-primary hover:underline">Inicia sesión</Link>
+          <Link to="/dashboard-admin" className="font-semibold text-primary hover:underline">Volver al panel</Link>
         </div>
       </header>
 
@@ -292,12 +270,12 @@ function RegistroPage() {
               >
                 <Droplet className="h-12 w-12 text-primary" fill="currentColor" />
               </motion.div>
-              <h2 className="text-2xl font-bold">Creando tu espacio</h2>
+              <h2 className="text-2xl font-bold">Creando tu sucursal</h2>
               <p className="mt-2 text-muted-foreground italic">
                 {[
                   "Configurando subdominio en Cloudflare...",
                   "Asignando certificados SSL...",
-                  "Aislando base de datos para el tenant...",
+                  "Aislando base de datos para la sucursal...",
                   "Configurando entorno de producción...",
                   "¡Casi listo!"
                 ][provisioningStep]}
@@ -321,11 +299,11 @@ function RegistroPage() {
               >
               {step === 1 && (
                 <>
-                  <h1 className="mb-2 text-3xl font-bold">Cuéntanos de tu lavandería</h1>
-                  <p className="mb-8 text-muted-foreground">Solo lo esencial. El resto lo configuras después.</p>
+                  <h1 className="mb-2 text-3xl font-bold">Datos de la nueva sucursal</h1>
+                  <p className="mb-8 text-muted-foreground">Expande tu negocio agregando una nueva lavandería.</p>
                   <div className="grid gap-5 md:grid-cols-2">
                     <Field label="Nombre comercial *" error={errors.nombre} className="md:col-span-2">
-                      <Input value={form.nombre} onChange={(e) => update("nombre", e.target.value)} placeholder="Lavandería La Burbuja" />
+                      <Input value={form.nombre} onChange={(e) => update("nombre", e.target.value)} placeholder="Lavandería La Burbuja (Suc. Norte)" />
                     </Field>
                     <Field label="Teléfono *" error={errors.telefono}>
                       <Input value={form.telefono} onChange={(e) => update("telefono", formatPhoneRD(e.target.value))} placeholder="809-555-0142" />
@@ -342,23 +320,23 @@ function RegistroPage() {
 
               {step === 2 && (
                 <>
-                  <h1 className="mb-2 text-3xl font-bold">Personaliza tu marca</h1>
-                  <p className="mb-8 text-muted-foreground">Define la identidad de tu lavandería.</p>
+                  <h1 className="mb-2 text-3xl font-bold">Personaliza la sucursal</h1>
+                  <p className="mb-8 text-muted-foreground">Define la identidad de esta nueva lavandería.</p>
                   <div className="grid gap-6">
                     <Field label="Tu subdominio *" error={errors.slug}>
                       <div className="flex h-11 items-center overflow-hidden rounded-lg border border-input bg-background focus-within:ring-2 focus-within:ring-primary/20 transition-all">
-                        <div className="px-4 text-sm font-medium text-muted-foreground bg-muted h-full flex items-center border-r border-input">klynn.com.do/t/</div>
-                        <Input className="border-0 focus-visible:ring-0 font-bold text-lg text-primary h-full" value={form.slug} onChange={(e) => setForm((f) => ({ ...f, slug: slugify(e.target.value), slugTouched: true }))} placeholder="lavanderia" />
+                        <Input className="border-0 focus-visible:ring-0 font-bold text-lg text-primary h-full" value={form.slug} onChange={(e) => setForm((f) => ({ ...f, slug: slugify(e.target.value), slugTouched: true }))} placeholder="lavanderia-norte" />
+                        <div className="px-4 text-sm font-medium text-muted-foreground bg-muted h-full flex items-center border-l border-input">.klynn.com.do</div>
                       </div>
                     </Field>
                     <div className="grid gap-5 md:grid-cols-2">
                       <ColorField label="Color primario" value={form.color_primario} onChange={(v) => update("color_primario", v)} />
-                      <LogoUploader label="Logotipo de tu lavandería" value={form.logo_url} onChange={(v) => update("logo_url", v)} />
+                      <LogoUploader label="Logotipo" value={form.logo_url} onChange={(v) => update("logo_url", v)} />
                     </div>
 
                     {/* Branding Preview */}
                     <div className="rounded-2xl border border-border bg-accent/20 p-6">
-                      <div className="mb-4 text-center text-xs font-semibold uppercase tracking-wider text-muted-foreground">Vista previa de tu marca</div>
+                      <div className="mb-4 text-center text-xs font-semibold uppercase tracking-wider text-muted-foreground">Vista previa</div>
                       <div className="flex flex-col items-center gap-3">
                         <div
                           className="relative h-32 w-32 shrink-0 overflow-hidden rounded-full border-[4px] border-white shadow-elegant transition-all duration-500"
@@ -373,9 +351,9 @@ function RegistroPage() {
                           )}
                         </div>
                         <div className="text-center">
-                          <div className="text-3xl font-bold tracking-tight" style={{ color: form.color_primario }}>{form.nombre || "Tu Lavandería"}</div>
+                          <div className="text-3xl font-bold tracking-tight" style={{ color: form.color_primario }}>{form.nombre || "Sucursal"}</div>
                           <div className="mt-1 flex h-10 items-center justify-center rounded-lg bg-white/50 px-4 font-mono text-lg text-muted-foreground border border-slate-200/50">
-                            klynn.com.do/t/{(form.slug || "milavanderia")}
+                            {(form.slug || "milavanderia")}.klynn.com.do
                           </div>
                         </div>
                       </div>
@@ -386,8 +364,8 @@ function RegistroPage() {
 
               {step === 3 && (
                 <>
-                  <h1 className="mb-2 text-3xl font-bold">Elige tu plan</h1>
-                  <p className="mb-8 text-muted-foreground">14 días gratis. Sin tarjeta de crédito.</p>
+                  <h1 className="mb-2 text-3xl font-bold">Elige el plan para esta sucursal</h1>
+                  <p className="mb-8 text-muted-foreground">Puedes gestionar diferentes planes por sucursal.</p>
                   <div className="grid gap-4">
                     {PLANS.map((p) => {
                       const sel = form.plan_id === p.id;
@@ -429,46 +407,14 @@ function RegistroPage() {
                 </>
               )}
 
-              {step === 4 && (
-                <>
-                  <h1 className="mb-2 text-3xl font-bold">Crea tu usuario administración</h1>
-                  <p className="mb-8 text-muted-foreground">Tendrás acceso total al panel de tu lavandería.</p>
-                  <div className="grid gap-5 md:grid-cols-2">
-                    <Field label="Nombre completo *" error={errors.admin_nombre} className="md:col-span-2">
-                      <Input value={form.admin_nombre} onChange={(e) => update("admin_nombre", e.target.value)} placeholder="María González" />
-                    </Field>
-                    <Field label="Email *" error={errors.admin_email} className="md:col-span-2">
-                      <Input type="email" value={form.admin_email} onChange={(e) => update("admin_email", e.target.value)} placeholder="admin@tulavanderia.do" />
-                    </Field>
-                    <Field label="Contraseña *" error={errors.admin_password}>
-                      <div className="relative">
-                        <Input type={showPass ? "text" : "password"} value={form.admin_password} onChange={(e) => update("admin_password", e.target.value)} placeholder="••••••••" className="pr-10" />
-                        <button type="button" onClick={() => setShowPass(!showPass)} className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600">
-                          {showPass ? <EyeOff size={18} /> : <Eye size={18} />}
-                        </button>
-                      </div>
-                      <PasswordStrengthIndicator password={form.admin_password} />
-                    </Field>
-                    <Field label="Confirmar *" error={errors.admin_password_confirm}>
-                      <div className="relative">
-                        <Input type={showConfirm ? "text" : "password"} value={form.admin_password_confirm} onChange={(e) => update("admin_password_confirm", e.target.value)} placeholder="••••••••" className="pr-10" />
-                        <button type="button" onClick={() => setShowConfirm(!showConfirm)} className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600">
-                          {showConfirm ? <EyeOff size={18} /> : <Eye size={18} />}
-                        </button>
-                      </div>
-                    </Field>
-                  </div>
-                </>
-              )}
-
-              {step === 5 && createdTenant && (
-                <SuccessCard tenant={createdTenant} adminNombre={form.admin_nombre} adminEmail={form.admin_email} onEnter={() => navigate({ to: `/t/${createdTenant.slug}` })} />
+              {step === 4 && createdTenant && (
+                <SuccessCard tenant={createdTenant} adminNombre={auth.empleado.nombre} onEnter={() => navigate({ to: `/t/${createdTenant.slug}` })} />
               )}
             </motion.div>
           </AnimatePresence>
         )}
 
-          {step < 5 && (
+          {step < 4 && !isProvisioning && (
             <div className="mt-10 flex items-center justify-between border-t border-border pt-8">
               <Button 
                 variant="outline" 
@@ -483,7 +429,7 @@ function RegistroPage() {
                 size="sm"
                 className="bg-primary text-white shadow-glow hover:opacity-95 font-bold h-9 px-6"
               >
-                {step === 4 ? "Crear lavandería" : "Continuar"} <ArrowRight className="ml-1 h-4 w-4" />
+                {step === 3 ? "Crear sucursal" : "Continuar"} <ArrowRight className="ml-1 h-4 w-4" />
               </Button>
             </div>
           )}
@@ -495,7 +441,7 @@ function RegistroPage() {
   );
 }
 
-function SuccessCard({ tenant, adminNombre, adminEmail, onEnter }: { tenant: Tenant; adminNombre: string; adminEmail: string; onEnter: () => void }) {
+function SuccessCard({ tenant, adminNombre, onEnter }: { tenant: Tenant; adminNombre: string; onEnter: () => void }) {
   const planNombre = PLANS.find((p) => p.id === tenant.plan_id)?.nombre || tenant.plan_id;
   return (
     <div className="text-center">
@@ -519,8 +465,8 @@ function SuccessCard({ tenant, adminNombre, adminEmail, onEnter }: { tenant: Ten
         animate={{ y: 0, opacity: 1 }}
         transition={{ delay: 0.2 }}
       >
-        <h1 className="mb-1 text-3xl font-bold tracking-tight">¡Bienvenido, {adminNombre.split(" ")[0]}!</h1>
-        <p className="mb-5 text-sm text-muted-foreground text-balance">Tu lavandería <strong className="text-foreground">{tenant.nombre}</strong> ya está lista.</p>
+        <h1 className="mb-1 text-3xl font-bold tracking-tight">¡Sucursal Creada, {adminNombre.split(" ")[0]}!</h1>
+        <p className="mb-5 text-sm text-muted-foreground text-balance">Tu sucursal <strong className="text-foreground">{tenant.nombre}</strong> ya está lista.</p>
 
         <div className="mx-auto mb-6 max-w-sm overflow-hidden rounded-xl border border-border bg-white text-left">
           <div className="flex items-center justify-between border-b border-border px-4 py-3">
@@ -528,28 +474,23 @@ function SuccessCard({ tenant, adminNombre, adminEmail, onEnter }: { tenant: Ten
               <Building2 className="h-4 w-4 text-primary/60" />
               <span className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground">Acceso</span>
             </div>
-            <div className="font-mono text-xs font-semibold">klynn.com.do/t/{tenant.slug}</div>
+            <div className="font-mono text-xs font-semibold">{tenant.slug}.klynn.com.do</div>
           </div>
           
-          <div className="grid grid-cols-2 divide-x divide-border border-b border-border">
+          <div className="grid grid-cols-2 divide-x divide-border">
             <div className="px-4 py-3">
               <div className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground">Plan</div>
               <div className="mt-0.5 font-bold text-lg">{planNombre}</div>
             </div>
-            <div className="px-4 py-3">
+            <div className="px-4 py-3 bg-slate-50/30">
               <div className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground">Prueba Gratuita</div>
-              <div className="mt-0.5 font-bold text-lg text-success">14 Días</div>
+              <div className="mt-0.5 font-bold text-lg text-success">Activa</div>
             </div>
-          </div>
-
-          <div className="px-4 py-3 bg-slate-50/30">
-            <div className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground">Email Admin</div>
-            <div className="mt-0.5 font-mono text-xs font-semibold uppercase">{adminEmail}</div>
           </div>
         </div>
 
         <Button size="lg" className="h-11 w-full max-w-xs rounded-xl bg-primary text-white hover:bg-primary/90 transition-all" onClick={onEnter}>
-          <Sparkles className="mr-2 h-4 w-4" /> Entrar a mi lavandería <ArrowRight className="ml-1 h-4 w-4" />
+          <Sparkles className="mr-2 h-4 w-4" /> Entrar a mi sucursal <ArrowRight className="ml-1 h-4 w-4" />
         </Button>
       </motion.div>
     </div>
@@ -694,43 +635,6 @@ function ColorField({ label, value, onChange }: { label: string; value: string; 
         <input type="color" value={value} onChange={(e) => onChange(e.target.value)} className="h-10 w-14 cursor-pointer rounded border-0 bg-transparent" />
         <Input value={value} onChange={(e) => onChange(e.target.value)} className="border-0 font-mono uppercase focus-visible:ring-0" />
       </div>
-    </div>
-  );
-}
-function PasswordStrengthIndicator({ password }: { password: string }) {
-  const getStrength = (p: string) => {
-    let score = 0;
-    if (!p) return 0;
-    if (p.length >= 8) score++;
-    if (/[A-Z]/.test(p)) score++;
-    if (/[0-9]/.test(p)) score++;
-    if (/[^A-Za-z0-9]/.test(p)) score++;
-    return score;
-  };
-
-  const strength = getStrength(password);
-  const colors = ["bg-slate-200", "bg-red-500", "bg-orange-500", "bg-yellow-500", "bg-success"];
-  const labels = ["", "Muy débil", "Débil", "Media", "Fuerte"];
-
-  return (
-    <div className="mt-2 space-y-1.5">
-      <div className="flex gap-1">
-        {[1, 2, 3, 4].map((i) => (
-          <div
-            key={i}
-            className={`h-1 flex-1 rounded-full transition-all duration-500 ${
-              i <= strength ? colors[strength] : "bg-slate-100"
-            }`}
-          />
-        ))}
-      </div>
-      {password && (
-        <div className="flex items-center justify-between">
-          <p className={`text-[10px] font-bold uppercase tracking-wider ${strength <= 2 ? "text-orange-500" : "text-success"}`}>
-            Seguridad: {labels[strength]}
-          </p>
-        </div>
-      )}
     </div>
   );
 }

@@ -1,4 +1,4 @@
-import { createFileRoute, Link } from "@tanstack/react-router";
+import { createFileRoute, Link, useNavigate } from "@tanstack/react-router";
 import { useState, useEffect } from "react";
 import { 
   Building2, 
@@ -13,9 +13,11 @@ import {
   Package, 
   LogOut,
   MoreHorizontal,
-  Key
+  Key,
+  Droplets as DropletsIcon
 } from "lucide-react";
 import { Logo } from "@/components/klynn/Logo";
+import { useRequireAuth } from "@/lib/useRequireAuth";
 import { SeedBootstrap } from "@/components/klynn/SeedBootstrap";
 import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -84,6 +86,20 @@ function PlanBadge({ id }: { id: PlanId }) {
 }
 
 function AdminPage() {
+  const user = useRequireAuth();
+  const navigate = useNavigate();
+  
+  // Validar que sea super admin
+  useEffect(() => {
+    if (user && user.empleado.id !== '__loading__') {
+      const ADMIN_EMAILS = ['admin@klynn.com.do', 'admin@flowchat.do'];
+      if (!ADMIN_EMAILS.includes(user.empleado.email.toLowerCase())) {
+        toast.error("No tienes permisos para acceder al panel central");
+        navigate({ to: '/login' });
+      }
+    }
+  }, [user, navigate]);
+
   const [tick, setTick] = useState(0);
   const [tenants, setTenants] = useState<Tenant[]>([]);
   const [plans, setPlans] = useState<Plan[]>([]);

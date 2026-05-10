@@ -1,4 +1,4 @@
-import type { Orden, Tenant, Empleado, Cliente } from "@/lib/storage";
+import type { Orden, Tenant, Empleado, Cliente, Servicio } from "@/lib/storage";
 import { formatRD, formatDateTimeRD } from "@/lib/storage";
 
 interface Props {
@@ -8,13 +8,35 @@ interface Props {
   cliente: Cliente;
   formato?: "57mm" | "80mm";
   pagoRecibido?: number;
+  serviciosList?: Servicio[];
+}
+
+function humanizeDate(dateStr: string, showTime = true): string {
+  const d = new Date(dateStr);
+  const now = new Date();
+  const dDate = new Date(d.getFullYear(), d.getMonth(), d.getDate());
+  const nowDate = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+  const diffTime = dDate.getTime() - nowDate.getTime();
+  const diffDays = Math.round(diffTime / (1000 * 60 * 60 * 24));
+  
+  if (!showTime) {
+    if (diffDays === 0) return "Hoy";
+    if (diffDays === 1) return "Mañana";
+    return d.toLocaleDateString("es-DO", { day: "2-digit", month: "2-digit", year: "numeric" });
+  }
+
+  const timeStr = d.toLocaleTimeString("es-DO", { hour: "2-digit", minute: "2-digit", hour12: true });
+
+  if (diffDays === 0) return `Hoy a las ${timeStr}`;
+  if (diffDays === 1) return `Mañana a las ${timeStr}`;
+  return d.toLocaleString("es-DO", { day: "2-digit", month: "2-digit", year: "numeric", hour: "2-digit", minute: "2-digit", hour12: true });
 }
 
 /**
  * Ticket imprimible térmico.
  * Usa @media print para ocultar el resto de la página y solo imprimir el ticket.
  */
-export function Ticket({ orden, tenant, empleado, cliente, formato = "80mm", pagoRecibido }: Props) {
+export function Ticket({ orden, tenant, empleado, cliente, formato = "80mm", pagoRecibido, serviciosList = [] }: Props) {
   const cfg = tenant.config;
   const w = formato === "57mm" ? "w-[58mm]" : "w-[80mm]";
   const cols = formato === "57mm" ? "max-w-[32ch]" : "max-w-[44ch]";
@@ -29,7 +51,7 @@ export function Ticket({ orden, tenant, empleado, cliente, formato = "80mm", pag
             <img src={tenant.logo_url} alt="Logo" className="h-18 w-auto max-w-[180px] object-contain filter grayscale" />
           </div>
         )}
-        <div className="text-base font-bold uppercase leading-tight">{tenant.nombre}</div>
+        {!tenant.logo_url && <div className="text-base font-bold uppercase leading-tight">{tenant.nombre}</div>}
         {cfg?.ncf_facturacion_activa && cfg?.ticket_mostrar_rnc && tenant.rnc && <div>RNC: {tenant.rnc}</div>}
         <div>Tel: {tenant.telefono}</div>
         {tenant.direccion && <div className="text-[10px] leading-tight">{tenant.direccion}</div>}
@@ -54,11 +76,33 @@ export function Ticket({ orden, tenant, empleado, cliente, formato = "80mm", pag
         )}
       </div>
       <Sep />
+      {/* Sección de Servicios */}
+      {orden.servicios && orden.servicios.length > 0 && (
+        <div className="mb-2">
+          <div className="font-bold uppercase">Servicios:</div>
+          {orden.servicios.map((sName, i) => {
+            const srv = serviciosList.find(s => s.nombre === sName);
+            return (
+              <div key={i} className="mt-1">
+                <div className="font-medium">{sName}</div>
+                {srv && srv.precio > 0 && (
+                  <div className="flex justify-between">
+                    <span> 1 × {formatRD(srv.precio).replace("DOP", "RD$")}</span>
+                    <span>{formatRD(srv.precio).replace("DOP", "RD$")}</span>
+                  </div>
+                )}
+              </div>
+            );
+          })}
+        </div>
+      )}
+
+      {/* Sección de Detalle (Prendas) */}
       <div>
-        <div className="font-bold">DETALLE:</div>
+        <div className="font-bold uppercase">Detalle:</div>
         {orden.items.map((it, i) => (
           <div key={i} className="mt-1">
-            <div>{it.descripcion}{it.es_libra ? ` (${it.cantidad}lb)` : ` x${it.cantidad}`}</div>
+            <div className="font-medium">{it.descripcion}{it.es_libra ? ` (${it.cantidad}lb)` : ""}</div>
             <div className="flex justify-between">
               <span> {it.cantidad} × {formatRD(it.precio_unitario).replace("DOP", "RD$")}</span>
               <span>{formatRD(it.cantidad * it.precio_unitario).replace("DOP", "RD$")}</span>
@@ -86,7 +130,13 @@ export function Ticket({ orden, tenant, empleado, cliente, formato = "80mm", pag
       </div>
       <Sep />
       <div>
-        <Row k="Entrega" v={new Date(orden.fecha_entrega).toLocaleDateString("es-DO")} />
+        <Row 
+          k="Entrega" 
+          v={orden.es_urgente 
+            ? `${humanizeDate(orden.fecha_entrega, true)} (${cfg?.tiempo_entrega_urgente || 3} HORAS)` 
+            : humanizeDate(orden.fecha_entrega, false)
+          } 
+        />
         <Row k="Estado" v={orden.estado.replace("_", " ")} />
         {orden.es_urgente && <div className="font-bold text-center mt-1">★ URGENTE ★</div>}
       </div>
@@ -99,7 +149,6 @@ export function Ticket({ orden, tenant, empleado, cliente, formato = "80mm", pag
       <Sep />
       <div className="text-center">
         <div>{cfg?.ticket_pie ?? "¡Gracias por su preferencia!"}</div>
-        <div className="mt-2 text-[9px] opacity-60">{tenant.slug}.lavanderx.com</div>
       </div>
     </div>
   );
