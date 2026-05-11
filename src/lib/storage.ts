@@ -233,6 +233,8 @@ const KEY = {
   globalConfig: "lvx:globalConfig",
 };
 
+export const ADMIN_EMAILS = ['admin@klynn.com.do', 'admin@flowchat.do'];
+
 export const PLANS: Plan[] = [
   {
     id: "basico",
@@ -401,17 +403,31 @@ function read<T>(k: string, f: T): T {
 function write<T>(k: string, v: T) { if (isBrowser()) localStorage.setItem(k, JSON.stringify(v)); }
 
 // ============ Plans ============
-export function getPlans(): Plan[] {
+export async function getPlans(): Promise<Plan[]> {
+  try {
+    const { data, error } = await supabase.from('planes').select('*').order('precio_mensual');
+    if (!error && data && data.length > 0) {
+      return data.map(p => ({
+        id: p.id as PlanId,
+        nombre: p.nombre,
+        precio_mensual: p.precio_mensual,
+        precio_anual: p.precio_anual,
+        limite_empleados: p.limite_empleados,
+        limite_ordenes_mes: p.limite_ordenes_mes,
+        modulos: {
+          whatsapp: !!p.whatsapp,
+          facturacion_fiscal: !!p.facturacion_fiscal
+        },
+        destacado: !!p.destacado
+      }));
+    }
+  } catch (e) {
+    console.error("Error fetching plans from Supabase:", e);
+  }
+  
   const s = read<Plan[] | null>(KEY.plans, null);
-  if (!Array.isArray(s) || s.length === 0) { write(KEY.plans, PLANS); return PLANS; }
-  // Sanitización: Eliminar módulos que ya no existen en la interfaz
-  const currentKeys = ["whatsapp", "facturacion_fiscal"];
-  return s.map(p => ({
-    ...p,
-    modulos: Object.fromEntries(
-      Object.entries(p.modulos || {}).filter(([k]) => currentKeys.includes(k))
-    ) as Plan["modulos"]
-  }));
+  if (!Array.isArray(s) || s.length === 0) return PLANS;
+  return s;
 }
 export function savePlans(plans: Plan[]) { write(KEY.plans, plans); }
 
@@ -568,11 +584,33 @@ const DEFAULT_GLOBAL_CONFIG: GlobalConfig = {
   defaultPlanId: "basico",
 };
 
-export function getGlobalConfig(): GlobalConfig {
+export async function getGlobalConfig(): Promise<GlobalConfig> {
+  try {
+    const { data, error } = await supabase.from('global_config').select('*').eq('id', 1).maybeSingle();
+    if (!error && data) {
+      return {
+        requirePlanOnRegistration: data.requirePlanOnRegistration,
+        trialDays: data.trialDays,
+        defaultPlanId: data.defaultPlanId
+      };
+    }
+  } catch (e) {
+    console.error("Error fetching global config:", e);
+  }
   return read<GlobalConfig>(KEY.globalConfig, DEFAULT_GLOBAL_CONFIG);
 }
 
-export function saveGlobalConfig(config: GlobalConfig) {
+export async function saveGlobalConfig(config: GlobalConfig) {
+  try {
+    const { error } = await supabase.from('global_config').upsert({ 
+      id: 1, 
+      ...config,
+      updated_at: new Date().toISOString()
+    });
+    if (error) console.error("Error saving global config to Supabase:", error);
+  } catch (e) {
+    console.error("Error saving global config:", e);
+  }
   write(KEY.globalConfig, config);
 }
 
@@ -848,14 +886,40 @@ export async function deleteServicio(id: string) {
 }
 
 // ============ Plans CRUD ============
-export function savePlan(p: Plan) {
-  const all = getPlans();
+export async function savePlan(p: Plan) {
+  try {
+    const { error } = await supabase.from('planes').upsert({
+      id: p.id,
+      nombre: p.nombre,
+      precio_mensual: p.precio_mensual,
+      precio_anual: p.precio_anual,
+      limite_empleados: p.limite_empleados,
+      limite_ordenes_mes: p.limite_ordenes_mes,
+      whatsapp: p.modulos.whatsapp,
+      facturacion_fiscal: p.modulos.facturacion_fiscal,
+      destacado: p.destacado
+    });
+    if (error) console.error("Error saving plan to Supabase:", error);
+  } catch (e) {
+    console.error("Error saving plan:", e);
+  }
+  
+  // Fallback / Cache local
+  const all = await getPlans();
   const i = all.findIndex((x) => x.id === p.id);
   if (i >= 0) all[i] = p; else all.push(p);
   savePlans(all);
 }
-export function deletePlan(id: PlanId) {
-  savePlans(getPlans().filter((p) => p.id !== id));
+
+export async function deletePlan(id: PlanId) {
+  try {
+    const { error } = await supabase.from('planes').delete().eq('id', id);
+    if (error) console.error("Error deleting plan from Supabase:", error);
+  } catch (e) {
+    console.error("Error deleting plan:", e);
+  }
+  const all = await getPlans();
+  savePlans(all.filter((p) => p.id !== id));
 }
 
 // ============ Sesión / tenant activo ============
@@ -920,51 +984,85 @@ export async function switchSession(tenantId: string, email: string): Promise<bo
 
 export async function getCurrentUser(): Promise<{ empleado: Empleado; tenant: Tenant } | null> {
   const { data: { user } } = await supabase.auth.getUser();
-  if (!user) return null;
-
-  // Check si es super admin visitando un tenant
-  const sessionStr = localStorage.getItem('lvx:session');
-  if (sessionStr) {
-    try {
-      const session = JSON.parse(sessionStr);
-      if (session.empleado_id === 'admin' && session.tenant_id) {
-        const ten = await getTenantById(session.tenant_id);
-        if (ten) {
-          return {
-            empleado: {
-              id: 'admin',
-              tenant_id: ten.id,
-              nombre: 'Super Admin',
-              email: user.email || 'admin@klynn.com.do',
-              password: '***',
-              rol: 'ADMIN',
-              activo: true,
-              permisos: PERMISOS_SISTEMA.map(p => p.id), // Todos los permisos
-              creado_en: new Date().toISOString()
-            } as Empleado,
-            tenant: ten
-          };
-        }
-      } else if (session.empleado_id) {
-        // Usar el empleado seleccionado en el dropdown de sucursales
-        const emp = await getEmpleadoById(session.empleado_id);
-        if (emp && emp.email.toLowerCase() === user.email?.toLowerCase()) {
-          const ten = await getTenantById(emp.tenant_id);
-          if (ten) return { empleado: emp, tenant: ten };
-        }
-      }
-    } catch {}
+  if (!user) {
+    // Si no hay usuario en Supabase, limpiar sesión local por seguridad
+    if (isBrowser()) localStorage.removeItem('lvx:session');
+    return null;
   }
 
-  // Fallback al empleado original (el ID del auth coincide con la primera sucursal)
-  const emp = await getEmpleadoById(user.id);
-  if (!emp) return null;
+  const email = user.email?.toLowerCase();
+  const isSuperAdmin = email && ADMIN_EMAILS.includes(email);
 
-  const ten = await getTenantById(emp.tenant_id);
-  if (!ten) return null;
+  // Intentar recuperar la sesión guardada para saber qué perfil/tenant usar
+  const sessionStr = isBrowser() ? localStorage.getItem('lvx:session') : null;
+  let session: Session | null = null;
+  if (sessionStr) {
+    try { session = JSON.parse(sessionStr); } catch {}
+  }
 
-  return { empleado: emp, tenant: ten };
+  // Caso 1: Es Super Admin
+  if (isSuperAdmin) {
+    // Si tiene un tenant_id en la sesión, usar ese
+    if (session?.tenant_id && session.tenant_id !== 'admin') {
+      const ten = await getTenantById(session.tenant_id);
+      if (ten) {
+        return {
+          empleado: {
+            id: 'admin',
+            tenant_id: ten.id,
+            nombre: 'Super Admin',
+            email: email || 'admin@klynn.com.do',
+            password: '***',
+            rol: 'ADMIN',
+            activo: true,
+            permisos: PERMISOS_SISTEMA.map(p => p.id),
+            creado_en: new Date().toISOString()
+          } as Empleado,
+          tenant: ten
+        };
+      }
+    }
+    // Si no, devolver sin tenant específico (o el primero que encuentre)
+    return {
+      empleado: {
+        id: 'admin',
+        tenant_id: 'admin',
+        nombre: 'Super Admin',
+        email: email || 'admin@klynn.com.do',
+        rol: 'ADMIN',
+        activo: true,
+        permisos: PERMISOS_SISTEMA.map(p => p.id),
+        creado_en: new Date().toISOString()
+      } as any,
+      tenant: { id: 'admin', nombre: 'Administración Global' } as any
+    };
+  }
+
+  // Caso 2: Usuario regular
+  // Si tenemos una sesión local válida para este email, usarla
+  if (session?.empleado_id) {
+    const emp = await getEmpleadoById(session.empleado_id);
+    if (emp && emp.email.toLowerCase() === email) {
+      const ten = await getTenantById(emp.tenant_id);
+      if (ten) return { empleado: emp, tenant: ten };
+    }
+  }
+
+  // Fallback: Buscar cualquier perfil de empleado para este email en Supabase
+  const { data: emps } = await supabase.from('empleados').select('*').eq('email', email).eq('activo', true);
+  if (emps && emps.length > 0) {
+    const emp = emps[0];
+    const ten = await getTenantById(emp.tenant_id);
+    if (ten) {
+      // Actualizar sesión local con el perfil encontrado
+      setSession({ empleado_id: emp.id, tenant_id: ten.id, iniciado_en: new Date().toISOString() });
+      return { empleado: emp, tenant: ten };
+    }
+  }
+
+  return null;
 }
+
 
 export async function getMonthlyOrderCount(tenantId: string): Promise<number> {
   const all = (await getOrdenes(tenantId)).filter(o => o.estado !== "ANULADA");
@@ -978,7 +1076,7 @@ export async function getMonthlyOrderCount(tenantId: string): Promise<number> {
 }
 
 export async function checkPlanLimits(tenant: Tenant) {
-  const plans = getPlans();
+  const plans = await getPlans();
   const plan = plans.find(p => p.id === tenant.plan_id) || PLANS[0];
   
   const orderCount = await getMonthlyOrderCount(tenant.id);
@@ -1057,10 +1155,51 @@ export function can(empleado: Empleado, action: string): boolean {
   return false;
 }
 
+export async function migrateLocalDataToSupabase(tenant_id: string) {
+  const results = { ordenes: 0, clientes: 0, catalogo: 0, gastos: 0 };
+  if (!isBrowser()) return results;
+
+  // 1. Clientes
+  const localClientes = read<Cliente[]>(KEY.clientes, []);
+  const toMigrateClientes = localClientes.filter(x => x.tenant_id === tenant_id);
+  for (const c of toMigrateClientes) {
+    try { await saveCliente(c); results.clientes++; } catch(e) { console.error("Migrate Cliente error:", e); }
+  }
+
+  // 2. Órdenes
+  const localOrds = read<Orden[]>(KEY.ordenes, []);
+  const toMigrateOrds = localOrds.filter(x => x.tenant_id === tenant_id);
+  for (const o of toMigrateOrds) {
+    try { await saveOrden(o); results.ordenes++; } catch(e) { console.error("Migrate Orden error:", e); }
+  }
+
+  // 3. Catálogo
+  const localCat = read<CatalogoItem[]>(KEY.catalogo, []);
+  const toMigrateCat = localCat.filter(x => x.tenant_id === tenant_id);
+  for (const item of toMigrateCat) {
+    try { await saveCatalogoItem(item); results.catalogo++; } catch(e) { console.error("Migrate Catalogo error:", e); }
+  }
+
+  // 4. Gastos
+  const localGastos = read<Gasto[]>(KEY.gastos, []);
+  const toMigrateGastos = localGastos.filter(x => x.tenant_id === tenant_id);
+  for (const g of toMigrateGastos) {
+    try { await saveGasto(g); results.gastos++; } catch(e) { console.error("Migrate Gasto error:", e); }
+  }
+
+  // Limpiar del localStorage para evitar duplicados en el futuro
+  if (results.clientes > 0) write(KEY.clientes, localClientes.filter(x => x.tenant_id !== tenant_id));
+  if (results.ordenes > 0) write(KEY.ordenes, localOrds.filter(x => x.tenant_id !== tenant_id));
+  if (results.catalogo > 0) write(KEY.catalogo, localCat.filter(x => x.tenant_id !== tenant_id));
+  if (results.gastos > 0) write(KEY.gastos, localGastos.filter(x => x.tenant_id !== tenant_id));
+
+  return results;
+}
+
 // ============ Demo seed enriquecido ============
 export async function seedDemoIfEmpty() {
   if (!isBrowser()) return;
-  getPlans();
+  await getPlans();
   const existingTenants = await getTenants();
   if (existingTenants.length > 0) return;
 

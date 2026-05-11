@@ -56,17 +56,19 @@ function ConfigPage() {
   const [tenant, setTenant] = useState<Tenant | null>(null);
   const [activeTab, setActiveTab] = useState("perfil");
   const [billingPeriod, setBillingPeriod] = useState<"monthly" | "yearly">("monthly");
+  const [plans, setPlans] = useState<Plan[]>([]);
 
   useEffect(() => {
     if (auth?.tenant && auth.tenant.id !== '__loading__' && !tenant) {
       setTenant(auth.tenant);
     }
+    getPlans().then(setPlans);
   }, [auth, tenant]);
 
   if (!auth || auth.tenant.id === '__loading__' || !tenant) return null;
 
   const cfg: TenantConfig = tenant.config || DEFAULT_CONFIG;
-  const plan = getPlans().find(p => p.id === tenant.plan_id);
+  const plan = plans.find(p => p.id === tenant.plan_id);
   const hasFiscal = plan?.modulos.facturacion_fiscal;
   const hasWA = plan?.modulos.whatsapp;
   const wa: WhatsAppConfig = cfg.whatsapp || DEFAULT_CONFIG.whatsapp!;
@@ -109,7 +111,8 @@ function ConfigPage() {
             { id: 'factura', label: 'Factura', icon: FileText },
             { id: 'caja', label: 'Caja & ITBIS', icon: Banknote },
             { id: 'whatsapp', label: 'WhatsApp', icon: MessageCircle },
-            { id: 'plan', label: 'Plan', icon: CreditCard }
+            { id: 'plan', label: 'Plan', icon: CreditCard },
+            { id: 'sync', label: 'Sincronizar', icon: RefreshCw }
           ].map(t => (
             <TabsTrigger 
               key={t.id}
@@ -428,7 +431,7 @@ function ConfigPage() {
             </Card>
 
             <div className="md:col-span-3 grid gap-4 md:grid-cols-3">
-              {getPlans().map(p => {
+              {plans.map(p => {
                 const isCurrent = p.id === tenant.plan_id;
                 const monthlyTotal = p.precio_mensual * 12;
                 const annualPrice = p.precio_anual || monthlyTotal;
@@ -505,6 +508,42 @@ function ConfigPage() {
               })}
             </div>
           </div>
+        </TabsContent>
+        <TabsContent value="sync">
+          <Card className={CARD}>
+            <div className="flex flex-col items-center text-center py-8">
+              <div className="h-16 w-16 bg-primary/10 rounded-full flex items-center justify-center mb-4 text-primary">
+                <RefreshCw className="h-8 w-8" />
+              </div>
+              <h3 className="font-display text-2xl mb-2">Sincronización con la Nube</h3>
+              <p className="text-muted-foreground max-w-md mb-8">
+                Si tenías órdenes, clientes o productos guardados anteriormente en este navegador, 
+                puedes subirlos ahora a tu base de datos central en Supabase.
+              </p>
+              
+              <Button 
+                onClick={async () => {
+                  const loader = toast.loading("Migrando datos locales...");
+                  try {
+                    const { migrateLocalDataToSupabase } = await import("@/lib/storage");
+                    const res = await migrateLocalDataToSupabase(tenant.id);
+                    toast.dismiss(loader);
+                    if (res.ordenes > 0 || res.clientes > 0 || res.catalogo > 0 || res.gastos > 0) {
+                      toast.success(`¡Migración exitosa! (${res.ordenes} órdenes, ${res.clientes} clientes)`);
+                    } else {
+                      toast.info("No se encontraron datos locales para migrar.");
+                    }
+                  } catch (e) {
+                    toast.dismiss(loader);
+                    toast.error("Error durante la migración.");
+                  }
+                }}
+                className="bg-gradient-primary text-white h-12 px-8 rounded-xl font-bold shadow-lg transition-all active:scale-95"
+              >
+                Subir datos locales a la Nube
+              </Button>
+            </div>
+          </Card>
         </TabsContent>
       </Tabs>
     </div>

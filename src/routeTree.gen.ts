@@ -9,6 +9,7 @@
 // Additionally, you should also exclude this file from your linter and/or formatter to prevent it from being checked or modified.
 
 import { Route as rootRouteImport } from './routes/__root'
+import { Route as RestablecerContrasenaRouteImport } from './routes/restablecer-contrasena'
 import { Route as RegistroRouteImport } from './routes/registro'
 import { Route as RecuperarRouteImport } from './routes/recuperar'
 import { Route as NuevaSucursalRouteImport } from './routes/nueva-sucursal'
@@ -30,6 +31,11 @@ import { Route as TSlugClientesRouteImport } from './routes/t.$slug.clientes'
 import { Route as TSlugCatalogoRouteImport } from './routes/t.$slug.catalogo'
 import { Route as TSlugCajaRouteImport } from './routes/t.$slug.caja'
 
+const RestablecerContrasenaRoute = RestablecerContrasenaRouteImport.update({
+  id: '/restablecer-contrasena',
+  path: '/restablecer-contrasena',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const RegistroRoute = RegistroRouteImport.update({
   id: '/registro',
   path: '/registro',
@@ -139,6 +145,7 @@ export interface FileRoutesByFullPath {
   '/nueva-sucursal': typeof NuevaSucursalRoute
   '/recuperar': typeof RecuperarRoute
   '/registro': typeof RegistroRoute
+  '/restablecer-contrasena': typeof RestablecerContrasenaRoute
   '/t/$slug': typeof TSlugRouteWithChildren
   '/t/$slug/caja': typeof TSlugCajaRoute
   '/t/$slug/catalogo': typeof TSlugCatalogoRoute
@@ -161,6 +168,7 @@ export interface FileRoutesByTo {
   '/nueva-sucursal': typeof NuevaSucursalRoute
   '/recuperar': typeof RecuperarRoute
   '/registro': typeof RegistroRoute
+  '/restablecer-contrasena': typeof RestablecerContrasenaRoute
   '/t/$slug/caja': typeof TSlugCajaRoute
   '/t/$slug/catalogo': typeof TSlugCatalogoRoute
   '/t/$slug/clientes': typeof TSlugClientesRoute
@@ -183,6 +191,7 @@ export interface FileRoutesById {
   '/nueva-sucursal': typeof NuevaSucursalRoute
   '/recuperar': typeof RecuperarRoute
   '/registro': typeof RegistroRoute
+  '/restablecer-contrasena': typeof RestablecerContrasenaRoute
   '/t/$slug': typeof TSlugRouteWithChildren
   '/t/$slug/caja': typeof TSlugCajaRoute
   '/t/$slug/catalogo': typeof TSlugCatalogoRoute
@@ -207,6 +216,7 @@ export interface FileRouteTypes {
     | '/nueva-sucursal'
     | '/recuperar'
     | '/registro'
+    | '/restablecer-contrasena'
     | '/t/$slug'
     | '/t/$slug/caja'
     | '/t/$slug/catalogo'
@@ -229,6 +239,7 @@ export interface FileRouteTypes {
     | '/nueva-sucursal'
     | '/recuperar'
     | '/registro'
+    | '/restablecer-contrasena'
     | '/t/$slug/caja'
     | '/t/$slug/catalogo'
     | '/t/$slug/clientes'
@@ -250,6 +261,7 @@ export interface FileRouteTypes {
     | '/nueva-sucursal'
     | '/recuperar'
     | '/registro'
+    | '/restablecer-contrasena'
     | '/t/$slug'
     | '/t/$slug/caja'
     | '/t/$slug/catalogo'
@@ -273,11 +285,19 @@ export interface RootRouteChildren {
   NuevaSucursalRoute: typeof NuevaSucursalRoute
   RecuperarRoute: typeof RecuperarRoute
   RegistroRoute: typeof RegistroRoute
+  RestablecerContrasenaRoute: typeof RestablecerContrasenaRoute
   TSlugRoute: typeof TSlugRouteWithChildren
 }
 
 declare module '@tanstack/react-router' {
   interface FileRoutesByPath {
+    '/restablecer-contrasena': {
+      id: '/restablecer-contrasena'
+      path: '/restablecer-contrasena'
+      fullPath: '/restablecer-contrasena'
+      preLoaderRoute: typeof RestablecerContrasenaRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/registro': {
       id: '/registro'
       path: '/registro'
@@ -461,6 +481,7 @@ const rootRouteChildren: RootRouteChildren = {
   NuevaSucursalRoute: NuevaSucursalRoute,
   RecuperarRoute: RecuperarRoute,
   RegistroRoute: RegistroRoute,
+  RestablecerContrasenaRoute: RestablecerContrasenaRoute,
   TSlugRoute: TSlugRouteWithChildren,
 }
 export const routeTree = rootRouteImport

@@ -15,7 +15,7 @@ import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import {
   PLANS, formatRD, formatPhoneRD, isSlugAvailable, registerTenant,
-  setActiveTenant, uid, PROVINCIAS_RD, NCF_TIPOS, DEFAULT_CONFIG, getGlobalConfig,
+  setActiveTenant, uid, PROVINCIAS_RD, NCF_TIPOS, DEFAULT_CONFIG, getGlobalConfig, getPlans,
   type PlanId, type Tenant, type TenantConfig, type GlobalConfig, type Empleado
 } from "@/lib/storage";
 
@@ -86,12 +86,19 @@ function slugify(s: string) {
 
 function RegistroPage() {
   const navigate = useNavigate();
-  const globalConfig = useMemo(() => getGlobalConfig(), []);
+  const [globalConfig, setGlobalConfig] = useState<GlobalConfig>({ requirePlanOnRegistration: true, trialDays: 14, defaultPlanId: 'basico' });
+  const [plans, setPlans] = useState<Plan[]>(PLANS);
+  
+  useEffect(() => {
+    Promise.all([getGlobalConfig(), getPlans()]).then(([cfg, pList]) => {
+      setGlobalConfig(cfg);
+      setPlans(pList);
+      setForm(f => ({ ...f, plan_id: cfg.defaultPlanId }));
+    });
+  }, []);
+
   const [step, setStep] = useState(1);
-  const [form, setForm] = useState<FormState>(() => ({
-    ...initial,
-    plan_id: globalConfig.defaultPlanId
-  }));
+  const [form, setForm] = useState<FormState>(initial);
   const [errors, setErrors] = useState<Partial<Record<keyof FormState, string>>>({});
   const [provOpen, setProvOpen] = useState(false);
   const [createdTenant, setCreatedTenant] = useState<Tenant | null>(null);
@@ -387,9 +394,9 @@ function RegistroPage() {
               {step === 3 && (
                 <>
                   <h1 className="mb-2 text-3xl font-bold">Elige tu plan</h1>
-                  <p className="mb-8 text-muted-foreground">14 días gratis. Sin tarjeta de crédito.</p>
+                  <p className="mb-8 text-muted-foreground">{globalConfig.trialDays} días gratis. Sin tarjeta de crédito.</p>
                   <div className="grid gap-4">
-                    {PLANS.map((p) => {
+                    {plans.map((p) => {
                       const sel = form.plan_id === p.id;
                       return (
                         <button
@@ -538,7 +545,7 @@ function SuccessCard({ tenant, adminNombre, adminEmail, onEnter }: { tenant: Ten
             </div>
             <div className="px-4 py-3">
               <div className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground">Prueba Gratuita</div>
-              <div className="mt-0.5 font-bold text-lg text-success">14 Días</div>
+              <div className="mt-0.5 font-bold text-lg text-success">{globalConfig.trialDays} Días</div>
             </div>
           </div>
 

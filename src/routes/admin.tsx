@@ -43,6 +43,8 @@ import {
   updateTenantPlan,
   getGlobalConfig,
   saveGlobalConfig,
+  ADMIN_EMAILS,
+
   type Plan, type PlanId, type Tenant, type GlobalConfig
 } from "@/lib/storage";
 import { 
@@ -92,7 +94,6 @@ function AdminPage() {
   // Validar que sea super admin
   useEffect(() => {
     if (user && user.empleado.id !== '__loading__') {
-      const ADMIN_EMAILS = ['admin@klynn.com.do', 'admin@flowchat.do'];
       if (!ADMIN_EMAILS.includes(user.empleado.email.toLowerCase())) {
         toast.error("No tienes permisos para acceder al panel central");
         navigate({ to: '/login' });
@@ -105,7 +106,7 @@ function AdminPage() {
   const [plans, setPlans] = useState<Plan[]>([]);
   const [totalOrdenes, setTotalOrdenes] = useState(0);
   const [ordenesByTenant, setOrdenesByTenant] = useState<Record<string, { count: number; total: number }>>({});
-  const [globalConfig, setGlobalConfig] = useState<GlobalConfig>(() => getGlobalConfig());
+  const [globalConfig, setGlobalConfig] = useState<GlobalConfig>({ requirePlanOnRegistration: true, trialDays: 14, defaultPlanId: 'basico' });
   const [editingPlan, setEditingPlan] = useState<Plan | null>(null);
   const [openPlan, setOpenPlan] = useState(false);
   
@@ -117,9 +118,10 @@ function AdminPage() {
 
   useEffect(() => {
     async function load() {
-      const [t, p] = await Promise.all([getTenants(), getPlans()]);
+      const [t, p, cfg] = await Promise.all([getTenants(), getPlans(), getGlobalConfig()]);
       setTenants(t);
       setPlans(p);
+      setGlobalConfig(cfg);
       const ordsMap: Record<string, { count: number; total: number }> = {};
       let grandTotal = 0;
       for (const tenant of t) {
@@ -326,7 +328,10 @@ function AdminPage() {
                   </div>
                   <Button 
                     size="sm" 
-                    onClick={() => { saveGlobalConfig(globalConfig); toast.success("Configuración guardada"); }}
+                    onClick={async () => { 
+                      await saveGlobalConfig(globalConfig); 
+                      toast.success("Configuración guardada"); 
+                    }}
                     className="h-9 px-4 rounded-lg shadow-md font-bold"
                   >
                     Guardar cambios
@@ -369,7 +374,12 @@ function AdminPage() {
                     <Button size="sm" variant="outline" className="flex-1" onClick={() => { setEditingPlan(p); setOpenPlan(true); }}>
                       <Pencil className="mr-1 h-3.5 w-3.5" /> Editar
                     </Button>
-                    <Button size="sm" variant="outline" onClick={() => { if (confirm(`¿Eliminar plan ${p.nombre}?`)) { deletePlan(p.id); setTick((r) => r + 1); } }}>
+                    <Button size="sm" variant="outline" onClick={async () => { 
+                      if (confirm(`¿Eliminar plan ${p.nombre}?`)) { 
+                        await deletePlan(p.id); 
+                        setTick((r) => r + 1); 
+                      } 
+                    }}>
                       <Trash2 className="h-3.5 w-3.5 text-destructive" />
                     </Button>
                   </div>
@@ -484,7 +494,7 @@ function PlanDialog({ open, onOpenChange, initial, onSaved }: {
     setF((s) => ({ ...s, modulos: { ...(s.modulos as Plan["modulos"]), [k]: v } }));
   }
 
-  function submit() {
+  async function submit() {
     if (!f.nombre?.trim()) { toast.error("Nombre requerido"); return; }
     const plan: Plan = {
       id: (initial?.id ?? f.id ?? ("plan_" + Date.now())) as PlanId,
@@ -496,7 +506,7 @@ function PlanDialog({ open, onOpenChange, initial, onSaved }: {
       modulos: f.modulos as Plan["modulos"],
       destacado: f.destacado,
     };
-    savePlan(plan);
+    await savePlan(plan);
     toast.success("Plan guardado");
     onSaved();
   }

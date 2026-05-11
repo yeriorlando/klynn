@@ -7,7 +7,7 @@ import { SeedBootstrap } from "@/components/klynn/SeedBootstrap";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { getActiveTenant, getTenants, getTenantBySlug, login, setActiveTenant, getEmpleados, setSession, getTenantsForUser, getEmpleadoById } from "@/lib/storage";
+import { getActiveTenant, getTenants, getTenantBySlug, login, setActiveTenant, getEmpleados, setSession, getTenantsForUser, getEmpleadoById, ADMIN_EMAILS } from "@/lib/storage";
 import { supabase } from "@/lib/supabase";
 
 export const Route = createFileRoute("/login")({
@@ -54,8 +54,13 @@ function LoginPage() {
       }
 
       // 2. Check si es Super Admin
-      const ADMIN_EMAILS = ['admin@klynn.com.do', 'admin@flowchat.do'];
-      if (ADMIN_EMAILS.includes(email.toLowerCase())) {
+      const isSuperAdmin = ADMIN_EMAILS.includes(email.toLowerCase());
+      if (isSuperAdmin) {
+        setSession({
+          empleado_id: 'admin',
+          tenant_id: 'admin',
+          iniciado_en: new Date().toISOString()
+        });
         setLoading(false);
         navigate({ to: '/admin' });
         return;
