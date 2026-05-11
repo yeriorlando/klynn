@@ -55,7 +55,7 @@ function OrdenesPage() {
         getClientes(tenantId),
         getCajaAbierta(tenantId)
       ]);
-      const lim = await checkPlanLimits(tenantId);
+      const lim = await checkPlanLimits(tenant);
       setOrdenes(oList);
       setClientes(cList);
       setCajaAbierta(activeCaja);

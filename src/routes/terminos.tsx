@@ -38,7 +38,7 @@ function LegalLayout({ title, icon: Icon, children }: { title: string, icon: any
         </motion.div>
 
         <footer className="mt-12 text-center text-slate-400 text-sm">
-          &copy; 2026 Klynn S.R.L. Todos los derechos reservados.
+          &copy; 2026 Klynn Todos los derechos reservados.
         </footer>
       </main>
     </div>

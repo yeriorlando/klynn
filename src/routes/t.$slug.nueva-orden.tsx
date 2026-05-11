@@ -491,21 +491,28 @@ function NuevaOrdenPage() {
                             <Input
                               className="!h-full pl-24 !text-5xl font-black font-display bg-background border-2 border-primary/20 focus-visible:ring-primary/30 rounded-2xl"
                               value={recibido ? formatAmountInput(String(recibido)) : ""}
-                              onChange={(e) => setRecibido(parseAmount(e.target.value))}
+                              onChange={(e) => {
+                                const val = parseAmount(e.target.value);
+                                if (val > 100000000) return; // Limitar a 100M por cordura
+                                setRecibido(val);
+                              }}
                               placeholder="0.00"
                             />
                           </div>
                         </Field>
 
-                        <div className={`flex flex-col items-center justify-center h-28 rounded-2xl border-2 transition-all duration-300 ${
+                        <div className={`flex flex-col items-center justify-center h-28 px-4 rounded-2xl border-2 transition-all duration-300 ${
                           faltante > 0 
                             ? "bg-destructive/5 border-destructive/30 text-destructive animate-pulse" 
                             : "bg-emerald-500/5 border-emerald-500/30 text-emerald-600"
                         }`}>
-                          <div className="text-xs font-black uppercase tracking-widest opacity-70">
+                          <div className="text-[10px] font-black uppercase tracking-widest opacity-70 mb-1 text-center">
                             {faltante > 0 ? "Faltante" : "Vuelto a entregar"}
                           </div>
-                          <div className="text-4xl font-display font-black">
+                          <div className={`font-display font-black text-center break-all leading-tight ${
+                            (faltante > 0 ? faltante : vuelto) > 9999999 ? "text-xl" : 
+                            (faltante > 0 ? faltante : vuelto) > 999999 ? "text-2xl" : "text-4xl"
+                          }`}>
                             {formatRD(faltante > 0 ? faltante : vuelto)}
                           </div>
                         </div>

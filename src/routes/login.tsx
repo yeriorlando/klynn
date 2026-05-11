@@ -125,7 +125,7 @@ function LoginPage() {
   };
 
   return (
-    <div className="grid min-h-screen lg:grid-cols-2">
+    <div className="grid min-h-[112vh] lg:grid-cols-2">
       <SeedBootstrap />
 
       {/* Panel informativo lateral */}

@@ -9,7 +9,7 @@ import { BrandStyle } from "@/components/klynn/BrandStyle";
 import { Logo } from "@/components/klynn/Logo";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
-import { logout, getCajaAbierta, formatRD, can, getTenantsForUser, setActiveTenant, setSession, switchSession } from "@/lib/storage";
+import { logout, getCajaAbierta, formatRD, can, getTenantsForUser, setActiveTenant, setSession, switchSession, getPlans } from "@/lib/storage";
 import { Toaster, toast } from "sonner";
 import { useEffect } from "react";
 import { motion } from "framer-motion";
@@ -32,7 +32,7 @@ const NAV: (slug: string) => NavItem[] = (slug) => [
   { to: `/t/${slug}/clientes`, label: "Clientes", icon: Users, permission: "clientes" },
   { to: `/t/${slug}/catalogo`, label: "Catálogo", icon: BookOpen, permission: "catalogo" },
   { to: `/t/${slug}/personal`, label: "Personal", icon: UserCog, permission: "personal" },
-  { to: `/t/${slug}/entregas`, label: "Entregas", icon: Truck, permission: "entregas" },
+  { to: `/t/${slug}/logistica`, label: "Logística", icon: Truck, permission: "logistica" },
   { to: `/t/${slug}/gastos`, label: "Gastos", icon: Banknote, permission: "gastos" },
   { to: `/t/${slug}/reportes`, label: "Reportes", icon: FileBarChart, permission: "reportes" },
   { to: `/t/${slug}/configuracion`, label: "Configuración", icon: Settings, permission: "configuracion" },
@@ -73,10 +73,10 @@ export function TenantShell() {
 
   if (!user || user.tenant.id === '__loading__') {
     return (
-      <div className="grid min-h-screen place-items-center bg-background">
-        <div className="flex flex-col items-center gap-4">
-          <Droplets className="h-12 w-12 text-primary animate-pulse" />
-          <div className="font-display text-xl font-medium tracking-tight text-foreground/60 animate-pulse">
+      <div className="fixed inset-0 flex flex-col items-center justify-center bg-background z-[9999]">
+        <div className="flex flex-col items-center gap-3">
+          <Droplets className="h-16 w-16 text-primary animate-pulse" />
+          <div className="font-display text-2xl font-bold tracking-tight text-foreground/40 animate-pulse">
             Cargando...
           </div>
         </div>
@@ -173,9 +173,19 @@ function SidebarContent({
   useEffect(() => {
     getTenantsForUser(empleado.email).then(setMyTenants);
   }, [empleado.email]);
+  const [hasLogistica, setHasLogistica] = useState<boolean>(true);
+  useEffect(() => {
+    getPlans().then(plans => {
+      const plan = plans.find(p => p.id === tenant.plan_id);
+      setHasLogistica(!!plan?.modulos?.logistica);
+    });
+  }, [tenant.plan_id]);
+
   const allowedNav = useMemo(() => {
-    return NAV(tenant.slug).filter(item => !item.permission || can(empleado, item.permission));
-  }, [tenant.slug, empleado]);
+    let base = NAV(tenant.slug);
+    if (!hasLogistica) base = base.filter(i => i.permission !== "logistica");
+    return base.filter(item => !item.permission || can(empleado, item.permission));
+  }, [tenant.slug, empleado, hasLogistica]);
 
   const switchBranch = async (t: any) => {
     if (t.slug === tenant.slug) return;
@@ -329,6 +339,7 @@ export function EstadoBadge({ estado }: { estado: string }) {
     RECIBIDA: "border-blue-500/40 bg-blue-500/10 text-blue-700 dark:text-blue-300",
     EN_PROCESO: "border-amber-500/40 bg-amber-500/10 text-amber-700 dark:text-amber-300",
     LISTA: "border-emerald-500/40 bg-emerald-500/10 text-emerald-700 dark:text-emerald-300",
+    EN_CAMINO: "border-sky-500/40 bg-sky-500/10 text-sky-700 dark:text-sky-300",
     ENTREGADA: "border-zinc-500/40 bg-zinc-500/10 text-zinc-700 dark:text-zinc-300",
     PAGADA: "border-emerald-500/40 bg-emerald-500/10 text-emerald-700 dark:text-emerald-300",
     ANULADA: "border-red-500/40 bg-red-500/10 text-red-700 dark:text-red-300",

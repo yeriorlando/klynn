@@ -242,7 +242,7 @@ function RegistroPage() {
   }
 
   return (
-    <div className="min-h-screen bg-gradient-hero">
+    <div className="min-h-[112vh] bg-gradient-hero">
       <SeedBootstrap />
       <header className="flex h-24 items-center justify-center px-6 relative">
         <Link to="/"><Logo size="lg" /></Link>

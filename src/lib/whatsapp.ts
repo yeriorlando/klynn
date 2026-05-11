@@ -1,7 +1,7 @@
 import type { Tenant, Cliente, Orden } from "@/lib/storage";
 import { formatRD, DEFAULT_CONFIG, getServicios, getTenantPlan, incrementWhatsAppCount } from "@/lib/storage";
 
-type Evento = "creada" | "lista" | "entregada";
+type Evento = "creada" | "lista" | "en_camino" | "entregada";
 
 function normalizePhoneRD(tel: string): string {
   const d = tel.replace(/\D/g, "");
@@ -61,12 +61,14 @@ export async function notificarWhatsApp(
   const flag =
     evento === "creada" ? wa.notif_orden_creada :
     evento === "lista" ? wa.notif_orden_lista :
+    evento === "en_camino" ? true : // Activado por defecto para logística
     wa.notif_orden_entregada;
   if (!flag) return { ok: false, reason: "Notificación desactivada" };
 
   const tpl =
     evento === "creada" ? wa.plantilla_creada :
     evento === "lista" ? wa.plantilla_lista :
+    evento === "en_camino" ? "*¡Tu orden va en camino!* 🛵\n\nHola {cliente}, te informamos que tu orden #{numero} ya salió de {lavanderia} y va de camino a tu dirección: {cliente_dir}.\n\n¡Nos vemos pronto!" :
     wa.plantilla_entregada;
 
   const detalleStr = (evento === "creada")

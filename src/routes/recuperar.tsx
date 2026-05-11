@@ -50,7 +50,7 @@ function RecuperarPage() {
   }
 
   return (
-    <div className="grid min-h-screen lg:grid-cols-2 font-sans">
+    <div className="grid min-h-[112vh] lg:grid-cols-2 font-sans">
       <SeedBootstrap />
 
       {/* Panel informativo lateral */}

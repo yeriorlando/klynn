@@ -2,17 +2,17 @@ import { Link } from "@tanstack/react-router";
 import { useState, useEffect } from "react";
 import { 
   MapPin, Clock, MessageCircle, Shield, Lock, Sparkles, ArrowRight, Menu, X,
-  LayoutGrid, CreditCard, HelpCircle, Droplets, Users
+  CreditCard, Droplets, Users
 } from "lucide-react";
 import { Logo } from "./Logo";
 import { Button } from "@/components/ui/button";
 import { motion, AnimatePresence } from "framer-motion";
 
 const NAV_ITEMS = [
-  { label: "Funciones", href: "/#features", icon: Sparkles },
-  { label: "Para quién", href: "/#sectores", icon: Users },
-  { label: "Planes", href: "/#planes", icon: CreditCard },
-  { label: "FAQ", href: "/#faq", icon: MessageCircle },
+  { label: "Funciones", href: "/#features", icon: Sparkles, desc: "POS, NCF, ITBIS, tickets" },
+  { label: "Para quién", href: "/#sectores", icon: Users, desc: "Lavanderías, sastrerías, hoteles" },
+  { label: "Planes", href: "/#planes", icon: CreditCard, desc: "Desde RD$ 1,500/mes" },
+  { label: "FAQ", href: "/#faq", icon: MessageCircle, desc: "Preguntas frecuentes" },
 ];
 
 export function LandingNavbar() {
@@ -78,23 +78,22 @@ export function LandingNavbar() {
                 <ArrowRight className="h-3.5 w-3.5" />
               </Button>
             </Link>
-            <Button
-              variant="ghost"
-              size="icon"
-              className="lg:hidden h-10 w-10 place-items-center rounded-xl border border-border bg-surface shadow-card transition hover:bg-accent"
+            {/* Mobile menu button */}
+            <button
               onClick={() => setMobileOpen(true)}
-              aria-label="Menú"
+              className="grid h-10 w-10 place-items-center rounded-xl border border-border bg-surface shadow-card transition hover:bg-accent lg:hidden"
+              aria-label="Abrir menú"
             >
               <Menu className="h-5 w-5" />
-            </Button>
+            </button>
           </div>
         </div>
       </header>
 
-      {/* MOBILE NAV (Drawer Style) */}
+      {/* MOBILE DRAWER */}
       <AnimatePresence>
         {mobileOpen && (
-          <div className="fixed inset-0 z-[100] lg:hidden">
+          <div className="fixed inset-0 z-[60] lg:hidden">
             <motion.div
               initial={{ opacity: 0 }}
               animate={{ opacity: 1 }}
@@ -110,75 +109,94 @@ export function LandingNavbar() {
               transition={{ type: "spring", damping: 28, stiffness: 280 }}
               className="absolute inset-y-0 right-0 flex w-[88%] max-w-sm flex-col overflow-hidden bg-background shadow-elegant"
             >
-              <div className="relative overflow-hidden border-b border-border/60 bg-gradient-primary p-5 text-primary-foreground">
-                <div className="absolute -right-10 -top-10 h-40 w-40 rounded-full bg-white/10 blur-2xl" />
-                <div className="relative flex items-start justify-between">
-                  <div className="flex items-center gap-3">
-                    <div className="grid h-11 w-11 place-items-center rounded-xl bg-white/15 shadow-card backdrop-blur">
-                      <Droplets className="h-5 w-5" />
-                    </div>
-                    <div>
-                      <div className="font-display text-lg leading-tight">Klynn</div>
-                      <div className="text-xs text-white/80">Hecho en RD 🇩🇴</div>
+              {/* Drawer header */}
+              <div className="relative overflow-hidden border-b border-border/60 bg-background p-6">
+                <div className="flex flex-col items-center gap-4">
+                  <div className="flex w-full items-start justify-between">
+                    <div className="w-9" /> {/* Spacer to balance the close button */}
+                    <Logo />
+                    <button
+                      onClick={() => setMobileOpen(false)}
+                      className="grid h-9 w-9 place-items-center rounded-xl border border-border bg-surface shadow-card transition hover:bg-accent"
+                      aria-label="Cerrar"
+                    >
+                      <X className="h-4 w-4 text-muted-foreground" />
+                    </button>
+                  </div>
+                  <div className="flex flex-col items-center text-center">
+                    <div className="text-xs font-medium text-muted-foreground">Hecho en RD 🇩🇴</div>
+                    <div className="mt-3 flex items-center gap-3 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground/60">
+                      <span className="flex items-center gap-1"><Shield className="h-3 w-3" /> ITBIS · NCF</span>
+                      <span className="h-1 w-1 rounded-full bg-border" />
+                      <span className="flex items-center gap-1"><Clock className="h-3 w-3" /> Lun–Sáb 8–8</span>
                     </div>
                   </div>
-                  <button
-                    onClick={() => setMobileOpen(false)}
-                    className="grid h-9 w-9 place-items-center rounded-lg bg-white/10 transition hover:bg-white/20"
-                    aria-label="Cerrar"
-                  >
-                    <X className="h-5 w-5" />
-                  </button>
                 </div>
               </div>
 
-              <div className="flex-1 space-y-7 overflow-y-auto px-6 py-8">
-                <nav className="space-y-1.5">
-                  <div className="mb-4 text-[10px] font-bold uppercase tracking-widest text-muted-foreground/60">
-                    Menú principal
-                  </div>
-                  {NAV_ITEMS.map((item) => (
-                    <a
+              {/* Nav items */}
+              <nav className="flex-1 overflow-y-auto p-4">
+                <div className="mb-2 px-2 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
+                  Navegación
+                </div>
+                <div className="space-y-1.5">
+                  {NAV_ITEMS.map((item, i) => (
+                    <motion.a
                       key={item.href}
                       href={item.href}
                       onClick={() => setMobileOpen(false)}
-                      className="group flex items-center gap-4 rounded-2xl p-4 transition hover:bg-accent"
+                      initial={{ opacity: 0, x: 20 }}
+                      animate={{ opacity: 1, x: 0 }}
+                      transition={{ delay: 0.05 + i * 0.04 }}
+                      className="group flex items-center gap-3 rounded-xl border border-transparent p-3 transition hover:border-border hover:bg-accent"
                     >
-                      <div className="grid h-11 w-11 place-items-center rounded-xl bg-surface shadow-sm border border-border/50 group-hover:bg-primary group-hover:text-primary-foreground transition-colors">
-                        <item.icon className="h-5 w-5" />
+                      <div className="grid h-10 w-10 shrink-0 place-items-center rounded-lg bg-primary/10 text-primary transition group-hover:bg-primary/20">
+                        <item.icon className="h-4 w-4" />
                       </div>
-                      <span className="text-lg font-bold tracking-tight text-foreground">
-                        {item.label}
-                      </span>
-                    </a>
+                      <div className="min-w-0 flex-1">
+                        <div className="text-sm font-medium leading-tight">{item.label}</div>
+                        <div className="truncate text-[11px] text-muted-foreground">{item.desc}</div>
+                      </div>
+                      <ArrowRight className="h-4 w-4 text-muted-foreground transition group-hover:translate-x-0.5 group-hover:text-primary" />
+                    </motion.a>
                   ))}
-                </nav>
+                </div>
 
-                <div className="space-y-4">
-                  <div className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground/60">
-                    Cuenta
-                  </div>
-                  <div className="grid gap-3">
-                    <Link to="/login" onClick={() => setMobileOpen(false)}>
-                      <Button variant="outline" className="h-14 w-full rounded-2xl text-lg font-bold">
-                        <Lock className="mr-2 h-5 w-5" /> Iniciar sesión
-                      </Button>
-                    </Link>
-                    <Link to="/registro" onClick={() => setMobileOpen(false)}>
-                      <Button className="h-14 w-full rounded-2xl bg-gradient-primary text-lg font-bold shadow-elegant">
-                        <Sparkles className="mr-2 h-5 w-5" /> Probar gratis
-                      </Button>
-                    </Link>
-                  </div>
+                <div className="mt-6 mb-2 px-2 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
+                  Contacto
                 </div>
-              </div>
-              
-              <div className="border-t border-border/60 bg-surface p-6">
-                <div className="flex items-center gap-4 text-xs text-muted-foreground">
-                  <a href="https://wa.link/vxstq4" className="flex items-center gap-2 hover:text-primary">
-                    <MessageCircle className="h-4 w-4" /> Soporte WhatsApp
-                  </a>
-                </div>
+                <a
+                  href="https://wa.link/vxstq4"
+                  className="flex items-center gap-3 rounded-xl border border-success/30 bg-success/5 p-3 transition hover:bg-success/10"
+                >
+                  <div className="grid h-10 w-10 place-items-center rounded-lg bg-success/15 text-success">
+                    <MessageCircle className="h-4 w-4" />
+                  </div>
+                  <div className="flex-1">
+                    <div className="text-sm font-medium">WhatsApp</div>
+                    <div className="text-[11px] text-muted-foreground">+1 (829) 941-6546</div>
+                  </div>
+                </a>
+              </nav>
+
+              {/* CTAs */}
+              <div className="space-y-2 border-t border-border/60 bg-surface/50 p-4">
+                <Link to="/registro" onClick={() => setMobileOpen(false)} className="block">
+                  <Button className="h-11 w-full gap-1.5 bg-gradient-primary shadow-elegant">
+                    <Sparkles className="h-4 w-4" />
+                    Probar gratis 14 días
+                    <ArrowRight className="h-4 w-4" />
+                  </Button>
+                </Link>
+                <Link to="/login" onClick={() => setMobileOpen(false)} className="block">
+                  <Button variant="outline" className="h-11 w-full gap-1.5">
+                    <Lock className="h-3.5 w-3.5" />
+                    Iniciar sesión
+                  </Button>
+                </Link>
+                <p className="pt-1 text-center text-[10px] text-muted-foreground">
+                  Sin tarjeta de crédito · Cancela cuando quieras
+                </p>
               </div>
             </motion.aside>
           </div>

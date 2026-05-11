@@ -477,11 +477,14 @@ function ConfigPage() {
                       <div className="text-xs flex items-center gap-2">✅ {p.limite_empleados} Empleados</div>
                       <div className="text-xs flex items-center gap-2">✅ {p.limite_ordenes_mes ?? "∞"} Órdenes/mes</div>
                       <div className="text-xs flex items-center gap-2 font-medium text-blue-600">✅ {(p.limite_whatsapp_mes || 0).toLocaleString()} Mensajes WhatsApp/mes</div>
-                      {Object.entries(p.modulos).map(([k, v]) => (
-                        <div key={k} className={`text-xs flex items-center gap-2 ${v ? "text-foreground" : "text-muted-foreground opacity-50"}`}>
-                          {v ? "✅" : "❌"} {k.charAt(0).toUpperCase() + k.slice(1).replace(/_/g, " ")}
-                        </div>
-                      ))}
+                      {(["whatsapp", "facturacion_fiscal", "multisucursal", "logistica"] as const).map((k) => {
+                        const v = p.modulos?.[k as keyof typeof p.modulos];
+                        return (
+                          <div key={k} className={`text-xs flex items-center gap-2 ${v ? "text-foreground" : "text-muted-foreground opacity-50"}`}>
+                            {v ? "✅" : "❌"} {k === "logistica" ? "Logística y Repartidores" : k.charAt(0).toUpperCase() + k.slice(1).replace(/_/g, " ")}
+                          </div>
+                        );
+                      })}
                     </div>
 
                         <Button 

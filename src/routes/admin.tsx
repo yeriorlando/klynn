@@ -485,7 +485,7 @@ function PlanDialog({ open, onOpenChange, initial, onSaved }: {
       id: ("plan_" + Date.now()) as PlanId,
       nombre: "", precio_mensual: 0, precio_anual: 0, limite_empleados: 5, limite_ordenes_mes: 500,
       limite_whatsapp_mes: 300,
-      modulos: { whatsapp: false, facturacion_fiscal: false, multisucursal: false },
+      modulos: { whatsapp: false, facturacion_fiscal: false, multisucursal: false, logistica: false },
     });
   }, [open, initial]);
 
@@ -517,83 +517,90 @@ function PlanDialog({ open, onOpenChange, initial, onSaved }: {
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="sm:max-w-2xl rounded-2xl border-none shadow-card">
+      <DialogContent className="sm:max-w-4xl rounded-2xl border-none shadow-card">
         <DialogHeader><DialogTitle>{initial ? "Editar plan" : "Nuevo plan"}</DialogTitle></DialogHeader>
-        <div className="grid gap-4 py-2">
-          <div className="grid grid-cols-2 gap-3">
-            <div><Label className="mb-1.5 block text-sm font-bold">ID interno</Label>
-              <Input value={f.id || ""} onChange={(e) => setF({ ...f, id: e.target.value as PlanId })} disabled={!!initial} className="h-11 rounded-xl" />
+        <div className="grid gap-8 py-2 md:grid-cols-2">
+          {/* Columna Izquierda: Información básica y límites */}
+          <div className="space-y-4">
+            <div className="grid grid-cols-2 gap-3">
+              <div><Label className="mb-1.5 block text-sm font-bold">ID interno</Label>
+                <Input value={f.id || ""} onChange={(e) => setF({ ...f, id: e.target.value as PlanId })} disabled={!!initial} className="h-11 rounded-xl" />
+              </div>
+              <div><Label className="mb-1.5 block text-sm font-bold">Nombre</Label>
+                <Input value={f.nombre || ""} onChange={(e) => setF({ ...f, nombre: e.target.value })} className="h-11 rounded-xl" />
+              </div>
             </div>
-            <div><Label className="mb-1.5 block text-sm font-bold">Nombre</Label>
-              <Input value={f.nombre || ""} onChange={(e) => setF({ ...f, nombre: e.target.value })} className="h-11 rounded-xl" />
+            
+            <div className="grid grid-cols-2 gap-3">
+              <div><Label className="mb-1.5 block text-sm font-bold">Precio/mes (RD$)</Label>
+                <Input type="number" value={f.precio_mensual ?? 0} onChange={(e) => setF({ ...f, precio_mensual: Number(e.target.value) })} className="h-11 rounded-xl" />
+              </div>
+              <div><Label className="mb-1.5 block text-sm font-bold">Precio/año (RD$)</Label>
+                <Input type="number" value={f.precio_anual ?? 0} onChange={(e) => setF({ ...f, precio_anual: Number(e.target.value) })} className="h-11 rounded-xl" placeholder="Opcional" />
+              </div>
             </div>
-          </div>
-          <div className="grid grid-cols-3 gap-3">
-            <div className="col-span-1"><Label className="mb-1.5 block text-sm font-bold">Precio/mes (RD$)</Label>
-              <Input type="number" value={f.precio_mensual ?? 0} onChange={(e) => setF({ ...f, precio_mensual: Number(e.target.value) })} className="h-11 rounded-xl" />
-            </div>
-            <div className="col-span-1"><Label className="mb-1.5 block text-sm font-bold">Precio/año (RD$)</Label>
-              <Input type="number" value={f.precio_anual ?? 0} onChange={(e) => setF({ ...f, precio_anual: Number(e.target.value) })} className="h-11 rounded-xl" placeholder="Opcional" />
-            </div>
-            <div className="col-span-1"><Label className="mb-1.5 block text-sm font-bold">Empleados</Label>
-              <Input type="number" value={f.limite_empleados ?? 0} onChange={(e) => setF({ ...f, limite_empleados: Number(e.target.value) })} className="h-11 rounded-xl" />
-            </div>
-          </div>
 
-          <div className="grid grid-cols-2 gap-3">
-            <div className="col-span-1"><Label className="mb-1.5 block text-sm font-bold">Órdenes/mes</Label>
-              <Input type="number" value={f.limite_ordenes_mes ?? ""} onChange={(e) => setF({ ...f, limite_ordenes_mes: e.target.value === "" ? null : Number(e.target.value) })} className="h-11 rounded-xl" />
+            <div className="grid grid-cols-3 gap-3">
+              <div className="col-span-1"><Label className="mb-1.5 block text-sm font-bold">Empleados</Label>
+                <Input type="number" value={f.limite_empleados ?? 0} onChange={(e) => setF({ ...f, limite_empleados: Number(e.target.value) })} className="h-11 rounded-xl" />
+              </div>
+              <div className="col-span-1"><Label className="mb-1.5 block text-sm font-bold">Órdenes/mes</Label>
+                <Input type="number" value={f.limite_ordenes_mes ?? ""} onChange={(e) => setF({ ...f, limite_ordenes_mes: e.target.value === "" ? null : Number(e.target.value) })} className="h-11 rounded-xl" />
+              </div>
+              <div className="col-span-1"><Label className="mb-1.5 block text-sm font-bold">WhatsApp/mes</Label>
+                <Input type="number" value={f.limite_whatsapp_mes ?? 0} onChange={(e) => setF({ ...f, limite_whatsapp_mes: Number(e.target.value) })} className="h-11 rounded-xl" />
+              </div>
             </div>
-            <div className="col-span-1"><Label className="mb-1.5 block text-sm font-bold">WhatsApp/mes</Label>
-              <Input type="number" value={f.limite_whatsapp_mes ?? 0} onChange={(e) => setF({ ...f, limite_whatsapp_mes: Number(e.target.value) })} className="h-11 rounded-xl" />
-            </div>
-          </div>
 
-          <div>
-            <Label className="mb-3 block text-sm font-bold text-muted-foreground uppercase tracking-wider">Módulos incluidos</Label>
-            <div className="grid grid-cols-2 gap-x-6 gap-y-3 rounded-2xl border border-border p-5 bg-accent/30 backdrop-blur-sm">
-              {(["whatsapp", "facturacion_fiscal", "multisucursal"] as const).map((m) => (
-                <label key={m} className="flex items-center gap-3 text-sm p-1 rounded-lg transition-colors cursor-pointer group">
-                  <Switch 
-                    checked={!!mods?.[m]} 
-                    onCheckedChange={(v) => setMod(m, v)} 
-                    className="data-[state=checked]:bg-primary"
-                  />
-                  <span className="font-semibold capitalize text-foreground group-hover:text-primary transition-colors">
-                    {m.replace(/_/g, " ")}
-                  </span>
-                </label>
-              ))}
-            </div>
+            <label className="flex items-center gap-2 text-sm mt-2">
+              <Switch checked={!!f.destacado} onCheckedChange={(v) => setF({ ...f, destacado: v })} />
+              Marcar como plan destacado / popular
+            </label>
           </div>
 
-          <label className="flex items-center gap-2 text-sm">
-            <Switch checked={!!f.destacado} onCheckedChange={(v) => setF({ ...f, destacado: v })} />
-            Marcar como plan destacado / popular
-          </label>
-
-          <div className="grid grid-cols-2 gap-4">
-            <div className="space-y-2">
-              <Label className="text-sm font-bold flex items-center gap-2">
-                <ExternalLink className="h-4 w-4 text-primary" /> Polar Monthly Link
-              </Label>
-              <Input 
-                value={f.polar_product_monthly_url || ""} 
-                onChange={(e) => setF({ ...f, polar_product_monthly_url: e.target.value })} 
-                placeholder="https://polar.sh/..." 
-                className="h-10 rounded-xl"
-              />
+          {/* Columna Derecha: Módulos y Enlaces */}
+          <div className="space-y-4">
+            <div>
+              <Label className="mb-3 block text-sm font-bold text-muted-foreground uppercase tracking-wider">Módulos incluidos</Label>
+              <div className="grid grid-cols-2 gap-x-6 gap-y-3 rounded-2xl border border-border p-5 bg-accent/30 backdrop-blur-sm">
+                {(["whatsapp", "facturacion_fiscal", "multisucursal", "logistica"] as const).map((m) => (
+                  <label key={m} className="flex items-center gap-3 text-sm p-1 rounded-lg transition-colors cursor-pointer group">
+                    <Switch 
+                      checked={!!mods?.[m]} 
+                      onCheckedChange={(v) => setMod(m, v)} 
+                      className="data-[state=checked]:bg-primary"
+                    />
+                    <span className="font-semibold capitalize text-foreground group-hover:text-primary transition-colors">
+                      {m === "logistica" ? "Logística y Repartidores" : m.replace(/_/g, " ")}
+                    </span>
+                  </label>
+                ))}
+              </div>
             </div>
-            <div className="space-y-2">
-              <Label className="text-sm font-bold flex items-center gap-2">
-                <ExternalLink className="h-4 w-4 text-primary" /> Polar Yearly Link
-              </Label>
-              <Input 
-                value={f.polar_product_yearly_url || ""} 
-                onChange={(e) => setF({ ...f, polar_product_yearly_url: e.target.value })} 
-                placeholder="https://polar.sh/..." 
-                className="h-10 rounded-xl"
-              />
+
+            <div className="space-y-3">
+              <div className="space-y-2">
+                <Label className="text-sm font-bold flex items-center gap-2">
+                  <ExternalLink className="h-4 w-4 text-primary" /> Polar Monthly Link
+                </Label>
+                <Input 
+                  value={f.polar_product_monthly_url || ""} 
+                  onChange={(e) => setF({ ...f, polar_product_monthly_url: e.target.value })} 
+                  placeholder="https://polar.sh/..." 
+                  className="h-10 rounded-xl"
+                />
+              </div>
+              <div className="space-y-2">
+                <Label className="text-sm font-bold flex items-center gap-2">
+                  <ExternalLink className="h-4 w-4 text-primary" /> Polar Yearly Link
+                </Label>
+                <Input 
+                  value={f.polar_product_yearly_url || ""} 
+                  onChange={(e) => setF({ ...f, polar_product_yearly_url: e.target.value })} 
+                  placeholder="https://polar.sh/..." 
+                  className="h-10 rounded-xl"
+                />
+              </div>
             </div>
           </div>
         </div>

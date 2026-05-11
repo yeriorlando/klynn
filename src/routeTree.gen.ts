@@ -26,9 +26,9 @@ import { Route as TSlugReportesRouteImport } from './routes/t.$slug.reportes'
 import { Route as TSlugPersonalRouteImport } from './routes/t.$slug.personal'
 import { Route as TSlugOrdenesRouteImport } from './routes/t.$slug.ordenes'
 import { Route as TSlugNuevaOrdenRouteImport } from './routes/t.$slug.nueva-orden'
+import { Route as TSlugLogisticaRouteImport } from './routes/t.$slug.logistica'
 import { Route as TSlugLoginRouteImport } from './routes/t.$slug.login'
 import { Route as TSlugGastosRouteImport } from './routes/t.$slug.gastos'
-import { Route as TSlugEntregasRouteImport } from './routes/t.$slug.entregas'
 import { Route as TSlugConfiguracionRouteImport } from './routes/t.$slug.configuracion'
 import { Route as TSlugClientesRouteImport } from './routes/t.$slug.clientes'
 import { Route as TSlugCatalogoRouteImport } from './routes/t.$slug.catalogo'
@@ -119,6 +119,11 @@ const TSlugNuevaOrdenRoute = TSlugNuevaOrdenRouteImport.update({
   path: '/nueva-orden',
   getParentRoute: () => TSlugRoute,
 } as any)
+const TSlugLogisticaRoute = TSlugLogisticaRouteImport.update({
+  id: '/logistica',
+  path: '/logistica',
+  getParentRoute: () => TSlugRoute,
+} as any)
 const TSlugLoginRoute = TSlugLoginRouteImport.update({
   id: '/login',
   path: '/login',
@@ -127,11 +132,6 @@ const TSlugLoginRoute = TSlugLoginRouteImport.update({
 const TSlugGastosRoute = TSlugGastosRouteImport.update({
   id: '/gastos',
   path: '/gastos',
-  getParentRoute: () => TSlugRoute,
-} as any)
-const TSlugEntregasRoute = TSlugEntregasRouteImport.update({
-  id: '/entregas',
-  path: '/entregas',
   getParentRoute: () => TSlugRoute,
 } as any)
 const TSlugConfiguracionRoute = TSlugConfiguracionRouteImport.update({
@@ -172,9 +172,9 @@ export interface FileRoutesByFullPath {
   '/t/$slug/catalogo': typeof TSlugCatalogoRoute
   '/t/$slug/clientes': typeof TSlugClientesRoute
   '/t/$slug/configuracion': typeof TSlugConfiguracionRoute
-  '/t/$slug/entregas': typeof TSlugEntregasRoute
   '/t/$slug/gastos': typeof TSlugGastosRoute
   '/t/$slug/login': typeof TSlugLoginRoute
+  '/t/$slug/logistica': typeof TSlugLogisticaRoute
   '/t/$slug/nueva-orden': typeof TSlugNuevaOrdenRoute
   '/t/$slug/ordenes': typeof TSlugOrdenesRoute
   '/t/$slug/personal': typeof TSlugPersonalRoute
@@ -197,9 +197,9 @@ export interface FileRoutesByTo {
   '/t/$slug/catalogo': typeof TSlugCatalogoRoute
   '/t/$slug/clientes': typeof TSlugClientesRoute
   '/t/$slug/configuracion': typeof TSlugConfiguracionRoute
-  '/t/$slug/entregas': typeof TSlugEntregasRoute
   '/t/$slug/gastos': typeof TSlugGastosRoute
   '/t/$slug/login': typeof TSlugLoginRoute
+  '/t/$slug/logistica': typeof TSlugLogisticaRoute
   '/t/$slug/nueva-orden': typeof TSlugNuevaOrdenRoute
   '/t/$slug/ordenes': typeof TSlugOrdenesRoute
   '/t/$slug/personal': typeof TSlugPersonalRoute
@@ -224,9 +224,9 @@ export interface FileRoutesById {
   '/t/$slug/catalogo': typeof TSlugCatalogoRoute
   '/t/$slug/clientes': typeof TSlugClientesRoute
   '/t/$slug/configuracion': typeof TSlugConfiguracionRoute
-  '/t/$slug/entregas': typeof TSlugEntregasRoute
   '/t/$slug/gastos': typeof TSlugGastosRoute
   '/t/$slug/login': typeof TSlugLoginRoute
+  '/t/$slug/logistica': typeof TSlugLogisticaRoute
   '/t/$slug/nueva-orden': typeof TSlugNuevaOrdenRoute
   '/t/$slug/ordenes': typeof TSlugOrdenesRoute
   '/t/$slug/personal': typeof TSlugPersonalRoute
@@ -252,9 +252,9 @@ export interface FileRouteTypes {
     | '/t/$slug/catalogo'
     | '/t/$slug/clientes'
     | '/t/$slug/configuracion'
-    | '/t/$slug/entregas'
     | '/t/$slug/gastos'
     | '/t/$slug/login'
+    | '/t/$slug/logistica'
     | '/t/$slug/nueva-orden'
     | '/t/$slug/ordenes'
     | '/t/$slug/personal'
@@ -277,9 +277,9 @@ export interface FileRouteTypes {
     | '/t/$slug/catalogo'
     | '/t/$slug/clientes'
     | '/t/$slug/configuracion'
-    | '/t/$slug/entregas'
     | '/t/$slug/gastos'
     | '/t/$slug/login'
+    | '/t/$slug/logistica'
     | '/t/$slug/nueva-orden'
     | '/t/$slug/ordenes'
     | '/t/$slug/personal'
@@ -303,9 +303,9 @@ export interface FileRouteTypes {
     | '/t/$slug/catalogo'
     | '/t/$slug/clientes'
     | '/t/$slug/configuracion'
-    | '/t/$slug/entregas'
     | '/t/$slug/gastos'
     | '/t/$slug/login'
+    | '/t/$slug/logistica'
     | '/t/$slug/nueva-orden'
     | '/t/$slug/ordenes'
     | '/t/$slug/personal'
@@ -449,6 +449,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof TSlugNuevaOrdenRouteImport
       parentRoute: typeof TSlugRoute
     }
+    '/t/$slug/logistica': {
+      id: '/t/$slug/logistica'
+      path: '/logistica'
+      fullPath: '/t/$slug/logistica'
+      preLoaderRoute: typeof TSlugLogisticaRouteImport
+      parentRoute: typeof TSlugRoute
+    }
     '/t/$slug/login': {
       id: '/t/$slug/login'
       path: '/login'
@@ -461,13 +468,6 @@ declare module '@tanstack/react-router' {
       path: '/gastos'
       fullPath: '/t/$slug/gastos'
       preLoaderRoute: typeof TSlugGastosRouteImport
-      parentRoute: typeof TSlugRoute
-    }
-    '/t/$slug/entregas': {
-      id: '/t/$slug/entregas'
-      path: '/entregas'
-      fullPath: '/t/$slug/entregas'
-      preLoaderRoute: typeof TSlugEntregasRouteImport
       parentRoute: typeof TSlugRoute
     }
     '/t/$slug/configuracion': {
@@ -506,9 +506,9 @@ interface TSlugRouteChildren {
   TSlugCatalogoRoute: typeof TSlugCatalogoRoute
   TSlugClientesRoute: typeof TSlugClientesRoute
   TSlugConfiguracionRoute: typeof TSlugConfiguracionRoute
-  TSlugEntregasRoute: typeof TSlugEntregasRoute
   TSlugGastosRoute: typeof TSlugGastosRoute
   TSlugLoginRoute: typeof TSlugLoginRoute
+  TSlugLogisticaRoute: typeof TSlugLogisticaRoute
   TSlugNuevaOrdenRoute: typeof TSlugNuevaOrdenRoute
   TSlugOrdenesRoute: typeof TSlugOrdenesRoute
   TSlugPersonalRoute: typeof TSlugPersonalRoute
@@ -521,9 +521,9 @@ const TSlugRouteChildren: TSlugRouteChildren = {
   TSlugCatalogoRoute: TSlugCatalogoRoute,
   TSlugClientesRoute: TSlugClientesRoute,
   TSlugConfiguracionRoute: TSlugConfiguracionRoute,
-  TSlugEntregasRoute: TSlugEntregasRoute,
   TSlugGastosRoute: TSlugGastosRoute,
   TSlugLoginRoute: TSlugLoginRoute,
+  TSlugLogisticaRoute: TSlugLogisticaRoute,
   TSlugNuevaOrdenRoute: TSlugNuevaOrdenRoute,
   TSlugOrdenesRoute: TSlugOrdenesRoute,
   TSlugPersonalRoute: TSlugPersonalRoute,

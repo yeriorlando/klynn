@@ -14,6 +14,7 @@ export interface Plan {
     whatsapp: boolean;
     facturacion_fiscal: boolean;
     multisucursal: boolean;
+    logistica?: boolean;
   };
   destacado?: boolean;
   polar_product_monthly_url?: string;
@@ -122,7 +123,7 @@ export interface Cliente {
   creado_en: string;
 }
 
-export type EstadoOrden = "RECIBIDA" | "EN_PROCESO" | "LISTA" | "ENTREGADA" | "PAGADA" | "ANULADA";
+export type EstadoOrden = "RECIBIDA" | "EN_PROCESO" | "LISTA" | "EN_CAMINO" | "ENTREGADA" | "PAGADA" | "ANULADA";
 export type MetodoPago = "EFECTIVO" | "TARJETA" | "TRANSFERENCIA" | "CREDITO" | "MIXTO";
 
 export interface OrdenItem {
@@ -275,7 +276,7 @@ export const PLANS: Plan[] = [
     limite_empleados: 2,
     limite_ordenes_mes: 300,
     limite_whatsapp_mes: 300,
-    modulos: { whatsapp: true, facturacion_fiscal: true, multisucursal: false },
+    modulos: { whatsapp: true, facturacion_fiscal: false, multisucursal: true, logistica: false },
   },
   {
     id: "pro",
@@ -285,7 +286,7 @@ export const PLANS: Plan[] = [
     limite_empleados: 10,
     limite_ordenes_mes: 1000,
     limite_whatsapp_mes: 1000,
-    modulos: { whatsapp: true, facturacion_fiscal: false, multisucursal: true },
+    modulos: { whatsapp: true, facturacion_fiscal: false, multisucursal: true, logistica: true },
     destacado: true,
   },
   {
@@ -296,7 +297,7 @@ export const PLANS: Plan[] = [
     limite_empleados: 999,
     limite_ordenes_mes: null,
     limite_whatsapp_mes: 5000,
-    modulos: { whatsapp: true, facturacion_fiscal: false, multisucursal: true },
+    modulos: { whatsapp: true, facturacion_fiscal: true, multisucursal: true, logistica: true },
   },
 ];
 
@@ -414,7 +415,7 @@ export const PERMISOS_SISTEMA = [
   { id: "clientes", nombre: "Clientes", descripcion: "Gestión de base de datos de clientes" },
   { id: "catalogo", nombre: "Catálogo", descripcion: "Prendas, precios y servicios" },
   { id: "personal", nombre: "Personal", descripcion: "Gestión de empleados y permisos" },
-  { id: "entregas", nombre: "Entregas", descripcion: "Control de despacho y repartidores" },
+  { id: "logistica", nombre: "Logística", descripcion: "Control de despacho y repartidores" },
   { id: "gastos", nombre: "Gastos", descripcion: "Registro de egresos y compras" },
   { id: "reportes", nombre: "Reportes", descripcion: "Estadísticas y análisis financiero" },
   { id: "configuracion", nombre: "Configuración", descripcion: "Ajustes de la lavandería" },
@@ -425,13 +426,13 @@ export function getPermisosPorRol(rol: RolEmpleado): string[] {
     case "ADMIN":
       return PERMISOS_SISTEMA.map((p) => p.id);
     case "SUPERVISOR":
-      return ["dashboard", "nueva-orden", "ordenes", "caja", "clientes", "catalogo", "entregas", "gastos", "reportes"];
+      return ["dashboard", "nueva-orden", "ordenes", "caja", "clientes", "catalogo", "logistica", "gastos", "reportes"];
     case "VENDEDOR":
       return ["dashboard", "nueva-orden", "ordenes", "caja", "clientes"];
     case "RECEPCIONISTA":
       return ["nueva-orden", "clientes", "ordenes"];
     case "REPARTIDOR":
-      return ["entregas"];
+      return ["logistica"];
     default:
       return [];
   }
@@ -459,7 +460,8 @@ export async function getPlans(): Promise<Plan[]> {
         modulos: {
           whatsapp: !!p.whatsapp,
           facturacion_fiscal: !!p.facturacion_fiscal,
-          multisucursal: !!p.multisucursal
+          multisucursal: !!p.multisucursal,
+          logistica: !!p.logistica
         },
         limite_whatsapp_mes: p.limite_whatsapp_mes || 0,
         destacado: !!p.destacado,
@@ -1028,6 +1030,7 @@ export async function savePlan(p: Plan) {
       whatsapp: p.modulos.whatsapp,
       facturacion_fiscal: p.modulos.facturacion_fiscal,
       multisucursal: p.modulos.multisucursal,
+      logistica: p.modulos.logistica,
       limite_whatsapp_mes: p.limite_whatsapp_mes,
       destacado: p.destacado,
       polar_product_monthly_url: p.polar_product_monthly_url,
@@ -1209,12 +1212,26 @@ export async function getMonthlyOrderCount(tenantId: string): Promise<number> {
   }).length;
 }
 
-export async function checkPlanLimits(tenant: Tenant) {
+export async function checkPlanLimits(tenant: Tenant | string) {
+  // Asegurar que tenemos el objeto tenant completo
+  const t = typeof tenant === 'string' ? await getTenantById(tenant) : tenant;
+  if (!t || t.id === '__loading__') {
+    return {
+      plan: PLANS[0],
+      orderCount: 0,
+      employeeCount: 0,
+      ordersReached: false,
+      employeesReached: false,
+      orderLimit: PLANS[0].limite_ordenes_mes,
+      employeeLimit: PLANS[0].limite_empleados
+    };
+  }
+
   const plans = await getPlans();
-  const plan = plans.find(p => p.id === tenant.plan_id) || PLANS[0];
+  const plan = plans.find(p => p.id === t.plan_id) || PLANS[0];
   
-  const orderCount = await getMonthlyOrderCount(tenant.id);
-  const employeeCount = (await getEmpleados(tenant.id)).filter(e => e.rol !== "ADMIN").length;
+  const orderCount = await getMonthlyOrderCount(t.id);
+  const employeeCount = (await getEmpleados(t.id)).filter(e => e.rol !== "ADMIN").length;
   
   const ordersReached = plan.limite_ordenes_mes !== null && orderCount >= plan.limite_ordenes_mes;
   const employeesReached = employeeCount >= plan.limite_empleados;
@@ -1291,7 +1308,7 @@ export function can(empleado: Empleado, action: string): boolean {
   if (rol === "SUPERVISOR") return action !== "configuracion" && action !== "gestionar_personal" && action !== "personal";
   if (rol === "VENDEDOR") return ["dashboard", "crear_orden", "nueva-orden", "aplicar_descuento", "ver_caja", "caja", "ordenes", "clientes"].includes(action);
   if (rol === "RECEPCIONISTA") return ["nueva-orden", "gestionar_clientes", "clientes", "ordenes"].includes(action);
-  if (rol === "REPARTIDOR") return ["entregas"].includes(action);
+  if (rol === "REPARTIDOR") return ["logistica"].includes(action);
   return false;
 }
 

@@ -448,7 +448,7 @@ function LandingPage() {
                 transition={{ duration: 0.5, delay: i * 0.05 }}
                 className="group rounded-2xl border border-border bg-surface p-6 shadow-card transition hover:-translate-y-1 hover:shadow-elegant"
               >
-                <div className="mb-4 inline-flex h-11 w-11 items-center justify-center rounded-xl bg-accent text-accent-foreground transition group-hover:bg-gradient-primary group-hover:text-primary-foreground">
+                <div className="mb-4 inline-flex h-11 w-11 items-center justify-center rounded-xl bg-primary/10 text-primary transition group-hover:bg-primary/20">
                   <f.icon className="h-5 w-5" />
                 </div>
                 <h3 className="mb-2 text-xl">{f.title}</h3>
@@ -590,6 +590,7 @@ function LandingPage() {
                     <Feature on={plan.modulos.whatsapp}>Notificaciones WhatsApp</Feature>
                     <Feature on={plan.modulos.facturacion_fiscal}>Facturación Fiscal NCF</Feature>
                     <Feature on={plan.modulos.multisucursal}>Multi-sucursal</Feature>
+                    <Feature on={plan.modulos.logistica}>Logística y Repartidores</Feature>
                   </ul>
 
                   {polarUrl ? (
@@ -732,7 +733,7 @@ function LandingPage() {
           </div>
           <div className="mt-10 flex flex-col items-center justify-between gap-3 border-t border-border pt-6 md:flex-row">
             <p className="text-xs text-muted-foreground">
-              © {new Date().getFullYear()} Klynn S.R.L. · Hecho con 🧼 en República Dominicana
+              © {new Date().getFullYear()} Klynn · Hecho con 🧼 en República Dominicana
             </p>
             <div className="flex items-center gap-4 text-xs text-muted-foreground">
               <Link to="/terminos" className="hover:text-foreground">Términos</Link>
