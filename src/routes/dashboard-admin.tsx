@@ -9,11 +9,13 @@ import { useRequireAuth } from "@/lib/useRequireAuth";
 import { 
   getTenantsForUser, 
   getOrdenes, 
+  getPlans,
   formatRD, 
   setActiveTenant,
   setSession,
   logout,
-  type Tenant 
+  type Tenant,
+  type Plan 
 } from "@/lib/storage";
 import { toast } from "sonner";
 
@@ -26,6 +28,7 @@ function DashboardAdminPage() {
   const auth = useRequireAuth();
   const navigate = useNavigate();
   const [myTenants, setMyTenants] = useState<Tenant[]>([]);
+  const [plans, setPlans] = useState<Plan[]>([]);
   const [tenantStats, setTenantStats] = useState<Record<string, { count: number; total: number }>>({}); 
   const [stats, setStats] = useState({ totalIngresos: 0, totalOrdenesCount: 0, activasCount: 0 });
   const [loading, setLoading] = useState(true);
@@ -53,7 +56,19 @@ function DashboardAdminPage() {
       setLoading(false);
     }
     load();
+    getPlans().then(setPlans);
   }, [auth?.empleado.email]);
+
+  const canAddMore = useMemo(() => {
+    if (loading) return true;
+    // Si no tiene ninguna sucursal todavía, permitimos la primera
+    if (myTenants.length === 0) return true;
+    // Si tiene al menos una sucursal, revisamos si alguna de ellas tiene el módulo multisucursal activo en su plan
+    return myTenants.some(t => {
+      const p = plans.find(plan => plan.id === t.plan_id);
+      return p?.modulos.multisucursal;
+    });
+  }, [myTenants, plans, loading]);
 
   function handleManage(tenantId: string, slug: string) {
     setSession({ empleado_id: auth?.empleado.id || 'admin', tenant_id: tenantId, iniciado_en: new Date().toISOString() });
@@ -99,11 +114,21 @@ function DashboardAdminPage() {
             <h1 className="font-display text-4xl tracking-tight">Panel central de Propietario</h1>
             <p className="mt-1 text-muted-foreground">Administra tus lavanderías registradas en Klynn.</p>
           </div>
-          <Link to="/nueva-sucursal">
-            <Button className="bg-primary text-white hover:bg-primary/90 h-9 px-5 rounded-lg shadow-md transition-all active:scale-95 font-bold">
-              <Building2 className="mr-2 h-4 w-4" /> Registrar nueva sucursal
+          {canAddMore ? (
+            <Link to="/nueva-sucursal">
+              <Button className="bg-primary text-white hover:bg-primary/90 h-9 px-5 rounded-lg shadow-md transition-all active:scale-95 font-bold">
+                <Building2 className="mr-2 h-4 w-4" /> Registrar nueva sucursal
+              </Button>
+            </Link>
+          ) : (
+            <Button 
+              disabled 
+              className="bg-muted text-muted-foreground h-9 px-5 rounded-lg shadow-none font-bold"
+              title="Tu plan actual no permite múltiples sucursales"
+            >
+              <Building2 className="mr-2 h-4 w-4" /> Registrar nueva sucursal (Plan Superior)
             </Button>
-          </Link>
+          )}
         </div>
 
         {/* KPIs replicados de admin.tsx */}

@@ -1,4 +1,4 @@
-import { createFileRoute } from "@tanstack/react-router";
+import { createFileRoute, Link } from "@tanstack/react-router";
 import { compressImage } from "@/lib/compressImage";
 import { useState, useEffect } from "react";
 import { useRequireAuth } from "@/lib/useRequireAuth";
@@ -24,16 +24,21 @@ import {
   AlertDialogTrigger,
 } from "@/components/ui/alert-dialog";
 import {
-  saveTenant, DEFAULT_CONFIG, formatPhoneRD, PROVINCIAS_RD, NCF_TIPOS,
+  saveTenant, DEFAULT_CONFIG, formatPhoneRD, formatCedulaRD, PROVINCIAS_RD, NCF_TIPOS,
   formatAmountInput, parseAmount, getPlans, updateTenantPlan, getGlobalConfig, formatRD,
-  type Tenant, type TenantConfig, type WhatsAppConfig, type PlanId, type Gasto,
+  getTenantPlan,
+  type Tenant, type TenantConfig, type WhatsAppConfig, type PlanId, type Plan, type Gasto,
+  type GlobalConfig, type BankDetails
 } from "@/lib/storage";
 import { notificarWhatsApp } from "@/lib/whatsapp";
 import { toast } from "sonner";
 import { 
-  MessageCircle, Send, Loader2, Save, Trash2, Image as ImageIcon, Upload,
-  User, Palette, FileText, Banknote, CreditCard
+  Building2, Shield, TrendingUp, Users, Trash2, ExternalLink, Plus, Pencil, 
+  RefreshCw, Package, LogOut, MoreHorizontal, Key, Droplets as DropletsIcon,
+  CreditCard, MessageCircle, Send, Loader2, Save, Image as ImageIcon, Upload,
+  User, Palette, FileText, Banknote, Star, Sparkles, ArrowRight, Copy, Smartphone, CheckCircle2
 } from "lucide-react";
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
 
 export const Route = createFileRoute("/t/$slug/configuracion")({ component: ConfigPage });
 
@@ -57,12 +62,25 @@ function ConfigPage() {
   const [activeTab, setActiveTab] = useState("perfil");
   const [billingPeriod, setBillingPeriod] = useState<"monthly" | "yearly">("monthly");
   const [plans, setPlans] = useState<Plan[]>([]);
+  const [globalConfig, setGlobalConfig] = useState<GlobalConfig | null>(null);
+  const [selectedPlan, setSelectedPlan] = useState<Plan | null>(null);
+  const [showCheckout, setShowCheckout] = useState(false);
+  const [showSuccess, setShowSuccess] = useState(false);
 
   useEffect(() => {
     if (auth?.tenant && auth.tenant.id !== '__loading__' && !tenant) {
       setTenant(auth.tenant);
     }
     getPlans().then(setPlans);
+    getGlobalConfig().then(setGlobalConfig);
+
+    // Detectar retorno de pago exitoso
+    const params = new URLSearchParams(window.location.search);
+    if (params.get('polar_success') === 'true') {
+      setShowSuccess(true);
+      // Limpiar el parámetro de la URL
+      window.history.replaceState({}, '', window.location.pathname);
+    }
   }, [auth, tenant]);
 
   if (!auth || auth.tenant.id === '__loading__' || !tenant) return null;
@@ -112,7 +130,6 @@ function ConfigPage() {
             { id: 'caja', label: 'Caja & ITBIS', icon: Banknote },
             { id: 'whatsapp', label: 'WhatsApp', icon: MessageCircle },
             { id: 'plan', label: 'Plan', icon: CreditCard },
-            { id: 'sync', label: 'Sincronizar', icon: RefreshCw }
           ].map(t => (
             <TabsTrigger 
               key={t.id}
@@ -141,7 +158,7 @@ function ConfigPage() {
               {/* RNC condicional */}
               {cfg.ncf_facturacion_activa && (
                 <div className="grid gap-4 md:grid-cols-3">
-                  <Field label="RNC"><Input className={FIELD} placeholder="Ej: 131-12345-6" value={tenant.rnc || ""} onChange={(e) => setTenant({ ...tenant, rnc: e.target.value })} /></Field>
+                  <Field label="RNC"><Input className={FIELD} placeholder="Ej: 402-..." value={tenant.rnc || ""} onChange={(e) => setTenant({ ...tenant, rnc: formatCedulaRD(e.target.value) })} /></Field>
                 </div>
               )}
 
@@ -457,93 +474,45 @@ function ConfigPage() {
                     </div>
                     
                     <div className="space-y-2 mb-6">
-                      <div className="text-xs flex items-center gap-2">✅ {p.limite_empleados} empleados</div>
-                      <div className="text-xs flex items-center gap-2">✅ {p.limite_ordenes_mes ?? "∞"} órdenes/mes</div>
+                      <div className="text-xs flex items-center gap-2">✅ {p.limite_empleados} Empleados</div>
+                      <div className="text-xs flex items-center gap-2">✅ {p.limite_ordenes_mes ?? "∞"} Órdenes/mes</div>
+                      <div className="text-xs flex items-center gap-2 font-medium text-blue-600">✅ {(p.limite_whatsapp_mes || 0).toLocaleString()} Mensajes WhatsApp/mes</div>
                       {Object.entries(p.modulos).map(([k, v]) => (
                         <div key={k} className={`text-xs flex items-center gap-2 ${v ? "text-foreground" : "text-muted-foreground opacity-50"}`}>
-                          {v ? "✅" : "❌"} {k.replace(/_/g, " ")}
+                          {v ? "✅" : "❌"} {k.charAt(0).toUpperCase() + k.slice(1).replace(/_/g, " ")}
                         </div>
                       ))}
                     </div>
 
-                    <AlertDialog>
-                      <AlertDialogTrigger asChild>
                         <Button 
                           className="mt-auto h-10 rounded-xl font-bold" 
                           variant={isCurrent ? "outline" : "default"}
                           disabled={isCurrent}
+                          onClick={() => { setSelectedPlan(p); setShowCheckout(true); }}
                         >
                           {isCurrent ? "Tu plan" : "Cambiar plan"}
                         </Button>
-                      </AlertDialogTrigger>
-                      <AlertDialogContent className="rounded-2xl border-none shadow-card">
-                        <AlertDialogHeader>
-                          <AlertDialogTitle>¿Confirmar cambio de plan?</AlertDialogTitle>
-                          <AlertDialogDescription>
-                            Estás a punto de cambiar al plan <strong>{p.nombre}</strong>. 
-                            Los nuevos límites y funciones se aplicarán inmediatamente.
-                          </AlertDialogDescription>
-                        </AlertDialogHeader>
-                        <AlertDialogFooter>
-                          <AlertDialogCancel className="rounded-xl">Cancelar</AlertDialogCancel>
-                          <AlertDialogAction 
-                            className="rounded-xl bg-primary text-white"
-                            onClick={async () => {
-                              try {
-                                await updateTenantPlan(tenant.id, p.id);
-                                toast.success("Plan actualizado correctamente");
-                                setTimeout(() => window.location.reload(), 1000);
-                              } catch (err: any) {
-                                toast.error("Error al actualizar plan");
-                              }
-                            }}
-                          >
-                            Confirmar cambio
-                          </AlertDialogAction>
-                        </AlertDialogFooter>
-                      </AlertDialogContent>
-                    </AlertDialog>
                   </Card>
                 )
               })}
             </div>
           </div>
-        </TabsContent>
-        <TabsContent value="sync">
-          <Card className={CARD}>
-            <div className="flex flex-col items-center text-center py-8">
-              <div className="h-16 w-16 bg-primary/10 rounded-full flex items-center justify-center mb-4 text-primary">
-                <RefreshCw className="h-8 w-8" />
-              </div>
-              <h3 className="font-display text-2xl mb-2">Sincronización con la Nube</h3>
-              <p className="text-muted-foreground max-w-md mb-8">
-                Si tenías órdenes, clientes o productos guardados anteriormente en este navegador, 
-                puedes subirlos ahora a tu base de datos central en Supabase.
-              </p>
-              
-              <Button 
-                onClick={async () => {
-                  const loader = toast.loading("Migrando datos locales...");
-                  try {
-                    const { migrateLocalDataToSupabase } = await import("@/lib/storage");
-                    const res = await migrateLocalDataToSupabase(tenant.id);
-                    toast.dismiss(loader);
-                    if (res.ordenes > 0 || res.clientes > 0 || res.catalogo > 0 || res.gastos > 0) {
-                      toast.success(`¡Migración exitosa! (${res.ordenes} órdenes, ${res.clientes} clientes)`);
-                    } else {
-                      toast.info("No se encontraron datos locales para migrar.");
-                    }
-                  } catch (e) {
-                    toast.dismiss(loader);
-                    toast.error("Error durante la migración.");
-                  }
-                }}
-                className="bg-gradient-primary text-white h-12 px-8 rounded-xl font-bold shadow-lg transition-all active:scale-95"
-              >
-                Subir datos locales a la Nube
-              </Button>
-            </div>
-          </Card>
+
+          <SubscriptionModal 
+            open={showCheckout} 
+            onOpenChange={setShowCheckout} 
+            plan={selectedPlan} 
+            period={billingPeriod}
+            bank={globalConfig?.bankDetails}
+            tenant={tenant}
+            onSuccess={() => { setShowCheckout(false); setShowSuccess(true); }}
+          />
+
+          <SuccessModal 
+            open={showSuccess} 
+            onOpenChange={setShowSuccess} 
+            planName={selectedPlan?.nombre || ""} 
+          />
         </TabsContent>
       </Tabs>
     </div>
@@ -603,15 +572,46 @@ function WhatsAppTab({ tenant, wa, saveWA, enabled }: {
     else toast.error("Error: " + (r.reason || "desconocido"));
   }
 
-  const formatPhone = (val: string) => {
-    const d = val.replace(/\D/g, "").substring(0, 10);
-    if (d.length <= 3) return d;
-    if (d.length <= 6) return `${d.substring(0, 3)}-${d.substring(3)}`;
-    return `${d.substring(0, 3)}-${d.substring(3, 6)}-${d.substring(6)}`;
-  };
 
   return (
     <Card className={CARD + " relative overflow-hidden"}>
+      {/* Barra de progreso de uso */}
+      <div className="px-6 py-4 bg-slate-50/80 border-b border-border flex flex-col md:flex-row md:items-center justify-between gap-4">
+        <div className="flex-1">
+          <div className="flex justify-between items-end mb-1.5">
+            <span className="text-[10px] font-bold uppercase tracking-widest text-slate-500">Uso Mensual de WhatsApp</span>
+            <span className="text-xs font-bold text-primary">
+              {tenant.whatsapp_sent_month || 0} / {(getTenantPlan(tenant).limite_whatsapp_mes || 0).toLocaleString()}
+            </span>
+          </div>
+          <div className="h-2 bg-slate-200 rounded-full overflow-hidden">
+            <div 
+              className={`h-full transition-all duration-500 ${
+                ((tenant.whatsapp_sent_month || 0) / getTenantPlan(tenant).limite_whatsapp_mes) > 0.9 ? 'bg-red-500' : 'bg-primary'
+              }`}
+              style={{ width: `${Math.min(100, ((tenant.whatsapp_sent_month || 0) / getTenantPlan(tenant).limite_whatsapp_mes) * 100)}%` }}
+            />
+          </div>
+        </div>
+        <div className="flex items-center gap-2">
+          {((tenant.whatsapp_sent_month || 0) / getTenantPlan(tenant).limite_whatsapp_mes) > 0.8 && (
+            <span className="text-[10px] bg-red-100 text-red-600 px-2 py-0.5 rounded font-bold animate-pulse">LÍMITE CERCA</span>
+          )}
+          <Button 
+            variant="outline" 
+            size="sm" 
+            className="h-7 text-[10px] rounded-lg font-bold border-primary/20 hover:bg-primary/5"
+            onClick={() => {
+              const tab = document.querySelector('[data-value="plan"]') as HTMLElement;
+              tab?.click();
+            }}
+          >
+            MEJORAR PLAN
+          </Button>
+        </div>
+      </div>
+
+      <div className="p-6 pt-6">
       {!enabled && (
         <div className="absolute inset-0 z-50 flex items-center justify-center bg-background/60 backdrop-blur-[2px]">
           <div className="bg-white p-8 rounded-3xl shadow-2xl border border-border text-center max-w-sm mx-4">
@@ -632,6 +632,8 @@ function WhatsAppTab({ tenant, wa, saveWA, enabled }: {
           </div>
         </div>
       )}
+      
+      {/* Contenedor p-6 original si es necesario, pero ya lo moví arriba */}
 
       <div className={!enabled ? "opacity-40 pointer-events-none grayscale-[50%]" : ""}>
         <div className="mb-8 flex items-start gap-4">
@@ -693,7 +695,7 @@ function WhatsAppTab({ tenant, wa, saveWA, enabled }: {
 
         <div className="mt-8 flex flex-wrap items-end gap-3 rounded-2xl bg-muted/30 p-6 border border-border/50">
           <Field label="Probar al número">
-            <Input className={FIELD + " w-56 bg-background"} value={testPhone} onChange={(e) => setTestPhone(formatPhone(e.target.value))} placeholder="829-000-0000" />
+            <Input className={FIELD + " w-56 bg-background"} value={testPhone} onChange={(e) => setTestPhone(formatPhoneRD(e.target.value))} placeholder="829-000-0000" />
           </Field>
           <Button variant="outline" className="h-11 rounded-xl font-bold" disabled={sending || !draft.api_key} onClick={probar}>
             {sending ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Send className="mr-2 h-4 w-4" />} Enviar prueba
@@ -704,8 +706,9 @@ function WhatsAppTab({ tenant, wa, saveWA, enabled }: {
           </Button>
         </div>
       </div>
-    </Card>
-  );
+    </div>
+  </Card>
+);
 }
 
 function PlanBadge({ id }: { id: string }) {
@@ -719,5 +722,218 @@ function PlanBadge({ id }: { id: string }) {
     <span className={`px-3 py-0.5 rounded-full uppercase text-[10px] font-bold tracking-widest border ${config.className}`}>
       {config.label}
     </span>
+  );
+}
+
+function SubscriptionModal({ open, onOpenChange, plan, period, bank, tenant, onSuccess }: {
+  open: boolean;
+  onOpenChange: (o: boolean) => void;
+  plan: Plan | null;
+  period: "monthly" | "yearly";
+  bank?: BankDetails;
+  tenant: Tenant;
+  onSuccess: () => void;
+}) {
+  if (!plan) return null;
+
+  const price = period === "monthly" ? plan.precio_mensual : (plan.precio_anual || plan.precio_mensual * 12 * 0.85);
+  const polarUrl = period === "monthly" ? plan.polar_product_monthly_url : plan.polar_product_yearly_url;
+
+  return (
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogContent className="sm:max-w-[400px] rounded-[1.5rem] border-none shadow-elegant p-0 overflow-hidden">
+        <div className="bg-gradient-primary p-6 text-white relative overflow-hidden">
+          <div className="absolute top-0 right-0 p-4 opacity-10">
+            <CreditCard className="h-16 w-16 rotate-12" />
+          </div>
+          <div className="relative">
+            <div className="text-[10px] font-bold uppercase tracking-widest opacity-70 mb-0.5">Pasarela de Pago Segura</div>
+            <h2 className="text-2xl font-display leading-tight">Suscripción {plan.nombre}</h2>
+            <div className="mt-3 flex items-baseline gap-2">
+              <span className="text-3xl font-bold">{formatRD(price).replace("DOP", "RD$")}</span>
+              <span className="text-xs opacity-70">/{period === "monthly" ? "mes" : "año"}</span>
+            </div>
+          </div>
+        </div>
+
+        <div className="p-5 space-y-4 bg-surface">
+          <div className="grid grid-cols-1 gap-3">
+            {/* OPCIÓN 1: TARJETA */}
+            <button 
+              onClick={() => {
+                if (polarUrl) {
+                  const checkoutUrl = new URL(polarUrl);
+                  checkoutUrl.searchParams.set('customer_email', tenant.email);
+                  window.open(checkoutUrl.toString(), "_blank");
+                  toast.info("Esperando confirmación de pago...", {
+                    description: "Una vez completado el pago en Polar, tu plan se activará automáticamente.",
+                    duration: 6000
+                  });
+                } else {
+                  toast.error("Enlace de pago no configurado para este plan.");
+                }
+              }}
+              className="flex items-center gap-4 w-full p-4 rounded-2xl border-2 border-primary/10 bg-primary/5 hover:border-primary hover:bg-primary/10 transition-all text-left group relative overflow-hidden shadow-sm hover:shadow-md"
+            >
+              <div className="h-12 w-12 rounded-xl bg-primary flex items-center justify-center text-white shadow-lg shadow-primary/20 group-hover:scale-110 transition-transform duration-300">
+                <CreditCard className="h-5 w-5" />
+              </div>
+              <div className="flex-1">
+                <div className="font-bold text-base text-foreground mb-0.5">Pago con Tarjeta</div>
+                <div className="text-[10px] text-muted-foreground uppercase tracking-tight font-medium">Débito o Crédito vía Polar.sh</div>
+              </div>
+              <div className="h-6 w-6 rounded-full bg-primary/10 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-all -translate-x-2 group-hover:translate-x-0">
+                <ArrowRight className="h-3 w-3 text-primary" />
+              </div>
+            </button>
+
+            {/* OPCIÓN 2: TRANSFERENCIA */}
+            <AlertDialog>
+              <AlertDialogTrigger asChild>
+                <button className="flex items-center gap-4 w-full p-4 rounded-2xl border-2 border-border bg-surface hover:border-primary/50 transition-all text-left group shadow-sm hover:shadow-md">
+                  <div className="h-12 w-12 rounded-xl bg-accent flex items-center justify-center text-primary group-hover:scale-110 transition-transform duration-300">
+                    <Banknote className="h-5 w-5" />
+                  </div>
+                  <div className="flex-1">
+                    <div className="font-bold text-base text-foreground mb-0.5">Transferencia</div>
+                    <div className="text-[10px] text-muted-foreground uppercase tracking-tight font-medium">Pago directo a cuenta local</div>
+                  </div>
+                  <div className="h-6 w-6 rounded-full bg-accent flex items-center justify-center opacity-0 group-hover:opacity-100 transition-all -translate-x-2 group-hover:translate-x-0">
+                    <ArrowRight className="h-3 w-3 text-primary" />
+                  </div>
+                </button>
+              </AlertDialogTrigger>
+              <AlertDialogContent className="rounded-[2rem] border-none shadow-elegant max-w-[420px] p-0 overflow-hidden">
+                <div className="p-8">
+                  <AlertDialogHeader className="mb-6">
+                    <div className="h-12 w-12 rounded-2xl bg-primary/10 flex items-center justify-center mb-4">
+                      <Banknote className="h-6 w-6 text-primary" />
+                    </div>
+                    <AlertDialogTitle className="text-2xl font-display">Datos Bancarios</AlertDialogTitle>
+                    <AlertDialogDescription className="text-sm leading-relaxed">
+                      Realiza la transferencia y envíanos el comprobante por WhatsApp para activar tu plan de inmediato.
+                    </AlertDialogDescription>
+                  </AlertDialogHeader>
+                  
+                  {bank ? (
+                    <div className="bg-accent/40 rounded-3xl p-6 space-y-5 border border-border/50 relative overflow-hidden">
+                      <div className="absolute top-0 right-0 p-4 opacity-5">
+                        <Building2 className="h-20 w-20" />
+                      </div>
+                      <div className="space-y-1 relative">
+                        <div className="text-[10px] uppercase font-bold text-muted-foreground tracking-widest mb-1">Institución Bancaria</div>
+                        <div className="font-bold text-lg flex items-center justify-between">
+                          {bank.banco}
+                          <Button variant="ghost" size="icon" className="h-8 w-8 rounded-lg hover:bg-primary/10 hover:text-primary" onClick={() => { navigator.clipboard.writeText(bank.banco); toast.success("Copiado"); }}>
+                            <Copy className="h-4 w-4" />
+                          </Button>
+                        </div>
+                      </div>
+                      <div className="space-y-1 relative">
+                        <div className="text-[10px] uppercase font-bold text-muted-foreground tracking-widest mb-1">Número de Cuenta</div>
+                        <div className="font-mono text-2xl font-bold flex items-center justify-between text-primary tracking-tighter">
+                          {bank.numero_cuenta}
+                          <Button variant="ghost" size="icon" className="h-8 w-8 rounded-lg hover:bg-primary/10 hover:text-primary" onClick={() => { navigator.clipboard.writeText(bank.numero_cuenta); toast.success("Copiado"); }}>
+                            <Copy className="h-4 w-4" />
+                          </Button>
+                        </div>
+                      </div>
+                      <div className="grid grid-cols-2 gap-6 relative">
+                        <div className="space-y-1">
+                          <div className="text-[10px] uppercase font-bold text-muted-foreground tracking-widest mb-1">Tipo</div>
+                          <div className="font-bold text-sm">{bank.tipo_cuenta}</div>
+                        </div>
+                        <div className="space-y-1">
+                          <div className="text-[10px] uppercase font-bold text-muted-foreground tracking-widest mb-1">RNC / Cédula</div>
+                          <div className="font-bold text-sm">{bank.rnc}</div>
+                        </div>
+                      </div>
+                      <div className="space-y-1 border-t border-border/50 pt-4 relative">
+                        <div className="text-[10px] uppercase font-bold text-muted-foreground tracking-widest mb-1">Titular de la Cuenta</div>
+                        <div className="font-bold text-sm uppercase tracking-wide">{bank.titular}</div>
+                      </div>
+                    </div>
+                  ) : (
+                    <div className="p-8 text-center bg-accent/20 rounded-3xl border border-dashed border-border/50">
+                      <p className="text-sm text-muted-foreground">Los datos bancarios no han sido configurados por el administrador.</p>
+                    </div>
+                  )}
+
+                  <div className="grid gap-2 mt-6">
+                    <Button 
+                      className="w-full bg-[#25D366] hover:bg-[#128C7E] text-white rounded-xl font-bold h-11 shadow-md shadow-[#25D366]/10 text-sm transition-transform active:scale-95"
+                      onClick={() => {
+                        const text = encodeURIComponent(`Hola Klynn, acabo de realizar la transferencia para el plan ${plan.nombre} (${tenant.nombre}). Aquí envío el comprobante.`);
+                        window.open(`https://wa.me/18299416546?text=${text}`, "_blank");
+                      }}
+                    >
+                      <MessageCircle className="mr-2 h-4 w-4" /> ENVIAR COMPROBANTE
+                    </Button>
+                    <AlertDialogCancel className="w-full rounded-xl border-none bg-accent/50 h-10 font-bold text-xs text-muted-foreground hover:bg-accent hover:text-foreground transition-colors">Cerrar</AlertDialogCancel>
+                  </div>
+                </div>
+              </AlertDialogContent>
+            </AlertDialog>
+          </div>
+          <p className="text-center text-[10px] text-muted-foreground px-6 pb-6 leading-relaxed">
+            Al suscribirte aceptas nuestros <Link to="/terminos" className="underline hover:text-primary">Términos de Servicio</Link> y <Link to="/privacidad" className="underline hover:text-primary">Políticas de Privacidad</Link>. 
+            Los cargos se realizarán mensualmente de forma automática.
+          </p>
+        </div>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+function SuccessModal({ open, onOpenChange, planName }: { open: boolean; onOpenChange: (o: boolean) => void; planName: string }) {
+  return (
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogContent className="sm:max-w-[420px] rounded-[2.5rem] border-none shadow-elegant text-center p-0 overflow-hidden bg-surface">
+        <div className="h-32 bg-gradient-to-br from-success/20 via-success/5 to-transparent relative">
+          <div className="absolute inset-0 flex items-center justify-center">
+             <div className="h-20 w-20 rounded-[2rem] bg-white shadow-xl flex items-center justify-center rotate-12 relative -bottom-10 border border-success/10">
+                <CheckCircle2 className="h-10 w-10 text-success" />
+             </div>
+          </div>
+        </div>
+        
+        <div className="p-10 pt-16 flex flex-col items-center">
+          <h2 className="text-3xl font-display mb-3 text-foreground">¡Suscripción Activada!</h2>
+          <p className="text-muted-foreground mb-8 text-sm leading-relaxed max-w-[280px]">
+            Tu lavandería ahora tiene acceso total al plan <strong className="text-primary font-bold">{planName}</strong>. 
+            ¡Prepárate para llevar tu negocio al siguiente nivel!
+          </p>
+          
+          <div className="w-full p-5 bg-accent/30 rounded-3xl mb-10 border border-border/50 text-left relative overflow-hidden">
+            <div className="absolute top-0 right-0 p-3 opacity-10">
+              <Sparkles className="h-10 w-10 text-primary" />
+            </div>
+            <div className="flex items-center gap-3 mb-3">
+              <div className="h-2 w-2 rounded-full bg-primary animate-pulse" />
+              <span className="text-[10px] font-bold uppercase tracking-[0.2em] text-primary">Nuevos beneficios</span>
+            </div>
+            <ul className="text-xs space-y-3 text-muted-foreground">
+              <li className="flex items-center gap-3"><Star className="h-3 w-3 text-primary" /> Acceso ilimitado a reportes avanzados</li>
+              <li className="flex items-center gap-3"><Star className="h-3 w-3 text-primary" /> Mayor capacidad de órdenes y empleados</li>
+              <li className="flex items-center gap-3"><Star className="h-3 w-3 text-primary" /> Soporte VIP vía WhatsApp en minutos</li>
+            </ul>
+          </div>
+
+          <Button 
+            onClick={() => window.location.reload()} 
+            className="w-full bg-gradient-primary text-white rounded-[1.5rem] h-16 font-bold text-lg shadow-xl shadow-primary/20 hover:scale-[1.02] transition-all active:scale-95"
+          >
+            Comenzar Experiencia Premium
+          </Button>
+          
+          <button 
+            onClick={() => onOpenChange(false)}
+            className="mt-6 text-xs text-muted-foreground hover:text-foreground transition-colors font-medium underline underline-offset-4"
+          >
+            Cerrar esta ventana
+          </button>
+        </div>
+      </DialogContent>
+    </Dialog>
   );
 }

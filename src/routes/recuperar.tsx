@@ -119,7 +119,7 @@ function RecuperarPage() {
                         value={email} 
                         onChange={e => setEmail(e.target.value)} 
                         type="email" 
-                        placeholder="admin@klynn.com" 
+                        placeholder="admin@klynn.com.do" 
                         className="pl-11 h-12 border-slate-200 focus:border-primary transition-all rounded-xl" 
                       />
                     </div>
@@ -171,7 +171,7 @@ function RecuperarPage() {
 
           <div className="mt-6 text-center text-sm text-muted-foreground">
             ¿Necesitas ayuda?{' '}
-            <a href="mailto:soporte@klynn.com" className="font-bold text-primary hover:underline">
+            <a href="mailto:soporte@klynn.com.do" className="font-bold text-primary hover:underline">
               Contactar soporte
             </a>
           </div>

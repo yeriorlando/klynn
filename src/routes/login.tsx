@@ -14,7 +14,7 @@ export const Route = createFileRoute("/login")({
   head: () => ({
     meta: [
       { title: "Iniciar sesión — Klynn" },
-      { name: "description", content: "Accede a tu panel de lavandería en LavanderX." },
+      { name: "description", content: "Accede a tu panel de lavandería en Klynn." },
     ],
   }),
   component: LoginPage,
@@ -133,9 +133,9 @@ function LoginPage() {
         <div className="absolute -right-24 -top-24 h-80 w-80 rounded-full bg-primary/10 blur-3xl" />
         <div className="absolute -bottom-32 -left-20 h-96 w-96 rounded-full bg-primary/5 blur-3xl" />
 
-        <Link to="/" className="relative z-10">
+        <div className="relative z-10">
           <Logo size="lg" iconColor="white" className="[&>span]:text-white" />
-        </Link>
+        </div>
 
         <div className="relative z-10 flex flex-1 flex-col items-center justify-center text-center text-white">
           <motion.div

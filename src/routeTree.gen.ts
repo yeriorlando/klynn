@@ -9,12 +9,15 @@
 // Additionally, you should also exclude this file from your linter and/or formatter to prevent it from being checked or modified.
 
 import { Route as rootRouteImport } from './routes/__root'
+import { Route as TerminosRouteImport } from './routes/terminos'
 import { Route as RestablecerContrasenaRouteImport } from './routes/restablecer-contrasena'
 import { Route as RegistroRouteImport } from './routes/registro'
 import { Route as RecuperarRouteImport } from './routes/recuperar'
+import { Route as PrivacidadRouteImport } from './routes/privacidad'
 import { Route as NuevaSucursalRouteImport } from './routes/nueva-sucursal'
 import { Route as LoginRouteImport } from './routes/login'
 import { Route as DashboardAdminRouteImport } from './routes/dashboard-admin'
+import { Route as CookiesRouteImport } from './routes/cookies'
 import { Route as AdminRouteImport } from './routes/admin'
 import { Route as IndexRouteImport } from './routes/index'
 import { Route as TSlugRouteImport } from './routes/t.$slug'
@@ -31,6 +34,11 @@ import { Route as TSlugClientesRouteImport } from './routes/t.$slug.clientes'
 import { Route as TSlugCatalogoRouteImport } from './routes/t.$slug.catalogo'
 import { Route as TSlugCajaRouteImport } from './routes/t.$slug.caja'
 
+const TerminosRoute = TerminosRouteImport.update({
+  id: '/terminos',
+  path: '/terminos',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const RestablecerContrasenaRoute = RestablecerContrasenaRouteImport.update({
   id: '/restablecer-contrasena',
   path: '/restablecer-contrasena',
@@ -46,6 +54,11 @@ const RecuperarRoute = RecuperarRouteImport.update({
   path: '/recuperar',
   getParentRoute: () => rootRouteImport,
 } as any)
+const PrivacidadRoute = PrivacidadRouteImport.update({
+  id: '/privacidad',
+  path: '/privacidad',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const NuevaSucursalRoute = NuevaSucursalRouteImport.update({
   id: '/nueva-sucursal',
   path: '/nueva-sucursal',
@@ -59,6 +72,11 @@ const LoginRoute = LoginRouteImport.update({
 const DashboardAdminRoute = DashboardAdminRouteImport.update({
   id: '/dashboard-admin',
   path: '/dashboard-admin',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const CookiesRoute = CookiesRouteImport.update({
+  id: '/cookies',
+  path: '/cookies',
   getParentRoute: () => rootRouteImport,
 } as any)
 const AdminRoute = AdminRouteImport.update({
@@ -140,12 +158,15 @@ const TSlugCajaRoute = TSlugCajaRouteImport.update({
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
   '/admin': typeof AdminRoute
+  '/cookies': typeof CookiesRoute
   '/dashboard-admin': typeof DashboardAdminRoute
   '/login': typeof LoginRoute
   '/nueva-sucursal': typeof NuevaSucursalRoute
+  '/privacidad': typeof PrivacidadRoute
   '/recuperar': typeof RecuperarRoute
   '/registro': typeof RegistroRoute
   '/restablecer-contrasena': typeof RestablecerContrasenaRoute
+  '/terminos': typeof TerminosRoute
   '/t/$slug': typeof TSlugRouteWithChildren
   '/t/$slug/caja': typeof TSlugCajaRoute
   '/t/$slug/catalogo': typeof TSlugCatalogoRoute
@@ -163,12 +184,15 @@ export interface FileRoutesByFullPath {
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
   '/admin': typeof AdminRoute
+  '/cookies': typeof CookiesRoute
   '/dashboard-admin': typeof DashboardAdminRoute
   '/login': typeof LoginRoute
   '/nueva-sucursal': typeof NuevaSucursalRoute
+  '/privacidad': typeof PrivacidadRoute
   '/recuperar': typeof RecuperarRoute
   '/registro': typeof RegistroRoute
   '/restablecer-contrasena': typeof RestablecerContrasenaRoute
+  '/terminos': typeof TerminosRoute
   '/t/$slug/caja': typeof TSlugCajaRoute
   '/t/$slug/catalogo': typeof TSlugCatalogoRoute
   '/t/$slug/clientes': typeof TSlugClientesRoute
@@ -186,12 +210,15 @@ export interface FileRoutesById {
   __root__: typeof rootRouteImport
   '/': typeof IndexRoute
   '/admin': typeof AdminRoute
+  '/cookies': typeof CookiesRoute
   '/dashboard-admin': typeof DashboardAdminRoute
   '/login': typeof LoginRoute
   '/nueva-sucursal': typeof NuevaSucursalRoute
+  '/privacidad': typeof PrivacidadRoute
   '/recuperar': typeof RecuperarRoute
   '/registro': typeof RegistroRoute
   '/restablecer-contrasena': typeof RestablecerContrasenaRoute
+  '/terminos': typeof TerminosRoute
   '/t/$slug': typeof TSlugRouteWithChildren
   '/t/$slug/caja': typeof TSlugCajaRoute
   '/t/$slug/catalogo': typeof TSlugCatalogoRoute
@@ -211,12 +238,15 @@ export interface FileRouteTypes {
   fullPaths:
     | '/'
     | '/admin'
+    | '/cookies'
     | '/dashboard-admin'
     | '/login'
     | '/nueva-sucursal'
+    | '/privacidad'
     | '/recuperar'
     | '/registro'
     | '/restablecer-contrasena'
+    | '/terminos'
     | '/t/$slug'
     | '/t/$slug/caja'
     | '/t/$slug/catalogo'
@@ -234,12 +264,15 @@ export interface FileRouteTypes {
   to:
     | '/'
     | '/admin'
+    | '/cookies'
     | '/dashboard-admin'
     | '/login'
     | '/nueva-sucursal'
+    | '/privacidad'
     | '/recuperar'
     | '/registro'
     | '/restablecer-contrasena'
+    | '/terminos'
     | '/t/$slug/caja'
     | '/t/$slug/catalogo'
     | '/t/$slug/clientes'
@@ -256,12 +289,15 @@ export interface FileRouteTypes {
     | '__root__'
     | '/'
     | '/admin'
+    | '/cookies'
     | '/dashboard-admin'
     | '/login'
     | '/nueva-sucursal'
+    | '/privacidad'
     | '/recuperar'
     | '/registro'
     | '/restablecer-contrasena'
+    | '/terminos'
     | '/t/$slug'
     | '/t/$slug/caja'
     | '/t/$slug/catalogo'
@@ -280,17 +316,27 @@ export interface FileRouteTypes {
 export interface RootRouteChildren {
   IndexRoute: typeof IndexRoute
   AdminRoute: typeof AdminRoute
+  CookiesRoute: typeof CookiesRoute
   DashboardAdminRoute: typeof DashboardAdminRoute
   LoginRoute: typeof LoginRoute
   NuevaSucursalRoute: typeof NuevaSucursalRoute
+  PrivacidadRoute: typeof PrivacidadRoute
   RecuperarRoute: typeof RecuperarRoute
   RegistroRoute: typeof RegistroRoute
   RestablecerContrasenaRoute: typeof RestablecerContrasenaRoute
+  TerminosRoute: typeof TerminosRoute
   TSlugRoute: typeof TSlugRouteWithChildren
 }
 
 declare module '@tanstack/react-router' {
   interface FileRoutesByPath {
+    '/terminos': {
+      id: '/terminos'
+      path: '/terminos'
+      fullPath: '/terminos'
+      preLoaderRoute: typeof TerminosRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/restablecer-contrasena': {
       id: '/restablecer-contrasena'
       path: '/restablecer-contrasena'
@@ -312,6 +358,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof RecuperarRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/privacidad': {
+      id: '/privacidad'
+      path: '/privacidad'
+      fullPath: '/privacidad'
+      preLoaderRoute: typeof PrivacidadRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/nueva-sucursal': {
       id: '/nueva-sucursal'
       path: '/nueva-sucursal'
@@ -331,6 +384,13 @@ declare module '@tanstack/react-router' {
       path: '/dashboard-admin'
       fullPath: '/dashboard-admin'
       preLoaderRoute: typeof DashboardAdminRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/cookies': {
+      id: '/cookies'
+      path: '/cookies'
+      fullPath: '/cookies'
+      preLoaderRoute: typeof CookiesRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/admin': {
@@ -476,12 +536,15 @@ const TSlugRouteWithChildren = TSlugRoute._addFileChildren(TSlugRouteChildren)
 const rootRouteChildren: RootRouteChildren = {
   IndexRoute: IndexRoute,
   AdminRoute: AdminRoute,
+  CookiesRoute: CookiesRoute,
   DashboardAdminRoute: DashboardAdminRoute,
   LoginRoute: LoginRoute,
   NuevaSucursalRoute: NuevaSucursalRoute,
+  PrivacidadRoute: PrivacidadRoute,
   RecuperarRoute: RecuperarRoute,
   RegistroRoute: RegistroRoute,
   RestablecerContrasenaRoute: RestablecerContrasenaRoute,
+  TerminosRoute: TerminosRoute,
   TSlugRoute: TSlugRouteWithChildren,
 }
 export const routeTree = rootRouteImport

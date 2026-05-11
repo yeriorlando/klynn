@@ -13,14 +13,26 @@ export interface Plan {
   modulos: {
     whatsapp: boolean;
     facturacion_fiscal: boolean;
+    multisucursal: boolean;
   };
   destacado?: boolean;
+  polar_product_monthly_url?: string;
+  polar_product_yearly_url?: string;
+}
+
+export interface BankDetails {
+  banco: string;
+  titular: string;
+  rnc: string;
+  tipo_cuenta: string;
+  numero_cuenta: string;
 }
 
 export interface GlobalConfig {
   requirePlanOnRegistration: boolean;
   trialDays: number;
   defaultPlanId: PlanId;
+  bankDetails?: BankDetails;
 }
 
 export type RolEmpleado = "ADMIN" | "SUPERVISOR" | "VENDEDOR" | "RECEPCIONISTA" | "REPARTIDOR";
@@ -57,6 +69,8 @@ export interface Tenant {
   trial_hasta: string;
   creado_en: string;
   config?: TenantConfig;
+  whatsapp_sent_month?: number;
+  whatsapp_last_reset?: string;
 }
 
 export interface TenantConfig {
@@ -235,33 +249,61 @@ const KEY = {
 
 export const ADMIN_EMAILS = ['admin@klynn.com.do', 'admin@flowchat.do'];
 
+export interface Plan {
+  id: PlanId;
+  nombre: string;
+  precio_mensual: number;
+  precio_anual?: number;
+  limite_empleados: number;
+  limite_ordenes_mes: number | null;
+  limite_whatsapp_mes: number; // Nuevo límite
+  modulos: {
+    whatsapp: boolean;
+    facturacion_fiscal: boolean;
+  };
+  destacado?: boolean;
+  polar_product_monthly_url?: string;
+  polar_product_yearly_url?: string;
+}
+
 export const PLANS: Plan[] = [
   {
     id: "basico",
     nombre: "Básico",
-    precio_mensual: 1500,
-    limite_empleados: 3,
+    precio_mensual: 1300,
+    precio_anual: 12000,
+    limite_empleados: 2,
     limite_ordenes_mes: 300,
-    modulos: { whatsapp: false, facturacion_fiscal: false },
+    limite_whatsapp_mes: 300,
+    modulos: { whatsapp: true, facturacion_fiscal: true, multisucursal: false },
   },
   {
     id: "pro",
     nombre: "Pro",
-    precio_mensual: 3500,
+    precio_mensual: 2800,
+    precio_anual: 28500,
     limite_empleados: 10,
-    limite_ordenes_mes: 2000,
-    modulos: { whatsapp: true, facturacion_fiscal: true },
+    limite_ordenes_mes: 1000,
+    limite_whatsapp_mes: 1000,
+    modulos: { whatsapp: true, facturacion_fiscal: false, multisucursal: true },
     destacado: true,
   },
   {
     id: "enterprise",
     nombre: "Enterprise",
-    precio_mensual: 7500,
+    precio_mensual: 10000,
+    precio_anual: 110000,
     limite_empleados: 999,
     limite_ordenes_mes: null,
-    modulos: { whatsapp: true, facturacion_fiscal: true },
+    limite_whatsapp_mes: 5000,
+    modulos: { whatsapp: true, facturacion_fiscal: false, multisucursal: true },
   },
 ];
+
+export function getTenantPlan(tenant: Tenant | null): Plan {
+  if (!tenant) return PLANS[0];
+  return PLANS.find(p => p.id === tenant.plan_id) || PLANS[0];
+}
 
 export const DEFAULT_CONFIG: TenantConfig = {
   itbis_incluido: false,
@@ -416,9 +458,13 @@ export async function getPlans(): Promise<Plan[]> {
         limite_ordenes_mes: p.limite_ordenes_mes,
         modulos: {
           whatsapp: !!p.whatsapp,
-          facturacion_fiscal: !!p.facturacion_fiscal
+          facturacion_fiscal: !!p.facturacion_fiscal,
+          multisucursal: !!p.multisucursal
         },
-        destacado: !!p.destacado
+        limite_whatsapp_mes: p.limite_whatsapp_mes || 0,
+        destacado: !!p.destacado,
+        polar_product_monthly_url: p.polar_product_monthly_url,
+        polar_product_yearly_url: p.polar_product_yearly_url
       }));
     }
   } catch (e) {
@@ -578,7 +624,7 @@ export async function updateTenantPlan(tenantId: string, planId: PlanId) {
   return !error;
 }
 
-const DEFAULT_GLOBAL_CONFIG: GlobalConfig = {
+export const DEFAULT_GLOBAL_CONFIG: GlobalConfig = {
   requirePlanOnRegistration: true,
   trialDays: 14,
   defaultPlanId: "basico",
@@ -589,9 +635,10 @@ export async function getGlobalConfig(): Promise<GlobalConfig> {
     const { data, error } = await supabase.from('global_config').select('*').eq('id', 1).maybeSingle();
     if (!error && data) {
       return {
-        requirePlanOnRegistration: data.requirePlanOnRegistration,
-        trialDays: data.trialDays,
-        defaultPlanId: data.defaultPlanId
+        requirePlanOnRegistration: data.require_plan_on_registration ?? data.requirePlanOnRegistration ?? DEFAULT_GLOBAL_CONFIG.requirePlanOnRegistration,
+        trialDays: data.trial_days ?? data.trialDays ?? DEFAULT_GLOBAL_CONFIG.trialDays,
+        defaultPlanId: data.default_plan_id ?? data.defaultPlanId ?? DEFAULT_GLOBAL_CONFIG.defaultPlanId,
+        bankDetails: data.bank_details ?? data.bankDetails
       };
     }
   } catch (e) {
@@ -604,7 +651,10 @@ export async function saveGlobalConfig(config: GlobalConfig) {
   try {
     const { error } = await supabase.from('global_config').upsert({ 
       id: 1, 
-      ...config,
+      require_plan_on_registration: config.requirePlanOnRegistration,
+      trial_days: config.trialDays,
+      default_plan_id: config.defaultPlanId,
+      bank_details: config.bankDetails,
       updated_at: new Date().toISOString()
     });
     if (error) console.error("Error saving global config to Supabase:", error);
@@ -624,39 +674,85 @@ export async function getEmpleados(tenant_id?: string): Promise<Empleado[]> {
 }
 
 export async function saveEmpleado(e: Empleado) {
-  // 1. Manejo de contraseña en Supabase Auth
-  if (e.password && e.password.length >= 6 && e.password !== '***') {
-    const isNew = e.id.startsWith('emp-');
+  let authErrorMsg = "";
+  const emailLower = e.email.toLowerCase().trim();
 
-    if (!isNew) {
-      // Si el usuario ya existe, usamos la función administrativa para resetear contraseña
-      await supabase.rpc('admin_set_user_password', { 
-        target_user_id: e.id, 
-        new_password: e.password 
-      });
-    } else {
-      // Si es nuevo, usamos el flujo de signUp
-      const tempClient = createClient(
-        import.meta.env.VITE_SUPABASE_URL || '',
-        import.meta.env.VITE_SUPABASE_ANON_KEY || '',
-        { auth: { persistSession: false, autoRefreshToken: false } }
-      );
+  console.log("Iniciando guardado de empleado:", { email: emailLower, id: e.id });
+
+  // 1. Manejo de Seguridad en Supabase Auth
+  if (e.password && e.password.length >= 6 && e.password !== '***') {
+    try {
+      const { data: { user: currentUser } } = await supabase.auth.getUser();
       
-      const { data: authData } = await tempClient.auth.signUp({
-        email: e.email,
-        password: e.password
-      });
-      
-      if (authData?.user) {
-         e.id = authData.user.id;
+      // Caso especial: El admin se actualiza a sí mismo
+      if (currentUser && currentUser.id === e.id) {
+        console.log("Auto-actualización de contraseña...");
+        const { error: updateError } = await supabase.auth.updateUser({ password: e.password });
+        if (updateError) authErrorMsg = "Error auto-update: " + updateError.message;
+      } else {
+        // ESTRATEGIA ROBUSTA: Intentamos Sign Up primero. 
+        // Si el usuario ya existe en Auth, fallará con un mensaje específico.
+        console.log("Intentando vincular/crear cuenta en Auth...");
+        
+        const tempClient = createClient(
+          import.meta.env.VITE_SUPABASE_URL || '',
+          import.meta.env.VITE_SUPABASE_ANON_KEY || '',
+          { auth: { persistSession: false, autoRefreshToken: false } }
+        );
+        
+        const { data: authData, error: authError } = await tempClient.auth.signUp({
+          email: emailLower,
+          password: e.password,
+          options: { data: { nombre: e.nombre, tenant_id: e.tenant_id, rol: e.rol } }
+        });
+
+        if (authError) {
+          // Si el error es que ya existe, intentamos el RPC de actualización
+          if (authError.message.toLowerCase().includes("already registered") || authError.status === 422) {
+            console.log("El usuario ya existe en Auth. Intentando actualización via RPC...");
+            const { error: rpcError } = await supabase.rpc('admin_set_user_password', { 
+              target_user_id: e.id, 
+              new_password: e.password 
+            });
+            if (rpcError) {
+              console.error("RPC ERROR:", rpcError);
+              authErrorMsg = "No se pudo actualizar la contraseña. Verifica que el ID sea correcto y que el RPC exista.";
+            }
+          } else {
+            console.error("SIGNUP ERROR:", authError);
+            authErrorMsg = "Error Auth: " + authError.message;
+          }
+        } else if (authData?.user) {
+          console.log("Cuenta Auth vinculada/creada exitosamente:", authData.user.id);
+          e.id = authData.user.id; // Sincronizamos el ID de la tabla con el de Auth
+        }
       }
+    } catch (err: any) {
+      console.error("EXCEPCION AUTH:", err);
+      authErrorMsg = "Excepción: " + err.message;
     }
   }
 
-  // 2. Guardar/Actualizar en la tabla empleados (ocultando la contraseña)
-  const dataToSave = { ...e, password: '***' };
-  const { error } = await supabase.from('empleados').upsert(dataToSave);
-  if (error) throw error;
+  // 2. Guardar en la tabla empleados
+  const dataToSave = { 
+    ...e, 
+    email: emailLower, 
+    password: '***',
+    nombre: e.nombre || "",
+    apellido: e.apellido || "",
+    pin: e.pin || ""
+  };
+  
+  console.log("Upsert en tabla empleados:", dataToSave);
+  const { error: dbError } = await supabase.from('empleados').upsert(dataToSave);
+  
+  if (dbError) {
+    console.error("DB ERROR:", dbError);
+    throw new Error("Error DB: " + dbError.message);
+  }
+
+  if (authErrorMsg) throw new Error(authErrorMsg);
+  console.log("GUARDADO COMPLETADO EXITOSAMENTE");
 }
 
 export async function deleteEmpleado(id: string) {
@@ -678,8 +774,17 @@ export async function getClientes(tenant_id: string): Promise<Cliente[]> {
 }
 
 export async function saveCliente(c: Cliente) {
-  const { error } = await supabase.from('clientes').upsert(c);
-  if (error) throw error;
+  try {
+    const { error } = await supabase.from('clientes').upsert(c);
+    if (error) throw error;
+  } catch (err) {
+    console.error("Offline fallback: saving cliente locally", err);
+    const local = read<Cliente[]>(KEY.clientes, []);
+    const exists = local.findIndex(x => x.id === c.id);
+    if (exists >= 0) local[exists] = c; else local.push(c);
+    write(KEY.clientes, local);
+    window.dispatchEvent(new CustomEvent('klynn-offline-save'));
+  }
 }
 
 export async function deleteCliente(id: string) {
@@ -721,8 +826,17 @@ export async function getOrdenesByPeriod(filters: { tenant_id: string; empleado_
 }
 
 export async function saveOrden(o: Orden) {
-  const { error } = await supabase.from('ordenes').upsert(o);
-  if (error) throw error;
+  try {
+    const { error } = await supabase.from('ordenes').upsert(o);
+    if (error) throw error;
+  } catch (err) {
+    console.error("Offline fallback: saving order locally", err);
+    const local = read<Orden[]>(KEY.ordenes, []);
+    const exists = local.findIndex(x => x.id === o.id);
+    if (exists >= 0) local[exists] = o; else local.push(o);
+    write(KEY.ordenes, local);
+    window.dispatchEvent(new CustomEvent('klynn-offline-save'));
+  }
 }
 
 export async function getOrdenById(id: string): Promise<Orden | undefined> {
@@ -780,6 +894,7 @@ export async function getHistoricoCierres(filters: { tenant_id: string; empleado
 }
 
 export async function getCajaAbierta(tenant_id: string): Promise<Caja | undefined> {
+  if (!tenant_id || tenant_id === 'admin') return undefined;
   const { data, error } = await supabase.from('cajas').select('*').eq('tenant_id', tenant_id).eq('estado', 'ABIERTA').single();
   if (error) return undefined;
   return data;
@@ -811,8 +926,17 @@ export async function getGastos(tenant_id: string): Promise<Gasto[]> {
 }
 
 export async function saveGasto(g: Gasto) {
-  const { error } = await supabase.from('gastos').upsert(g);
-  if (error) throw error;
+  try {
+    const { error } = await supabase.from('gastos').upsert(g);
+    if (error) throw error;
+  } catch (err) {
+    console.error("Offline fallback: saving gasto locally", err);
+    const local = read<Gasto[]>(KEY.gastos, []);
+    const exists = local.findIndex(x => x.id === g.id);
+    if (exists >= 0) local[exists] = g; else local.push(g);
+    write(KEY.gastos, local);
+    window.dispatchEvent(new CustomEvent('klynn-offline-save'));
+  }
 }
 
 export async function deleteGasto(id: string) {
@@ -837,11 +961,17 @@ export async function getCatalogo(tenant_id: string): Promise<CatalogoItem[]> {
 }
 
 export async function saveCatalogoItem(item: CatalogoItem) {
-  const { error } = await supabase
-    .from('catalogo_items')
-    .upsert(item);
-    
-  if (error) throw error;
+  try {
+    const { error } = await supabase.from('catalogo_items').upsert(item);
+    if (error) throw error;
+  } catch (err) {
+    console.error("Offline fallback: saving catalog locally", err);
+    const local = read<CatalogoItem[]>(KEY.catalogo, []);
+    const exists = local.findIndex(x => x.id === item.id);
+    if (exists >= 0) local[exists] = item; else local.push(item);
+    write(KEY.catalogo, local);
+    window.dispatchEvent(new CustomEvent('klynn-offline-save'));
+  }
 }
 
 export async function deleteCatalogoItem(id: string) {
@@ -897,7 +1027,11 @@ export async function savePlan(p: Plan) {
       limite_ordenes_mes: p.limite_ordenes_mes,
       whatsapp: p.modulos.whatsapp,
       facturacion_fiscal: p.modulos.facturacion_fiscal,
-      destacado: p.destacado
+      multisucursal: p.modulos.multisucursal,
+      limite_whatsapp_mes: p.limite_whatsapp_mes,
+      destacado: p.destacado,
+      polar_product_monthly_url: p.polar_product_monthly_url,
+      polar_product_yearly_url: p.polar_product_yearly_url
     });
     if (error) console.error("Error saving plan to Supabase:", error);
   } catch (e) {
@@ -908,7 +1042,7 @@ export async function savePlan(p: Plan) {
   const all = await getPlans();
   const i = all.findIndex((x) => x.id === p.id);
   if (i >= 0) all[i] = p; else all.push(p);
-  savePlans(all);
+  write(KEY.plans, all);
 }
 
 export async function deletePlan(id: PlanId) {
@@ -919,7 +1053,7 @@ export async function deletePlan(id: PlanId) {
     console.error("Error deleting plan:", e);
   }
   const all = await getPlans();
-  savePlans(all.filter((p) => p.id !== id));
+  write(KEY.plans, all.filter((p) => p.id !== id));
 }
 
 // ============ Sesión / tenant activo ============
@@ -1130,6 +1264,12 @@ export function formatPhoneRD(raw: string): string {
   if (d.length < 7) return `${d.slice(0, 3)}-${d.slice(3)}`;
   return `${d.slice(0, 3)}-${d.slice(3, 6)}-${d.slice(6)}`;
 }
+export function formatCedulaRD(raw: string): string {
+  const d = raw.replace(/\D/g, "").slice(0, 11);
+  if (d.length <= 3) return d;
+  if (d.length <= 10) return `${d.slice(0, 3)}-${d.slice(3)}`;
+  return `${d.slice(0, 3)}-${d.slice(3, 10)}-${d.slice(10)}`;
+}
 export function formatDateRD(iso: string): string {
   const d = new Date(iso);
   return d.toLocaleDateString("es-DO", { day: "2-digit", month: "2-digit", year: "numeric" });
@@ -1322,4 +1462,36 @@ export async function seedDemoIfEmpty() {
   await saveGasto({ id: uid("gas"), tenant_id: tenantId, empleado_id: adminId, categoria: "Servicios (luz, agua, internet)", descripcion: "Factura EDESUR", monto: 4200, metodo_pago: "Transferencia", fecha: new Date(Date.now() - 86400000).toISOString(), aprobado: true });
 
   setActiveTenant(tenant.slug);
+}
+
+/** Incrementa el contador de WhatsApp del tenant y maneja reinicios mensuales */
+export async function incrementWhatsAppCount(tenantId: string) {
+  // 1. Obtener datos actuales
+  const { data: t, error: fetchErr } = await supabase
+    .from('tenants')
+    .select('whatsapp_sent_month, whatsapp_last_reset')
+    .eq('id', tenantId)
+    .single();
+
+  if (fetchErr || !t) return;
+
+  const now = new Date();
+  const lastReset = t.whatsapp_last_reset ? new Date(t.whatsapp_last_reset) : null;
+  
+  // Si el mes ha cambiado desde el último reset, reiniciamos a 1
+  let nextCount = (t.whatsapp_sent_month || 0) + 1;
+  let nextReset = t.whatsapp_last_reset;
+
+  if (!lastReset || lastReset.getMonth() !== now.getMonth() || lastReset.getFullYear() !== now.getFullYear()) {
+    nextCount = 1;
+    nextReset = now.toISOString();
+  }
+
+  await supabase
+    .from('tenants')
+    .update({ 
+      whatsapp_sent_month: nextCount, 
+      whatsapp_last_reset: nextReset 
+    })
+    .eq('id', tenantId);
 }

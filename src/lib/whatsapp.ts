@@ -1,5 +1,5 @@
 import type { Tenant, Cliente, Orden } from "@/lib/storage";
-import { formatRD, DEFAULT_CONFIG, getServicios } from "@/lib/storage";
+import { formatRD, DEFAULT_CONFIG, getServicios, getTenantPlan, incrementWhatsAppCount } from "@/lib/storage";
 
 type Evento = "creada" | "lista" | "entregada";
 
@@ -45,6 +45,14 @@ export async function notificarWhatsApp(
   evento: Evento,
   pagoRecibido?: number,
 ): Promise<{ ok: boolean; reason?: string }> {
+  // 1. Verificar Límites del Plan
+  const plan = getTenantPlan(tenant);
+  const currentCount = tenant.whatsapp_sent_month || 0;
+
+  if (currentCount >= plan.limite_whatsapp_mes) {
+    return { ok: false, reason: `Límite de mensajes alcanzado (${plan.limite_whatsapp_mes}/${plan.limite_whatsapp_mes}). Mejore su plan para enviar más.` };
+  }
+
   const wa = tenant.config?.whatsapp ?? DEFAULT_CONFIG.whatsapp!;
   if (!wa?.enabled) return { ok: false, reason: "WhatsApp deshabilitado" };
   if (!wa.api_key) return { ok: false, reason: "API Token faltante" };
@@ -116,8 +124,11 @@ export async function notificarWhatsApp(
       },
       body: JSON.stringify({ to: phone, text: mensaje }),
     });
-    const data = await res.json();
     if (!res.ok) return { ok: false, reason: data.message || `HTTP ${res.status}` };
+    
+    // 2. Incrementar contador en caso de éxito
+    await incrementWhatsAppCount(tenant.id);
+    
     return { ok: true };
   } catch (e) {
     return { ok: false, reason: (e as Error).message };

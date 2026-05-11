@@ -13,10 +13,11 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import {
-  PLANS, formatRD, formatPhoneRD, isSlugAvailable, registerBranch,
+  PLANS, formatRD, formatPhoneRD, isSlugAvailable, registerBranch, getTenantsForUser, getPlans,
   setActiveTenant, uid, PROVINCIAS_RD, DEFAULT_CONFIG, getGlobalConfig,
+  DEFAULT_GLOBAL_CONFIG,
   setSession,
-  type PlanId, type Tenant, type TenantConfig, type Empleado
+  type PlanId, type Tenant, type TenantConfig, type Empleado, type GlobalConfig
 } from "@/lib/storage";
 import { useRequireAuth } from "@/lib/useRequireAuth";
 
@@ -67,12 +68,42 @@ function slugify(s: string) {
 function NuevaSucursalPage() {
   const auth = useRequireAuth();
   const navigate = useNavigate();
-  const globalConfig = useMemo(() => getGlobalConfig(), []);
+  const [globalConfig, setGlobalConfig] = useState<GlobalConfig>(DEFAULT_GLOBAL_CONFIG);
   const [step, setStep] = useState(1);
   const [form, setForm] = useState<FormState>(() => ({
     ...initial,
-    plan_id: globalConfig.defaultPlanId
+    plan_id: DEFAULT_GLOBAL_CONFIG.defaultPlanId
   }));
+
+  useEffect(() => {
+    getGlobalConfig().then(cfg => {
+      setGlobalConfig(cfg);
+      setForm(f => ({ ...f, plan_id: f.plan_id || cfg.defaultPlanId }));
+    });
+
+    // Protección de multisucursal
+    async function checkPermission() {
+      if (!auth?.empleado.email || auth.empleado.id === '__loading__') return;
+      
+      const [tenants, allPlans] = await Promise.all([
+        getTenantsForUser(auth.empleado.email),
+        getPlans()
+      ]);
+
+      if (tenants.length > 0) {
+        const hasMulti = tenants.some(t => {
+          const p = allPlans.find(plan => plan.id === t.plan_id);
+          return p?.modulos.multisucursal;
+        });
+
+        if (!hasMulti) {
+          toast.error("Tu plan actual no permite registrar más sucursales");
+          navigate({ to: "/dashboard-admin" });
+        }
+      }
+    }
+    checkPermission();
+  }, [auth?.empleado.email]);
   const [errors, setErrors] = useState<Partial<Record<keyof FormState, string>>>({});
   const [provOpen, setProvOpen] = useState(false);
   const [createdTenant, setCreatedTenant] = useState<Tenant | null>(null);
@@ -217,7 +248,7 @@ function NuevaSucursalPage() {
     <div className="min-h-screen bg-gradient-hero">
       <SeedBootstrap />
       <header className="flex h-24 items-center justify-center px-6 relative">
-        <Link to="/dashboard-admin"><Logo size="lg" /></Link>
+        <Logo size="lg" to="/dashboard-admin" />
         <div className="absolute right-6 hidden text-sm md:block">
           <Link to="/dashboard-admin" className="font-semibold text-primary hover:underline">Volver al panel</Link>
         </div>

@@ -1,0 +1,12 @@
+User-agent: *
+Allow: /
+
+# Sitemaps
+Sitemap: https://klynn.com.do/sitemap.xml
+
+# Disallow admin and tenant routes from being indexed (private/tool pages)
+Disallow: /admin
+Disallow: /dashboard-admin
+Disallow: /t/
+Disallow: /nueva-sucursal
+Disallow: /restablecer-contrasena

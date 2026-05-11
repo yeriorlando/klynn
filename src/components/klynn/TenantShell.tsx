@@ -13,6 +13,7 @@ import { logout, getCajaAbierta, formatRD, can, getTenantsForUser, setActiveTena
 import { Toaster, toast } from "sonner";
 import { useEffect } from "react";
 import { motion } from "framer-motion";
+import { CloudSync } from "@/components/klynn/CloudSync";
 
 interface NavItem {
   to: string;
@@ -46,7 +47,10 @@ export function TenantShell() {
   const [cajaAbierta, setCajaAbierta] = useState<boolean>(false);
 
   useEffect(() => {
-    if (!user || user.tenant.id === '__loading__') return;
+    if (!user || user.tenant.id === '__loading__' || user.tenant.id === 'admin') {
+      if (user?.tenant?.id === 'admin') setCajaAbierta(false);
+      return;
+    }
     getCajaAbierta(user.tenant.id).then(caja => setCajaAbierta(!!caja));
   }, [user, pathname]);
 
@@ -131,6 +135,7 @@ export function TenantShell() {
                 Prueba gratis · {trialDays} días
               </Badge>
             )}
+            <CloudSync tenantId={tenant.id} />
           </div>
 
           <Link to="/t/$slug/nueva-orden" params={{ slug: tenant.slug }} className="hidden sm:block">
@@ -240,14 +245,6 @@ function SidebarContent({
                     {t.id === tenant.id && <Check className="h-3 w-3 text-primary" />}
                   </button>
                 ))}
-                <div className="border-t border-border mt-1 p-1">
-                  <Link to="/dashboard-admin" onClick={() => setShowSwitcher(false)} className="flex w-full items-center gap-3 rounded-lg p-2 text-left transition hover:bg-primary/5 text-primary">
-                    <div className="grid h-8 w-8 place-items-center rounded-full bg-primary/10 shrink-0">
-                      <LayoutDashboard className="h-4 w-4" />
-                    </div>
-                    <div className="text-xs font-bold uppercase tracking-wider">Ver panel general</div>
-                  </Link>
-                </div>
               </div>
             </div>
           </>

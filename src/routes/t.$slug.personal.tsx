@@ -1,6 +1,6 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { useMemo, useState, useEffect } from "react";
-import { UserPlus, Trash2, Shield } from "lucide-react";
+import { UserPlus, Trash2, Shield, Eye, EyeOff, Loader2 } from "lucide-react";
 import { useRequireAuth } from "@/lib/useRequireAuth";
 import { PageHeader } from "@/components/klynn/PageHeader";
 import { Card } from "@/components/ui/card";
@@ -126,10 +126,12 @@ function PersonalPage() {
 function EmpleadoDialog({ open, onOpenChange, empleado, tenantId, onDone }: { open: boolean; onOpenChange: (o: boolean) => void; empleado: Empleado | null; tenantId: string; onDone: () => void }) {
   const empty = { nombre: "", apellido: "", email: "", password: "", pin: "", rol: "VENDEDOR" as RolEmpleado, activo: true, permisos: getPermisosPorRol("VENDEDOR") };
   const [f, setF] = useState(empleado ? { ...empty, ...empleado, permisos: empleado.permisos || getPermisosPorRol(empleado.rol) } : empty);
+  const [loading, setLoading] = useState(false);
+  const [showPassword, setShowPassword] = useState(false);
   
   useEffect(() => { 
     if (empleado) {
-      setF({ ...empty, ...empleado, permisos: empleado.permisos || getPermisosPorRol(empleado.rol) });
+      setF({ ...empty, ...empleado, permisos: empleado.permisos || getPermisosPorRol(empleado.rol), password: "" }); // Limpiamos password al editar
     } else {
       setF(empty);
     }
@@ -143,117 +145,225 @@ function EmpleadoDialog({ open, onOpenChange, empleado, tenantId, onDone }: { op
   };
 
   async function submit() {
-    if (!f.nombre.trim() || !f.apellido.trim() || !f.email.includes("@")) { toast.error("Nombre, apellido y email válidos requeridos"); return; }
-    if (!empleado && f.password.length < 8) { toast.error("Contraseña mínima 8 caracteres"); return; }
+    if (!f.nombre.trim() || !f.apellido.trim() || !f.email.includes("@")) { 
+      toast.error("Nombre, apellido y email válidos requeridos"); 
+      return; 
+    }
+    if (!empleado && f.password.length < 8) { 
+      toast.error("La contraseña inicial debe tener al menos 8 caracteres"); 
+      return; 
+    }
+    
+    setLoading(true);
     try {
       const e: Empleado = {
-        id: empleado?.id || uid("emp"), tenant_id: tenantId, nombre: f.nombre, apellido: f.apellido || undefined, email: f.email,
-        password: f.password || empleado?.password || "", pin: f.pin || undefined,
-        rol: f.rol, activo: f.activo, permisos: f.permisos, creado_en: empleado?.creado_en || new Date().toISOString(),
+        id: empleado?.id || uid("emp"), 
+        tenant_id: tenantId, 
+        nombre: f.nombre, 
+        apellido: f.apellido || undefined, 
+        email: f.email,
+        password: f.password || (empleado ? '***' : ""), // Si estamos editando y no hay pass, mandamos '***' para no cambiarla
+        pin: f.pin || undefined,
+        rol: f.rol, 
+        activo: f.activo, 
+        permisos: f.permisos, 
+        creado_en: empleado?.creado_en || new Date().toISOString(),
       };
       await saveEmpleado(e); 
-      toast.success("Guardado"); 
+      toast.success("Empleado guardado correctamente"); 
       onDone();
     } catch (err: any) {
-      toast.error("Error al guardar empleado");
+      console.error(err);
+      toast.error(err.message || "Error al guardar empleado");
+    } finally {
+      setLoading(false);
     }
   }
+
   async function remove() { 
     if (empleado) { 
+      setLoading(true);
       try {
         await deleteEmpleado(empleado.id); 
-        toast.success("Eliminado"); 
+        toast.success("Empleado eliminado"); 
         onDone(); 
       } catch (err) {
         toast.error("Error al eliminar");
+      } finally {
+        setLoading(false);
       }
     } 
   }
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="rounded-2xl max-w-2xl">
-        <DialogHeader><DialogTitle>{empleado ? "Editar" : "Nuevo"} empleado</DialogTitle></DialogHeader>
-        <div className="grid gap-3 md:grid-cols-2">
-          <div><Label>Nombre</Label><Input value={f.nombre} onChange={(e) => setF({ ...f, nombre: e.target.value })} placeholder="Ej. Carlos" className="h-11 rounded-xl" /></div>
-          <div><Label>Apellido</Label><Input value={f.apellido} onChange={(e) => setF({ ...f, apellido: e.target.value })} placeholder="Ej. Santana" className="h-11 rounded-xl" /></div>
-          <div><Label>Email</Label><Input value={f.email} onChange={(e) => setF({ ...f, email: e.target.value })} placeholder="empleado@correo.com" className="h-11 rounded-xl" /></div>
-          <div>
-            <Label>{empleado ? "Nueva contraseña" : "Contraseña"}</Label>
-            <Input type="password" value={f.password} onChange={(e) => setF({ ...f, password: e.target.value })} placeholder="Mínimo 8 caracteres" className="h-11 rounded-xl" />
-            <PasswordStrengthIndicator password={f.password} />
-          </div>
-          <div><Label>PIN (4 dígitos)</Label><Input value={f.pin} onChange={(e) => setF({ ...f, pin: e.target.value.slice(0, 4) })} placeholder="4 dígitos" className="h-11 rounded-xl" /></div>
-          <div><Label>Rol</Label>
-            <Select 
-              value={f.rol} 
-              onValueChange={(v) => {
-                const rol = v as RolEmpleado;
-                setF({ ...f, rol, permisos: getPermisosPorRol(rol) });
-              }}
-            >
-              <SelectTrigger className="h-11 rounded-xl"><SelectValue /></SelectTrigger>
-              <SelectContent>
-                {(["ADMIN", "SUPERVISOR", "VENDEDOR", "RECEPCIONISTA", "REPARTIDOR"] as RolEmpleado[]).map((r) => <SelectItem key={r} value={r}>{r}</SelectItem>)}
-              </SelectContent>
-            </Select>
-          </div>
-          <div className="flex items-center gap-2 pt-6">
-            <Checkbox id="activo" checked={f.activo} onCheckedChange={(v) => setF({ ...f, activo: !!v })} />
-            <Label htmlFor="activo" className="cursor-pointer">Activo</Label>
+      <DialogContent className="rounded-3xl max-w-4xl p-0 overflow-hidden border-none shadow-2xl">
+        <div className="flex flex-col md:flex-row h-full max-h-[90vh]">
+          {/* LEFT: FORM DATA */}
+          <div className="flex-1 p-8 bg-surface">
+            <DialogHeader className="mb-6">
+              <DialogTitle className="text-2xl font-display">
+                {empleado ? "Editar empleado" : "Nuevo empleado"}
+              </DialogTitle>
+              <p className="text-sm text-muted-foreground">Define los datos básicos de acceso.</p>
+            </DialogHeader>
+
+            <div className="space-y-4">
+              <div className="grid gap-4 md:grid-cols-2">
+                <div className="space-y-2">
+                  <Label className="text-xs font-bold uppercase tracking-wider text-muted-foreground">Nombre</Label>
+                  <Input value={f.nombre} onChange={(e) => setF({ ...f, nombre: e.target.value })} placeholder="Ej. Juan" className="h-11 rounded-xl bg-background border-border/50" />
+                </div>
+                <div className="space-y-2">
+                  <Label className="text-xs font-bold uppercase tracking-wider text-muted-foreground">Apellido</Label>
+                  <Input value={f.apellido} onChange={(e) => setF({ ...f, apellido: e.target.value })} placeholder="Ej. Pérez" className="h-11 rounded-xl bg-background border-border/50" />
+                </div>
+              </div>
+
+              <div className="space-y-2">
+                <Label className="text-xs font-bold uppercase tracking-wider text-muted-foreground">Correo Electrónico</Label>
+                <Input value={f.email} onChange={(e) => setF({ ...f, email: e.target.value })} placeholder="empleado@klynn.do" className="h-11 rounded-xl bg-background border-border/50" />
+              </div>
+
+              <div className="grid gap-4 md:grid-cols-2">
+                <div className="space-y-2">
+                  <Label className="text-xs font-bold uppercase tracking-wider text-muted-foreground">
+                    {empleado ? "Cambiar contraseña" : "Contraseña"}
+                  </Label>
+                  <div className="relative">
+                    <Input 
+                      type={showPassword ? "text" : "password"} 
+                      value={f.password} 
+                      onChange={(e) => setF({ ...f, password: e.target.value })} 
+                      placeholder={empleado ? "••••••••" : "Mínimo 8 caracteres"} 
+                      className="h-11 rounded-xl bg-background border-border/50 pr-10" 
+                    />
+                    <button
+                      type="button"
+                      onClick={() => setShowPassword(!showPassword)}
+                      className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-primary transition-colors"
+                    >
+                      {showPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+                    </button>
+                  </div>
+                </div>
+                <div className="space-y-2">
+                  <Label className="text-xs font-bold uppercase tracking-wider text-muted-foreground">PIN Acceso Rápido</Label>
+                  <Input value={f.pin} onChange={(e) => setF({ ...f, pin: e.target.value.slice(0, 4) })} placeholder="4 dígitos" className="h-11 rounded-xl bg-background border-border/50" />
+                </div>
+              </div>
+
+              <div className="grid gap-4 md:grid-cols-2 items-end">
+                <div className="space-y-2">
+                  <Label className="text-xs font-bold uppercase tracking-wider text-muted-foreground">Rol en el negocio</Label>
+                  <Select 
+                    value={f.rol} 
+                    onValueChange={(v) => {
+                      const rol = v as RolEmpleado;
+                      setF({ ...f, rol, permisos: getPermisosPorRol(rol) });
+                    }}
+                  >
+                    <SelectTrigger className="h-11 rounded-xl bg-background border-border/50"><SelectValue /></SelectTrigger>
+                    <SelectContent>
+                      {(["ADMIN", "SUPERVISOR", "VENDEDOR", "RECEPCIONISTA", "REPARTIDOR"] as RolEmpleado[]).map((r) => <SelectItem key={r} value={r}>{r}</SelectItem>)}
+                    </SelectContent>
+                  </Select>
+                </div>
+                <div className="flex items-center gap-3 h-11 px-4 rounded-xl border border-border/50 bg-background/50">
+                  <Checkbox id="activo" checked={f.activo} onCheckedChange={(v) => setF({ ...f, activo: !!v })} />
+                  <Label htmlFor="activo" className="text-sm font-medium cursor-pointer">Empleado Activo</Label>
+                </div>
+              </div>
+
+              <div className="pt-2">
+                <PasswordStrengthIndicator password={f.password} />
+              </div>
+            </div>
+
+            <div className="mt-8 flex items-center justify-between border-t border-border/50 pt-6">
+              {empleado ? (
+                <AlertDialog>
+                  <AlertDialogTrigger asChild>
+                    <Button variant="ghost" className="text-destructive hover:bg-destructive/10 rounded-xl px-4 transition-colors">
+                      <Trash2 className="mr-2 h-4 w-4" /> Eliminar
+                    </Button>
+                  </AlertDialogTrigger>
+                  <AlertDialogContent className="rounded-[2rem] border-none shadow-2xl">
+                    <AlertDialogHeader>
+                      <AlertDialogTitle className="text-xl">¿Eliminar a {empleado.nombre}?</AlertDialogTitle>
+                      <AlertDialogDescription>
+                        Esta acción es irreversible. Se eliminará el acceso y todo el registro vinculado.
+                      </AlertDialogDescription>
+                    </AlertDialogHeader>
+                    <AlertDialogFooter className="gap-2">
+                      <AlertDialogCancel className="rounded-xl">Cancelar</AlertDialogCancel>
+                      <AlertDialogAction onClick={remove} className="bg-destructive text-white rounded-xl hover:bg-destructive/90">Confirmar eliminación</AlertDialogAction>
+                    </AlertDialogFooter>
+                  </AlertDialogContent>
+                </AlertDialog>
+              ) : <div />}
+              
+              <div className="flex gap-3">
+                <Button variant="outline" onClick={() => onOpenChange(false)} className="rounded-xl h-11 px-6 border-slate-200">Cancelar</Button>
+                <Button 
+                  onClick={submit} 
+                  disabled={loading}
+                  className="bg-primary text-white rounded-xl h-11 px-10 font-bold shadow-glow hover:opacity-95 disabled:opacity-50"
+                >
+                  {loading ? <Loader2 className="h-4 w-4 animate-spin" /> : "Guardar Empleado"}
+                </Button>
+              </div>
+            </div>
           </div>
 
-          <div className="md:col-span-2">
-            <Separator className="my-2" />
-            <Label className="mb-3 block font-bold text-primary">Permisos de Acceso</Label>
-            <ScrollArea className="h-[200px] rounded-xl border p-4 bg-accent/5">
-              <div className="grid gap-4 sm:grid-cols-2">
+          {/* RIGHT: PERMISSIONS */}
+          <div className="w-full md:w-80 bg-slate-50/50 border-l border-border/50 p-8">
+            <div className="mb-6">
+              <div className="inline-flex h-10 w-10 items-center justify-center rounded-xl bg-primary/10 text-primary mb-3">
+                <Shield className="h-5 w-5" />
+              </div>
+              <h3 className="font-display text-lg">Permisos de Acceso</h3>
+              <p className="text-[11px] text-muted-foreground leading-relaxed">Personaliza qué secciones puede ver este empleado.</p>
+            </div>
+
+            <ScrollArea className="h-[400px] pr-4">
+              <div className="space-y-3">
                 {PERMISOS_SISTEMA.map((p) => (
-                  <div key={p.id} className="flex items-start gap-3 space-y-0">
+                  <div 
+                    key={p.id} 
+                    className={`flex items-start gap-3 p-3 rounded-2xl border transition-all ${
+                      f.permisos.includes(p.id) 
+                        ? "bg-white border-primary/20 shadow-sm" 
+                        : "bg-transparent border-transparent opacity-60"
+                    }`}
+                  >
                     <Checkbox 
                       id={p.id} 
                       checked={f.permisos.includes(p.id)} 
                       onCheckedChange={() => togglePermiso(p.id)}
                       disabled={f.rol === "ADMIN"}
+                      className="mt-0.5"
                     />
-                    <div className="grid gap-1.5 leading-none">
-                      <Label htmlFor={p.id} className="text-sm font-medium leading-none peer-disabled:cursor-not-allowed peer-disabled:opacity-70 cursor-pointer">
+                    <div className="grid gap-1">
+                      <Label htmlFor={p.id} className="text-xs font-bold leading-none cursor-pointer">
                         {p.nombre}
                       </Label>
-                      <p className="text-[10px] text-muted-foreground">{p.descripcion}</p>
+                      <p className="text-[9px] text-muted-foreground leading-tight">{p.descripcion}</p>
                     </div>
                   </div>
                 ))}
               </div>
             </ScrollArea>
+
             {f.rol === "ADMIN" && (
-              <p className="mt-2 text-[11px] text-muted-foreground italic">Los administradores tienen acceso total por defecto.</p>
+              <div className="mt-4 p-3 rounded-xl bg-primary/5 border border-primary/10">
+                <p className="text-[10px] text-primary font-medium text-center italic">
+                  Los administradores tienen acceso total por defecto.
+                </p>
+              </div>
             )}
           </div>
         </div>
-        <DialogFooter className="gap-2 sm:gap-0 mt-4">
-          {empleado && (
-            <AlertDialog>
-              <AlertDialogTrigger asChild>
-                <Button variant="ghost" className="text-destructive rounded-xl mr-auto"><Trash2 className="mr-1.5 h-4 w-4" /> Eliminar</Button>
-              </AlertDialogTrigger>
-              <AlertDialogContent className="rounded-2xl border-none shadow-card">
-                <AlertDialogHeader>
-                  <AlertDialogTitle>¿Eliminar a {empleado.nombre}?</AlertDialogTitle>
-                  <AlertDialogDescription>
-                    Esta acción no se puede deshacer. El empleado perderá acceso inmediato a la plataforma.
-                  </AlertDialogDescription>
-                </AlertDialogHeader>
-                <AlertDialogFooter>
-                  <AlertDialogCancel className="rounded-xl">Cancelar</AlertDialogCancel>
-                  <AlertDialogAction onClick={remove} className="bg-destructive text-white rounded-xl">Eliminar permanentemente</AlertDialogAction>
-                </AlertDialogFooter>
-              </AlertDialogContent>
-            </AlertDialog>
-          )}
-          <Button variant="outline" onClick={() => onOpenChange(false)} className="rounded-xl h-11 px-6">Cancelar</Button>
-          <Button onClick={submit} className="bg-gradient-primary text-white rounded-xl h-11 px-8 font-bold">Guardar Cambios</Button>
-        </DialogFooter>
       </DialogContent>
     </Dialog>
   );

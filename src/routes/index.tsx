@@ -38,7 +38,8 @@ import {
 import { Logo } from "@/components/klynn/Logo";
 import { SeedBootstrap } from "@/components/klynn/SeedBootstrap";
 import { Button } from "@/components/ui/button";
-import { PLANS, formatRD } from "@/lib/storage";
+import { LandingNavbar } from "@/components/klynn/LandingNavbar";
+import { PLANS as STATIC_PLANS, formatRD, getPlans, type Plan } from "@/lib/storage";
 
 export const Route = createFileRoute("/")({
   head: () => ({
@@ -59,6 +60,10 @@ export const Route = createFileRoute("/")({
       { property: "og:locale", content: "es_DO" },
     ],
   }),
+  loader: async () => {
+    const plans = await getPlans();
+    return { plans };
+  },
   component: LandingPage,
 });
 
@@ -133,20 +138,20 @@ const ciudades = [
   "San Francisco de Macorís", "Baní", "Azua", "Barahona", "Mao", "Nagua",
 ];
 
-const NAV_ITEMS = [
-  { href: "#features", label: "Funciones", icon: Sparkles, desc: "POS, NCF, ITBIS, tickets" },
-  { href: "#sectores", label: "Para quién", icon: Users, desc: "Lavanderías, sastrerías, hoteles" },
-  { href: "#planes", label: "Planes", icon: CreditCard, desc: "Desde RD$ 1,500/mes" },
-  { href: "#faq", label: "FAQ", icon: MessageCircle, desc: "Preguntas frecuentes" },
-];
+
 
 function LandingPage() {
-  const [mobileOpen, setMobileOpen] = useState(false);
+  const { plans: initialPlans } = Route.useLoaderData();
+  const [plans, setPlans] = useState<Plan[]>(initialPlans || STATIC_PLANS);
+  const [billingCycle, setBillingCycle] = useState<"monthly" | "yearly">("monthly");
 
   useEffect(() => {
-    document.body.style.overflow = mobileOpen ? "hidden" : "";
-    return () => { document.body.style.overflow = ""; };
-  }, [mobileOpen]);
+    if (!initialPlans || initialPlans.length === 0) {
+      getPlans().then((p) => {
+        if (p && p.length > 0) setPlans(p);
+      });
+    }
+  }, [initialPlans]);
 
   return (
     <div className="min-h-screen bg-background text-foreground">
@@ -159,9 +164,10 @@ function LandingPage() {
           __html: JSON.stringify({
             "@context": "https://schema.org",
             "@type": "SoftwareApplication",
-            name: "Klynn",
-            applicationCategory: "BusinessApplication",
-            operatingSystem: "Web",
+            "name": "Klynn",
+            "url": "https://klynn.com.do/",
+            "applicationCategory": "BusinessApplication",
+            "operatingSystem": "Web",
             description:
               "Software de gestión para lavanderías en República Dominicana con ITBIS, NCF, tickets térmicos, caja, clientes y reportes DGII.",
             offers: {
@@ -184,6 +190,22 @@ function LandingPage() {
         dangerouslySetInnerHTML={{
           __html: JSON.stringify({
             "@context": "https://schema.org",
+            "@type": "WebSite",
+            "name": "Klynn",
+            "url": "https://klynn.com.do/",
+            "potentialAction": {
+              "@type": "SearchAction",
+              "target": "https://klynn.com.do/search?q={search_term_string}",
+              "query-input": "required name=search_term_string"
+            }
+          }),
+        }}
+      />
+      <script
+        type="application/ld+json"
+        dangerouslySetInnerHTML={{
+          __html: JSON.stringify({
+            "@context": "https://schema.org",
             "@type": "FAQPage",
             mainEntity: faqs.map((f) => ({
               "@type": "Question",
@@ -193,187 +215,78 @@ function LandingPage() {
           }),
         }}
       />
+      <script
+        type="application/ld+json"
+        dangerouslySetInnerHTML={{
+          __html: JSON.stringify({
+            "@context": "https://schema.org",
+            "@type": "ItemList",
+            "itemListElement": [
+              {
+                "@type": "SiteNavigationElement",
+                "position": 1,
+                "name": "Funciones y Características",
+                "url": "https://klynn.com.do/#features"
+              },
+              {
+                "@type": "SiteNavigationElement",
+                "position": 2,
+                "name": "Planes y Precios",
+                "url": "https://klynn.com.do/#planes"
+              },
+              {
+                "@type": "SiteNavigationElement",
+                "position": 3,
+                "name": "Iniciar sesión",
+                "url": "https://klynn.com.do/login"
+              },
+              {
+                "@type": "SiteNavigationElement",
+                "position": 4,
+                "name": "Crear cuenta gratis",
+                "url": "https://klynn.com.do/registro"
+              },
+              {
+                "@type": "SiteNavigationElement",
+                "position": 5,
+                "name": "Preguntas frecuentes",
+                "url": "https://klynn.com.do/#faq"
+              }
+            ]
+          }),
+        }}
+      />
+      <script
+        type="application/ld+json"
+        dangerouslySetInnerHTML={{
+          __html: JSON.stringify({
+            "@context": "https://schema.org",
+            "@type": "BreadcrumbList",
+            "itemListElement": [
+              {
+                "@type": "ListItem",
+                "position": 1,
+                "name": "Inicio",
+                "item": "https://klynn.com.do/"
+              },
+              {
+                "@type": "ListItem",
+                "position": 2,
+                "name": "Login",
+                "item": "https://klynn.com.do/login"
+              },
+              {
+                "@type": "ListItem",
+                "position": 3,
+                "name": "Registro",
+                "item": "https://klynn.com.do/registro"
+              }
+            ]
+          }),
+        }}
+      />
 
-      {/* TOPBAR */}
-      <div className="hidden border-b border-border/60 bg-primary text-primary-foreground md:block">
-        <div className="mx-auto flex h-9 max-w-7xl items-center justify-between px-6 text-xs">
-          <div className="flex items-center gap-5">
-            <span className="flex items-center gap-1.5"><MapPin className="h-3 w-3" /> Santo Domingo, RD 🇩🇴</span>
-            <span className="flex items-center gap-1.5"><Clock className="h-3 w-3" /> Lun–Sáb 8:00am – 8:00pm</span>
-          </div>
-          <div className="flex items-center gap-5">
-            <a href="https://wa.link/vxstq4" className="flex items-center gap-1.5 transition hover:text-gold">
-              <MessageCircle className="h-3 w-3" /> +1 (829) 941-6546
-            </a>
-            <span className="flex items-center gap-1.5"><Shield className="h-3 w-3" /> ITBIS · NCF · DGII</span>
-          </div>
-        </div>
-      </div>
-
-      {/* NAV */}
-      <header className="sticky top-0 z-50 border-b border-border/60 bg-background/85 backdrop-blur-xl">
-        <div className="mx-auto flex h-16 max-w-7xl items-center justify-between gap-3 px-4 md:h-18 md:gap-6 md:px-6 md:py-3">
-          <Logo />
-          <nav className="absolute left-1/2 -translate-x-1/2 hidden items-center gap-1 rounded-full border border-border bg-surface/70 p-1 text-sm font-medium text-muted-foreground shadow-card backdrop-blur lg:flex">
-            {NAV_ITEMS.map((item) => (
-              <a
-                key={item.href}
-                href={item.href}
-                className="group flex items-center gap-1.5 rounded-full px-3.5 py-1.5 transition hover:bg-accent hover:text-foreground"
-              >
-                <item.icon className="h-3.5 w-3.5 text-primary transition group-hover:scale-110" />
-                {item.label}
-              </a>
-            ))}
-          </nav>
-          <div className="flex items-center gap-2">
-            <a
-              href="https://wa.link/vxstq4"
-              className="hidden h-9 w-9 items-center justify-center rounded-full border border-border bg-surface text-success transition hover:bg-accent md:inline-flex"
-              aria-label="WhatsApp"
-            >
-              <MessageCircle className="h-4 w-4" />
-            </a>
-            <Link to="/login" className="hidden sm:block">
-              <Button variant="ghost" size="sm" className="gap-1.5">
-                <Lock className="h-3.5 w-3.5" />
-                <span className="hidden sm:inline">Iniciar sesión</span>
-              </Button>
-            </Link>
-            <Link to="/registro" className="hidden sm:block">
-              <Button className="h-9 px-5 gap-1.5 bg-primary shadow-elegant hover:opacity-95 font-bold">
-                <Sparkles className="h-3.5 w-3.5" />
-                Probar gratis
-                <ArrowRight className="h-3.5 w-3.5" />
-              </Button>
-            </Link>
-            {/* Mobile menu button */}
-            <button
-              onClick={() => setMobileOpen(true)}
-              className="grid h-10 w-10 place-items-center rounded-xl border border-border bg-surface shadow-card transition hover:bg-accent lg:hidden"
-              aria-label="Abrir menú"
-            >
-              <Menu className="h-5 w-5" />
-            </button>
-          </div>
-        </div>
-      </header>
-
-      {/* MOBILE DRAWER */}
-      <AnimatePresence>
-        {mobileOpen && (
-          <div className="fixed inset-0 z-[60] lg:hidden">
-            <motion.div
-              initial={{ opacity: 0 }}
-              animate={{ opacity: 1 }}
-              exit={{ opacity: 0 }}
-              transition={{ duration: 0.2 }}
-              className="absolute inset-0 bg-black/60 backdrop-blur-sm"
-              onClick={() => setMobileOpen(false)}
-            />
-            <motion.aside
-              initial={{ x: "100%" }}
-              animate={{ x: 0 }}
-              exit={{ x: "100%" }}
-              transition={{ type: "spring", damping: 28, stiffness: 280 }}
-              className="absolute inset-y-0 right-0 flex w-[88%] max-w-sm flex-col overflow-hidden bg-background shadow-elegant"
-            >
-              {/* Drawer header */}
-              <div className="relative overflow-hidden border-b border-border/60 bg-gradient-primary p-5 text-primary-foreground">
-                <div className="absolute -right-10 -top-10 h-40 w-40 rounded-full bg-white/10 blur-2xl" />
-                <div className="relative flex items-start justify-between">
-                  <div className="flex items-center gap-3">
-                    <div className="grid h-11 w-11 place-items-center rounded-xl bg-white/15 shadow-card backdrop-blur">
-                      <Droplets className="h-5 w-5" />
-                    </div>
-                    <div>
-                      <div className="font-display text-lg leading-tight">Klynn</div>
-                      <div className="text-xs text-white/80">Hecho en RD 🇩🇴</div>
-                    </div>
-                  </div>
-                  <button
-                    onClick={() => setMobileOpen(false)}
-                    className="grid h-9 w-9 place-items-center rounded-lg bg-white/10 transition hover:bg-white/20"
-                    aria-label="Cerrar"
-                  >
-                    <X className="h-4 w-4" />
-                  </button>
-                </div>
-                <div className="relative mt-4 flex items-center gap-3 text-[11px] text-white/85">
-                  <span className="flex items-center gap-1"><Shield className="h-3 w-3" /> ITBIS · NCF</span>
-                  <span className="h-1 w-1 rounded-full bg-white/40" />
-                  <span className="flex items-center gap-1"><Clock className="h-3 w-3" /> Lun–Sáb 8–8</span>
-                </div>
-              </div>
-
-              {/* Nav items */}
-              <nav className="flex-1 overflow-y-auto p-4">
-                <div className="mb-2 px-2 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
-                  Navegación
-                </div>
-                <div className="space-y-1.5">
-                  {NAV_ITEMS.map((item, i) => (
-                    <motion.a
-                      key={item.href}
-                      href={item.href}
-                      onClick={() => setMobileOpen(false)}
-                      initial={{ opacity: 0, x: 20 }}
-                      animate={{ opacity: 1, x: 0 }}
-                      transition={{ delay: 0.05 + i * 0.04 }}
-                      className="group flex items-center gap-3 rounded-xl border border-transparent p-3 transition hover:border-border hover:bg-accent"
-                    >
-                      <div className="grid h-10 w-10 shrink-0 place-items-center rounded-lg bg-primary/10 text-primary transition group-hover:bg-gradient-primary group-hover:text-primary-foreground">
-                        <item.icon className="h-4 w-4" />
-                      </div>
-                      <div className="min-w-0 flex-1">
-                        <div className="text-sm font-medium leading-tight">{item.label}</div>
-                        <div className="truncate text-[11px] text-muted-foreground">{item.desc}</div>
-                      </div>
-                      <ArrowRight className="h-4 w-4 text-muted-foreground transition group-hover:translate-x-0.5 group-hover:text-primary" />
-                    </motion.a>
-                  ))}
-                </div>
-
-                <div className="mt-6 mb-2 px-2 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
-                  Contacto
-                </div>
-                <a
-                  href="https://wa.link/vxstq4"
-                  className="flex items-center gap-3 rounded-xl border border-success/30 bg-success/5 p-3 transition hover:bg-success/10"
-                >
-                  <div className="grid h-10 w-10 place-items-center rounded-lg bg-success/15 text-success">
-                    <MessageCircle className="h-4 w-4" />
-                  </div>
-                  <div className="flex-1">
-                    <div className="text-sm font-medium">WhatsApp</div>
-                    <div className="text-[11px] text-muted-foreground">+1 (829) 941-6546</div>
-                  </div>
-                </a>
-              </nav>
-
-              {/* CTAs */}
-              <div className="space-y-2 border-t border-border/60 bg-surface/50 p-4">
-                <Link to="/registro" onClick={() => setMobileOpen(false)} className="block">
-                  <Button className="h-11 w-full gap-1.5 bg-gradient-primary shadow-elegant">
-                    <Sparkles className="h-4 w-4" />
-                    Probar gratis 14 días
-                    <ArrowRight className="h-4 w-4" />
-                  </Button>
-                </Link>
-                <Link to="/login" onClick={() => setMobileOpen(false)} className="block">
-                  <Button variant="outline" className="h-11 w-full gap-1.5">
-                    <Lock className="h-3.5 w-3.5" />
-                    Iniciar sesión
-                  </Button>
-                </Link>
-                <p className="pt-1 text-center text-[10px] text-muted-foreground">
-                  Sin tarjeta de crédito · Cancela cuando quieras
-                </p>
-              </div>
-            </motion.aside>
-          </div>
-        )}
-      </AnimatePresence>
+      <LandingNavbar />
 
       {/* HERO */}
       <section className="relative overflow-hidden bg-gradient-hero">
@@ -622,51 +535,87 @@ function LandingPage() {
             <p className="mx-auto mt-4 max-w-xl text-lg text-muted-foreground">
               14 días de prueba gratis en cualquier plan. Cambia o cancela cuando quieras. Pagos en pesos dominicanos.
             </p>
+
+            {/* TOGGLE MENSUAL / ANUAL */}
+            <div className="mt-10 flex items-center justify-center gap-4">
+              <span className={`text-sm font-bold transition-colors ${billingCycle === "monthly" ? "text-primary" : "text-muted-foreground"}`}>Pago Mensual</span>
+              <button 
+                onClick={() => setBillingCycle(billingCycle === "monthly" ? "yearly" : "monthly")}
+                className="relative h-7 w-12 rounded-full bg-slate-200 p-1 transition-colors hover:bg-slate-300"
+              >
+                <motion.div 
+                  animate={{ x: billingCycle === "monthly" ? 0 : 20 }}
+                  className="h-5 w-5 rounded-full bg-white shadow-sm"
+                />
+              </button>
+              <div className="flex items-center gap-2">
+                <span className={`text-sm font-bold transition-colors ${billingCycle === "yearly" ? "text-primary" : "text-muted-foreground"}`}>Pago Anual</span>
+                <span className="rounded-full bg-success/10 px-2.5 py-0.5 text-[10px] font-bold text-success uppercase tracking-widest">
+                  -15% OFF
+                </span>
+              </div>
+            </div>
           </div>
 
           <div className="grid gap-6 md:grid-cols-3">
-            {PLANS.map((plan) => (
-              <div
-                key={plan.id}
-                className={`relative flex flex-col rounded-2xl border p-7 transition ${
-                  plan.destacado
-                    ? "border-primary bg-surface shadow-elegant lg:scale-[1.03]"
-                    : "border-border bg-surface shadow-card hover:shadow-elegant"
-                }`}
-              >
-                {plan.destacado && (
-                  <div className="absolute -top-3 left-1/2 -translate-x-1/2 rounded-full bg-gradient-gold px-3 py-1 text-xs font-semibold text-gold-foreground shadow-elegant">
-                    Más popular
+            {plans.map((plan) => {
+              const price = billingCycle === "monthly" ? plan.precio_mensual : (plan.precio_anual || (plan.precio_mensual * 12 * 0.85));
+              const polarUrl = billingCycle === "monthly" ? plan.polar_product_monthly_url : plan.polar_product_yearly_url;
+              const checkoutUrl = polarUrl || "/registro";
+              
+              return (
+                <div
+                  key={plan.id}
+                  className={`relative flex flex-col rounded-2xl border p-7 transition ${
+                    plan.destacado
+                      ? "border-primary bg-surface shadow-elegant lg:scale-[1.03]"
+                      : "border-border bg-surface shadow-card hover:shadow-elegant"
+                  }`}
+                >
+                  {plan.destacado && (
+                    <div className="absolute -top-3 left-1/2 -translate-x-1/2 rounded-full bg-gradient-gold px-3 py-1 text-xs font-semibold text-gold-foreground shadow-elegant">
+                      Más popular
+                    </div>
+                  )}
+                  <div className="font-display text-2xl">{plan.nombre}</div>
+                  <div className="mt-2 flex items-baseline gap-1">
+                    <span className="font-display text-5xl">{formatRD(price).replace("DOP", "RD$")}</span>
                   </div>
-                )}
-                <div className="font-display text-2xl">{plan.nombre}</div>
-                <div className="mt-2 flex items-baseline gap-1">
-                  <span className="font-display text-5xl">{formatRD(plan.precio_mensual).replace("DOP", "RD$")}</span>
+                  <div className="text-sm text-muted-foreground">{billingCycle === "monthly" ? "por mes" : "por año"}</div>
+
+                  <ul className="my-6 space-y-2.5 text-sm">
+                    <Feature on>{plan.limite_empleados} empleados</Feature>
+                    <Feature on>{plan.limite_ordenes_mes ? `${plan.limite_ordenes_mes.toLocaleString("es-DO")} órdenes/mes` : "Órdenes ilimitadas"}</Feature>
+                    <Feature on>Caja, clientes, gastos, reportes</Feature>
+                    <Feature on={plan.modulos.whatsapp}>Notificaciones WhatsApp</Feature>
+                    <Feature on={plan.modulos.facturacion_fiscal}>Facturación Fiscal NCF</Feature>
+                    <Feature on={plan.modulos.multisucursal}>Multi-sucursal</Feature>
+                  </ul>
+
+                  {polarUrl ? (
+                    <a href={checkoutUrl} target="_blank" rel="noopener noreferrer" className="mt-auto">
+                      <Button
+                        className={`w-full h-11 px-6 font-bold shadow-elegant hover:opacity-95 ${plan.destacado ? "bg-primary text-white" : ""}`}
+                        variant={plan.destacado ? "default" : "outline"}
+                      >
+                        <CreditCard className="mr-2 h-4 w-4" />
+                        Suscribirse a {plan.nombre}
+                      </Button>
+                    </a>
+                  ) : (
+                    <Link to="/registro" className="mt-auto">
+                      <Button
+                        className={`w-full h-11 px-6 font-bold shadow-elegant hover:opacity-95 ${plan.destacado ? "bg-primary text-white" : ""}`}
+                        variant={plan.destacado ? "default" : "outline"}
+                      >
+                        <Sparkles className="mr-2 h-4 w-4" />
+                        Empezar con {plan.nombre}
+                      </Button>
+                    </Link>
+                  )}
                 </div>
-                <div className="text-sm text-muted-foreground">por mes</div>
-
-                <ul className="my-6 space-y-2.5 text-sm">
-                  <Feature on>{plan.limite_empleados} empleados</Feature>
-                  <Feature on>{plan.limite_ordenes_mes ? `${plan.limite_ordenes_mes.toLocaleString("es-DO")} órdenes/mes` : "Órdenes ilimitadas"}</Feature>
-                  <Feature on>Caja, clientes, gastos, reportes</Feature>
-                  <Feature on={plan.modulos.sastreria}>Módulo de sastrería</Feature>
-                  <Feature on={plan.modulos.entregas}>Entregas a domicilio</Feature>
-                  <Feature on={plan.modulos.whatsapp}>Notificaciones WhatsApp</Feature>
-                  <Feature on={plan.modulos.reportes_avanzados}>Reportes avanzados</Feature>
-                  <Feature on={plan.modulos.api}>Acceso API</Feature>
-                </ul>
-
-                <Link to="/registro" className="mt-auto">
-                  <Button
-                    className={`w-full h-11 px-6 font-bold shadow-elegant hover:opacity-95 ${plan.destacado ? "bg-primary text-white" : ""}`}
-                    variant={plan.destacado ? "default" : "outline"}
-                  >
-                    <Sparkles className="mr-2 h-4 w-4" />
-                    Empezar con {plan.nombre}
-                  </Button>
-                </Link>
-              </div>
-            ))}
+              );
+            })}
           </div>
 
           <p className="mx-auto mt-10 max-w-2xl text-center text-sm text-muted-foreground">
@@ -736,7 +685,7 @@ function LandingPage() {
 
       <footer className="border-t border-border bg-surface">
         <div className="mx-auto max-w-7xl px-6 py-12">
-          <div className="grid gap-8 md:grid-cols-4">
+          <div className="grid gap-8 md:grid-cols-5">
             <div>
               <Logo size="sm" />
               <p className="mt-3 text-xs leading-relaxed text-muted-foreground">
@@ -758,7 +707,14 @@ function LandingPage() {
                 <li><a href="#faq" className="hover:text-foreground">Preguntas frecuentes</a></li>
                 <li><a href="#sectores" className="hover:text-foreground">¿Para quién es?</a></li>
                 <li><span>Reportes DGII (606/607)</span></li>
-                <li><span>Tickets ESC/POS 57/80mm</span></li>
+              </ul>
+            </div>
+            <div>
+              <div className="mb-3 text-sm font-semibold">Legal</div>
+              <ul className="space-y-2 text-xs text-muted-foreground">
+                <li><Link to="/terminos" className="hover:text-foreground">Términos de Uso</Link></li>
+                <li><Link to="/privacidad" className="hover:text-foreground">Política de Privacidad</Link></li>
+                <li><Link to="/cookies" className="hover:text-foreground">Política de Cookies</Link></li>
               </ul>
             </div>
             <div>
@@ -776,11 +732,15 @@ function LandingPage() {
           </div>
           <div className="mt-10 flex flex-col items-center justify-between gap-3 border-t border-border pt-6 md:flex-row">
             <p className="text-xs text-muted-foreground">
-              © {new Date().getFullYear()} Klynn · Hecho con 🧼 en República Dominicana
+              © {new Date().getFullYear()} Klynn S.R.L. · Hecho con 🧼 en República Dominicana
             </p>
-            <div className="flex items-center gap-3 text-xs text-muted-foreground">
-              <span className="flex items-center gap-1"><Shield className="h-3 w-3" /> Datos seguros</span>
-              <span className="flex items-center gap-1"><CreditCard className="h-3 w-3" /> Pagos en RD$</span>
+            <div className="flex items-center gap-4 text-xs text-muted-foreground">
+              <Link to="/terminos" className="hover:text-foreground">Términos</Link>
+              <Link to="/privacidad" className="hover:text-foreground">Privacidad</Link>
+              <div className="flex items-center gap-3 ml-4">
+                <span className="flex items-center gap-1"><Shield className="h-3 w-3" /> Datos seguros</span>
+                <span className="flex items-center gap-1"><CreditCard className="h-3 w-3" /> Pagos en RD$</span>
+              </div>
             </div>
           </div>
         </div>

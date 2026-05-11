@@ -1,20 +1,9 @@
 import { createFileRoute, Link, useNavigate } from "@tanstack/react-router";
 import { useState, useEffect } from "react";
 import { 
-  Building2, 
-  Shield, 
-  TrendingUp, 
-  Users, 
-  Trash2, 
-  ExternalLink, 
-  Plus, 
-  Pencil, 
-  RefreshCw, 
-  Package, 
-  LogOut,
-  MoreHorizontal,
-  Key,
-  Droplets as DropletsIcon
+  Building2, Shield, TrendingUp, Users, Trash2, ExternalLink, Plus, Pencil, 
+  RefreshCw, Package, LogOut, MoreHorizontal, Key, Droplets as DropletsIcon,
+  CreditCard
 } from "lucide-react";
 import { Logo } from "@/components/klynn/Logo";
 import { useRequireAuth } from "@/lib/useRequireAuth";
@@ -44,6 +33,7 @@ import {
   getGlobalConfig,
   saveGlobalConfig,
   ADMIN_EMAILS,
+  formatCedulaRD,
 
   type Plan, type PlanId, type Tenant, type GlobalConfig
 } from "@/lib/storage";
@@ -109,6 +99,7 @@ function AdminPage() {
   const [globalConfig, setGlobalConfig] = useState<GlobalConfig>({ requirePlanOnRegistration: true, trialDays: 14, defaultPlanId: 'basico' });
   const [editingPlan, setEditingPlan] = useState<Plan | null>(null);
   const [openPlan, setOpenPlan] = useState(false);
+  const [openBank, setOpenBank] = useState(false);
   
   const [editingTenant, setEditingTenant] = useState<Tenant | null>(null);
   const [openEditModal, setOpenEditModal] = useState(false);
@@ -342,9 +333,14 @@ function AdminPage() {
 
             <div className="mb-4 flex items-center justify-between">
               <p className="text-sm text-muted-foreground">{plans.length} planes configurados</p>
-              <Button onClick={() => { setEditingPlan(null); setOpenPlan(true); }} className="bg-gradient-primary text-white rounded-lg shadow-md h-9 px-5">
-                <Plus className="mr-1.5 h-4 w-4" /> Nuevo plan
-              </Button>
+              <div className="flex gap-2">
+                <Button variant="outline" onClick={() => setOpenBank(true)} className="rounded-lg h-9 px-5 border-primary/20 text-primary hover:bg-primary/5">
+                  <CreditCard className="mr-1.5 h-4 w-4" /> Metodos de Pago
+                </Button>
+                <Button onClick={() => { setEditingPlan(null); setOpenPlan(true); }} className="bg-gradient-primary text-white rounded-lg shadow-md h-9 px-5">
+                  <Plus className="mr-1.5 h-4 w-4" /> Nuevo plan
+                </Button>
+              </div>
             </div>
 
             <div className="grid gap-4 md:grid-cols-3">
@@ -359,8 +355,9 @@ function AdminPage() {
                       <div className="text-xs text-muted-foreground font-medium">o {formatRD(p.precio_anual)}/año</div>
                     )}
                   <div className="mt-4 space-y-2 text-sm">
-                    <div>👥 {p.limite_empleados} empleados</div>
-                    <div>📦 {p.limite_ordenes_mes ?? "∞"} órdenes/mes</div>
+                    <div>👥 {p.limite_empleados} Empleados</div>
+                    <div>📦 {p.limite_ordenes_mes ?? "∞"} Órdenes/mes</div>
+                    <div className="text-blue-600 font-medium">💬 {(p.limite_whatsapp_mes || 0).toLocaleString()} Mensajes WhatsApp</div>
                     <div className="border-t border-border pt-2 space-y-1">
                       {Object.entries(p.modulos).map(([k, v]) => (
                         <div key={k} className={`flex items-center gap-2 ${v ? "text-foreground font-medium" : "text-muted-foreground line-through opacity-50"}`}>
@@ -462,6 +459,7 @@ function AdminPage() {
         </Dialog>
 
         <PlanDialog open={openPlan} onOpenChange={setOpenPlan} initial={editingPlan} onSaved={() => { setTick((r) => r + 1); setOpenPlan(false); }} />
+        <BankDetailsDialog open={openBank} onOpenChange={setOpenBank} config={globalConfig} onSaved={() => { setTick((r) => r + 1); setOpenBank(false); }} />
     </div>
   );
 }
@@ -486,7 +484,8 @@ function PlanDialog({ open, onOpenChange, initial, onSaved }: {
     if (open) setF(initial ? { ...initial } : {
       id: ("plan_" + Date.now()) as PlanId,
       nombre: "", precio_mensual: 0, precio_anual: 0, limite_empleados: 5, limite_ordenes_mes: 500,
-      modulos: { whatsapp: false, facturacion_fiscal: false },
+      limite_whatsapp_mes: 300,
+      modulos: { whatsapp: false, facturacion_fiscal: false, multisucursal: false },
     });
   }, [open, initial]);
 
@@ -503,8 +502,11 @@ function PlanDialog({ open, onOpenChange, initial, onSaved }: {
       precio_anual: Number(f.precio_anual) || 0,
       limite_empleados: Number(f.limite_empleados) || 1,
       limite_ordenes_mes: f.limite_ordenes_mes === null ? null : Number(f.limite_ordenes_mes) || null,
+      limite_whatsapp_mes: Number(f.limite_whatsapp_mes) || 0,
       modulos: f.modulos as Plan["modulos"],
       destacado: f.destacado,
+      polar_product_monthly_url: f.polar_product_monthly_url?.trim() || undefined,
+      polar_product_yearly_url: f.polar_product_yearly_url?.trim() || undefined,
     };
     await savePlan(plan);
     toast.success("Plan guardado");
@@ -526,7 +528,7 @@ function PlanDialog({ open, onOpenChange, initial, onSaved }: {
               <Input value={f.nombre || ""} onChange={(e) => setF({ ...f, nombre: e.target.value })} className="h-11 rounded-xl" />
             </div>
           </div>
-          <div className="grid grid-cols-4 gap-3">
+          <div className="grid grid-cols-3 gap-3">
             <div className="col-span-1"><Label className="mb-1.5 block text-sm font-bold">Precio/mes (RD$)</Label>
               <Input type="number" value={f.precio_mensual ?? 0} onChange={(e) => setF({ ...f, precio_mensual: Number(e.target.value) })} className="h-11 rounded-xl" />
             </div>
@@ -536,15 +538,21 @@ function PlanDialog({ open, onOpenChange, initial, onSaved }: {
             <div className="col-span-1"><Label className="mb-1.5 block text-sm font-bold">Empleados</Label>
               <Input type="number" value={f.limite_empleados ?? 0} onChange={(e) => setF({ ...f, limite_empleados: Number(e.target.value) })} className="h-11 rounded-xl" />
             </div>
+          </div>
+
+          <div className="grid grid-cols-2 gap-3">
             <div className="col-span-1"><Label className="mb-1.5 block text-sm font-bold">Órdenes/mes</Label>
               <Input type="number" value={f.limite_ordenes_mes ?? ""} onChange={(e) => setF({ ...f, limite_ordenes_mes: e.target.value === "" ? null : Number(e.target.value) })} className="h-11 rounded-xl" />
+            </div>
+            <div className="col-span-1"><Label className="mb-1.5 block text-sm font-bold">WhatsApp/mes</Label>
+              <Input type="number" value={f.limite_whatsapp_mes ?? 0} onChange={(e) => setF({ ...f, limite_whatsapp_mes: Number(e.target.value) })} className="h-11 rounded-xl" />
             </div>
           </div>
 
           <div>
             <Label className="mb-3 block text-sm font-bold text-muted-foreground uppercase tracking-wider">Módulos incluidos</Label>
             <div className="grid grid-cols-2 gap-x-6 gap-y-3 rounded-2xl border border-border p-5 bg-accent/30 backdrop-blur-sm">
-              {(["whatsapp", "facturacion_fiscal"] as const).map((m) => (
+              {(["whatsapp", "facturacion_fiscal", "multisucursal"] as const).map((m) => (
                 <label key={m} className="flex items-center gap-3 text-sm p-1 rounded-lg transition-colors cursor-pointer group">
                   <Switch 
                     checked={!!mods?.[m]} 
@@ -563,10 +571,97 @@ function PlanDialog({ open, onOpenChange, initial, onSaved }: {
             <Switch checked={!!f.destacado} onCheckedChange={(v) => setF({ ...f, destacado: v })} />
             Marcar como plan destacado / popular
           </label>
+
+          <div className="grid grid-cols-2 gap-4">
+            <div className="space-y-2">
+              <Label className="text-sm font-bold flex items-center gap-2">
+                <ExternalLink className="h-4 w-4 text-primary" /> Polar Monthly Link
+              </Label>
+              <Input 
+                value={f.polar_product_monthly_url || ""} 
+                onChange={(e) => setF({ ...f, polar_product_monthly_url: e.target.value })} 
+                placeholder="https://polar.sh/..." 
+                className="h-10 rounded-xl"
+              />
+            </div>
+            <div className="space-y-2">
+              <Label className="text-sm font-bold flex items-center gap-2">
+                <ExternalLink className="h-4 w-4 text-primary" /> Polar Yearly Link
+              </Label>
+              <Input 
+                value={f.polar_product_yearly_url || ""} 
+                onChange={(e) => setF({ ...f, polar_product_yearly_url: e.target.value })} 
+                placeholder="https://polar.sh/..." 
+                className="h-10 rounded-xl"
+              />
+            </div>
+          </div>
         </div>
         <DialogFooter>
           <Button variant="outline" onClick={() => onOpenChange(false)}>Cancelar</Button>
           <Button onClick={submit} className="bg-gradient-primary text-white">Guardar plan</Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+function BankDetailsDialog({ open, onOpenChange, config, onSaved }: { 
+  open: boolean; onOpenChange: (o: boolean) => void; config: GlobalConfig; onSaved: () => void; 
+}) {
+  const [f, setF] = useState<BankDetails>({
+    banco: "", titular: "", rnc: "", tipo_cuenta: "", numero_cuenta: ""
+  });
+
+  useEffect(() => {
+    if (open && config.bankDetails) {
+      setF(config.bankDetails);
+    }
+  }, [open, config.bankDetails]);
+
+  async function submit() {
+    const next = { ...config, bankDetails: f };
+    await saveGlobalConfig(next);
+    toast.success("Métodos de pago actualizados");
+    onSaved();
+  }
+
+  return (
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogContent className="sm:max-w-md rounded-2xl border-none shadow-card">
+        <DialogHeader>
+          <DialogTitle className="flex items-center gap-2">
+            <CreditCard className="h-5 w-5 text-primary" /> Datos Bancarios
+          </DialogTitle>
+          <p className="text-sm text-muted-foreground">Configura la cuenta para transferencias directas.</p>
+        </DialogHeader>
+        <div className="grid gap-4 py-4">
+          <div className="space-y-2">
+            <Label>Banco</Label>
+            <Input value={f.banco} onChange={(e) => setF({...f, banco: e.target.value})} placeholder="Banreservas, BHD, etc." className="rounded-xl h-11" />
+          </div>
+          <div className="space-y-2">
+            <Label>Titular de la cuenta</Label>
+            <Input value={f.titular} onChange={(e) => setF({...f, titular: e.target.value})} placeholder="Nombre completo" className="rounded-xl h-11" />
+          </div>
+          <div className="grid grid-cols-2 gap-4">
+            <div className="space-y-2">
+              <Label>Cédula / RNC</Label>
+              <Input value={f.rnc} onChange={(e) => setF({...f, rnc: formatCedulaRD(e.target.value)})} placeholder="402-..." className="rounded-xl h-11" />
+            </div>
+            <div className="space-y-2">
+              <Label>Tipo de Cuenta</Label>
+              <Input value={f.tipo_cuenta} onChange={(e) => setF({...f, tipo_cuenta: e.target.value})} placeholder="Ahorro / Corriente" className="rounded-xl h-11" />
+            </div>
+          </div>
+          <div className="space-y-2">
+            <Label>Número de Cuenta</Label>
+            <Input value={f.numero_cuenta} onChange={(e) => setF({...f, numero_cuenta: e.target.value})} placeholder="0000000000" className="rounded-xl h-11" />
+          </div>
+        </div>
+        <DialogFooter>
+          <Button variant="ghost" onClick={() => onOpenChange(false)}>Cancelar</Button>
+          <Button onClick={submit} className="bg-primary text-white rounded-xl font-bold shadow-md">Guardar Datos</Button>
         </DialogFooter>
       </DialogContent>
     </Dialog>

@@ -1,13 +1,15 @@
 import { Droplets } from "lucide-react";
+import { Link } from "@tanstack/react-router";
 
 interface LogoProps {
   size?: "sm" | "md" | "lg" | "xl";
   showWordmark?: boolean;
   className?: string;
   iconColor?: string;
+  to?: string;
 }
 
-export function Logo({ size = "md", showWordmark = true, className = "", iconColor }: LogoProps) {
+export function Logo({ size = "md", showWordmark = true, className = "", iconColor, to = "/" }: LogoProps) {
   const dim = {
     sm: "h-7 w-7",
     md: "h-11 w-11",
@@ -23,7 +25,7 @@ export function Logo({ size = "md", showWordmark = true, className = "", iconCol
   }[size];
   
   return (
-    <div className={`flex items-center gap-2 ${className}`}>
+    <Link to={to} className={`flex items-center gap-2 transition-opacity hover:opacity-80 ${className}`}>
       <div className={`${dim} flex items-center justify-center`}>
         <Droplets 
           className={`h-full w-full ${iconColor ? "" : "text-[#0074ff]"}`} 
@@ -36,6 +38,6 @@ export function Logo({ size = "md", showWordmark = true, className = "", iconCol
           Klynn
         </span>
       )}
-    </div>
+    </Link>
   );
 }
