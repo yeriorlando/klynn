@@ -213,9 +213,29 @@ function RegistroPage() {
     } catch (err: any) {
       setIsProvisioning(false);
       let errMsg = err.message || "Error al registrar";
-      if (errMsg === "User already registered") {
-        errMsg = "El usuario ya está registrado";
+      
+      // Mapeo de errores técnicos a mensajes amigables
+      if (errMsg.includes("tenants_slug_key")) {
+        errMsg = "Este nombre de lavandería o subdominio ya está en uso. Por favor elige otro.";
+        setErrors({ slug: errMsg });
+        setStep(2); // Devolver al paso de marca
+        return;
       }
+      
+      if (errMsg.includes("User already registered") || errMsg.includes("user_already_exists")) {
+        errMsg = "Ya existe una cuenta registrada con este correo electrónico.";
+        setErrors({ admin_email: errMsg });
+        setStep(4);
+        return;
+      }
+
+      if (errMsg.includes("Password should be at least")) {
+        errMsg = "La contraseña es muy corta. Debe tener al menos 6 caracteres.";
+        setErrors({ admin_password: errMsg });
+        setStep(4);
+        return;
+      }
+
       setErrors({ admin_email: errMsg });
       setStep(4);
     }

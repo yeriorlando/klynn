@@ -217,8 +217,17 @@ function NuevaSucursalPage() {
       }, 1200);
     } catch (err: any) {
       setIsProvisioning(false);
-      setErrors({ nombre: err.message || "Error al crear la sucursal" });
-      setStep(1); // Devolver al primer paso para mostrar el error
+      let errMsg = err.message || "Error al crear la sucursal";
+
+      if (errMsg.includes("tenants_slug_key")) {
+        errMsg = "Este subdominio ya está en uso. Por favor elige otro para esta sucursal.";
+        setErrors({ slug: errMsg });
+        setStep(2);
+        return;
+      }
+
+      setErrors({ nombre: errMsg });
+      setStep(1); 
     }
   }
 

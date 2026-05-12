@@ -101,7 +101,7 @@ export function TenantShell() {
   return (
     <div className="min-h-screen bg-background print:hidden">
       <BrandStyle tenant={tenant} />
-      <TourManager />
+      <TourManager userId={empleado.id} />
 
       {/* Sidebar desktop */}
       <aside id="tour-sidebar" className="sidebar-desktop fixed inset-y-0 left-0 z-30 hidden w-64 border-r border-border bg-surface lg:flex lg:flex-col transition-all duration-500 ease-in-out">
@@ -328,7 +328,7 @@ function UserMenu({ nombre, rol, onLogout }: { nombre: string; rol: string; onLo
               <div className="text-xs text-muted-foreground">{rol}</div>
             </div>
             <button 
-              onClick={() => { resetTours(); setOpen(false); }} 
+              onClick={() => { resetTours(empleado.id); setOpen(false); }} 
               className="flex w-full items-center gap-2 px-3 py-2.5 text-sm text-foreground hover:bg-accent border-b border-border"
             >
               <HelpCircle className="h-4 w-4" /> Ver Tour de nuevo
