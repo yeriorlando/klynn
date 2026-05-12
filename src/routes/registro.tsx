@@ -469,7 +469,13 @@ function RegistroPage() {
               )}
 
               {step === 5 && createdTenant && (
-                <SuccessCard tenant={createdTenant} adminNombre={form.admin_nombre} adminEmail={form.admin_email} onEnter={() => navigate({ to: `/t/${createdTenant.slug}` })} />
+                <SuccessCard 
+                  tenant={createdTenant} 
+                  adminNombre={form.admin_nombre} 
+                  adminEmail={form.admin_email} 
+                  globalConfig={globalConfig}
+                  onEnter={() => navigate({ to: `/t/${createdTenant.slug}` })} 
+                />
               )}
             </motion.div>
           </AnimatePresence>
@@ -502,7 +508,13 @@ function RegistroPage() {
   );
 }
 
-function SuccessCard({ tenant, adminNombre, adminEmail, onEnter }: { tenant: Tenant; adminNombre: string; adminEmail: string; onEnter: () => void }) {
+function SuccessCard({ tenant, adminNombre, adminEmail, globalConfig, onEnter }: { 
+  tenant: Tenant; 
+  adminNombre: string; 
+  adminEmail: string; 
+  globalConfig: GlobalConfig;
+  onEnter: () => void 
+}) {
   const planNombre = PLANS.find((p) => p.id === tenant.plan_id)?.nombre || tenant.plan_id;
   return (
     <div className="text-center">
