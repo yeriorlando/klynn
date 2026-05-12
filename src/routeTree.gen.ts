@@ -10,6 +10,9 @@
 
 import { Route as rootRouteImport } from './routes/__root'
 import { Route as TerminosRouteImport } from './routes/terminos'
+import { Route as SoftwareLavanderiaSantoDomingoRouteImport } from './routes/software-lavanderia-santo-domingo'
+import { Route as SoftwareLavanderiaSantiagoRouteImport } from './routes/software-lavanderia-santiago'
+import { Route as SoftwareLavanderiaPuntaCanaRouteImport } from './routes/software-lavanderia-punta-cana'
 import { Route as RestablecerContrasenaRouteImport } from './routes/restablecer-contrasena'
 import { Route as RegistroRouteImport } from './routes/registro'
 import { Route as RecuperarRouteImport } from './routes/recuperar'
@@ -20,7 +23,9 @@ import { Route as DashboardAdminRouteImport } from './routes/dashboard-admin'
 import { Route as CookiesRouteImport } from './routes/cookies'
 import { Route as AdminRouteImport } from './routes/admin'
 import { Route as IndexRouteImport } from './routes/index'
+import { Route as BlogIndexRouteImport } from './routes/blog.index'
 import { Route as TSlugRouteImport } from './routes/t.$slug'
+import { Route as BlogSlugRouteImport } from './routes/blog.$slug'
 import { Route as TSlugIndexRouteImport } from './routes/t.$slug.index'
 import { Route as TSlugReportesRouteImport } from './routes/t.$slug.reportes'
 import { Route as TSlugPersonalRouteImport } from './routes/t.$slug.personal'
@@ -39,6 +44,24 @@ const TerminosRoute = TerminosRouteImport.update({
   path: '/terminos',
   getParentRoute: () => rootRouteImport,
 } as any)
+const SoftwareLavanderiaSantoDomingoRoute =
+  SoftwareLavanderiaSantoDomingoRouteImport.update({
+    id: '/software-lavanderia-santo-domingo',
+    path: '/software-lavanderia-santo-domingo',
+    getParentRoute: () => rootRouteImport,
+  } as any)
+const SoftwareLavanderiaSantiagoRoute =
+  SoftwareLavanderiaSantiagoRouteImport.update({
+    id: '/software-lavanderia-santiago',
+    path: '/software-lavanderia-santiago',
+    getParentRoute: () => rootRouteImport,
+  } as any)
+const SoftwareLavanderiaPuntaCanaRoute =
+  SoftwareLavanderiaPuntaCanaRouteImport.update({
+    id: '/software-lavanderia-punta-cana',
+    path: '/software-lavanderia-punta-cana',
+    getParentRoute: () => rootRouteImport,
+  } as any)
 const RestablecerContrasenaRoute = RestablecerContrasenaRouteImport.update({
   id: '/restablecer-contrasena',
   path: '/restablecer-contrasena',
@@ -89,9 +112,19 @@ const IndexRoute = IndexRouteImport.update({
   path: '/',
   getParentRoute: () => rootRouteImport,
 } as any)
+const BlogIndexRoute = BlogIndexRouteImport.update({
+  id: '/blog/',
+  path: '/blog/',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const TSlugRoute = TSlugRouteImport.update({
   id: '/t/$slug',
   path: '/t/$slug',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const BlogSlugRoute = BlogSlugRouteImport.update({
+  id: '/blog/$slug',
+  path: '/blog/$slug',
   getParentRoute: () => rootRouteImport,
 } as any)
 const TSlugIndexRoute = TSlugIndexRouteImport.update({
@@ -166,8 +199,13 @@ export interface FileRoutesByFullPath {
   '/recuperar': typeof RecuperarRoute
   '/registro': typeof RegistroRoute
   '/restablecer-contrasena': typeof RestablecerContrasenaRoute
+  '/software-lavanderia-punta-cana': typeof SoftwareLavanderiaPuntaCanaRoute
+  '/software-lavanderia-santiago': typeof SoftwareLavanderiaSantiagoRoute
+  '/software-lavanderia-santo-domingo': typeof SoftwareLavanderiaSantoDomingoRoute
   '/terminos': typeof TerminosRoute
+  '/blog/$slug': typeof BlogSlugRoute
   '/t/$slug': typeof TSlugRouteWithChildren
+  '/blog/': typeof BlogIndexRoute
   '/t/$slug/caja': typeof TSlugCajaRoute
   '/t/$slug/catalogo': typeof TSlugCatalogoRoute
   '/t/$slug/clientes': typeof TSlugClientesRoute
@@ -192,7 +230,12 @@ export interface FileRoutesByTo {
   '/recuperar': typeof RecuperarRoute
   '/registro': typeof RegistroRoute
   '/restablecer-contrasena': typeof RestablecerContrasenaRoute
+  '/software-lavanderia-punta-cana': typeof SoftwareLavanderiaPuntaCanaRoute
+  '/software-lavanderia-santiago': typeof SoftwareLavanderiaSantiagoRoute
+  '/software-lavanderia-santo-domingo': typeof SoftwareLavanderiaSantoDomingoRoute
   '/terminos': typeof TerminosRoute
+  '/blog/$slug': typeof BlogSlugRoute
+  '/blog': typeof BlogIndexRoute
   '/t/$slug/caja': typeof TSlugCajaRoute
   '/t/$slug/catalogo': typeof TSlugCatalogoRoute
   '/t/$slug/clientes': typeof TSlugClientesRoute
@@ -218,8 +261,13 @@ export interface FileRoutesById {
   '/recuperar': typeof RecuperarRoute
   '/registro': typeof RegistroRoute
   '/restablecer-contrasena': typeof RestablecerContrasenaRoute
+  '/software-lavanderia-punta-cana': typeof SoftwareLavanderiaPuntaCanaRoute
+  '/software-lavanderia-santiago': typeof SoftwareLavanderiaSantiagoRoute
+  '/software-lavanderia-santo-domingo': typeof SoftwareLavanderiaSantoDomingoRoute
   '/terminos': typeof TerminosRoute
+  '/blog/$slug': typeof BlogSlugRoute
   '/t/$slug': typeof TSlugRouteWithChildren
+  '/blog/': typeof BlogIndexRoute
   '/t/$slug/caja': typeof TSlugCajaRoute
   '/t/$slug/catalogo': typeof TSlugCatalogoRoute
   '/t/$slug/clientes': typeof TSlugClientesRoute
@@ -246,8 +294,13 @@ export interface FileRouteTypes {
     | '/recuperar'
     | '/registro'
     | '/restablecer-contrasena'
+    | '/software-lavanderia-punta-cana'
+    | '/software-lavanderia-santiago'
+    | '/software-lavanderia-santo-domingo'
     | '/terminos'
+    | '/blog/$slug'
     | '/t/$slug'
+    | '/blog/'
     | '/t/$slug/caja'
     | '/t/$slug/catalogo'
     | '/t/$slug/clientes'
@@ -272,7 +325,12 @@ export interface FileRouteTypes {
     | '/recuperar'
     | '/registro'
     | '/restablecer-contrasena'
+    | '/software-lavanderia-punta-cana'
+    | '/software-lavanderia-santiago'
+    | '/software-lavanderia-santo-domingo'
     | '/terminos'
+    | '/blog/$slug'
+    | '/blog'
     | '/t/$slug/caja'
     | '/t/$slug/catalogo'
     | '/t/$slug/clientes'
@@ -297,8 +355,13 @@ export interface FileRouteTypes {
     | '/recuperar'
     | '/registro'
     | '/restablecer-contrasena'
+    | '/software-lavanderia-punta-cana'
+    | '/software-lavanderia-santiago'
+    | '/software-lavanderia-santo-domingo'
     | '/terminos'
+    | '/blog/$slug'
     | '/t/$slug'
+    | '/blog/'
     | '/t/$slug/caja'
     | '/t/$slug/catalogo'
     | '/t/$slug/clientes'
@@ -324,8 +387,13 @@ export interface RootRouteChildren {
   RecuperarRoute: typeof RecuperarRoute
   RegistroRoute: typeof RegistroRoute
   RestablecerContrasenaRoute: typeof RestablecerContrasenaRoute
+  SoftwareLavanderiaPuntaCanaRoute: typeof SoftwareLavanderiaPuntaCanaRoute
+  SoftwareLavanderiaSantiagoRoute: typeof SoftwareLavanderiaSantiagoRoute
+  SoftwareLavanderiaSantoDomingoRoute: typeof SoftwareLavanderiaSantoDomingoRoute
   TerminosRoute: typeof TerminosRoute
+  BlogSlugRoute: typeof BlogSlugRoute
   TSlugRoute: typeof TSlugRouteWithChildren
+  BlogIndexRoute: typeof BlogIndexRoute
 }
 
 declare module '@tanstack/react-router' {
@@ -335,6 +403,27 @@ declare module '@tanstack/react-router' {
       path: '/terminos'
       fullPath: '/terminos'
       preLoaderRoute: typeof TerminosRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/software-lavanderia-santo-domingo': {
+      id: '/software-lavanderia-santo-domingo'
+      path: '/software-lavanderia-santo-domingo'
+      fullPath: '/software-lavanderia-santo-domingo'
+      preLoaderRoute: typeof SoftwareLavanderiaSantoDomingoRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/software-lavanderia-santiago': {
+      id: '/software-lavanderia-santiago'
+      path: '/software-lavanderia-santiago'
+      fullPath: '/software-lavanderia-santiago'
+      preLoaderRoute: typeof SoftwareLavanderiaSantiagoRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/software-lavanderia-punta-cana': {
+      id: '/software-lavanderia-punta-cana'
+      path: '/software-lavanderia-punta-cana'
+      fullPath: '/software-lavanderia-punta-cana'
+      preLoaderRoute: typeof SoftwareLavanderiaPuntaCanaRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/restablecer-contrasena': {
@@ -407,11 +496,25 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof IndexRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/blog/': {
+      id: '/blog/'
+      path: '/blog'
+      fullPath: '/blog/'
+      preLoaderRoute: typeof BlogIndexRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/t/$slug': {
       id: '/t/$slug'
       path: '/t/$slug'
       fullPath: '/t/$slug'
       preLoaderRoute: typeof TSlugRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/blog/$slug': {
+      id: '/blog/$slug'
+      path: '/blog/$slug'
+      fullPath: '/blog/$slug'
+      preLoaderRoute: typeof BlogSlugRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/t/$slug/': {
@@ -544,8 +647,13 @@ const rootRouteChildren: RootRouteChildren = {
   RecuperarRoute: RecuperarRoute,
   RegistroRoute: RegistroRoute,
   RestablecerContrasenaRoute: RestablecerContrasenaRoute,
+  SoftwareLavanderiaPuntaCanaRoute: SoftwareLavanderiaPuntaCanaRoute,
+  SoftwareLavanderiaSantiagoRoute: SoftwareLavanderiaSantiagoRoute,
+  SoftwareLavanderiaSantoDomingoRoute: SoftwareLavanderiaSantoDomingoRoute,
   TerminosRoute: TerminosRoute,
+  BlogSlugRoute: BlogSlugRoute,
   TSlugRoute: TSlugRouteWithChildren,
+  BlogIndexRoute: BlogIndexRoute,
 }
 export const routeTree = rootRouteImport
   ._addFileChildren(rootRouteChildren)

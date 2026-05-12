@@ -110,8 +110,8 @@ function DashboardPage() {
 
       {/* KPIs */}
       <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
-        <KPI title="Ventas del día" value={formatRD(ventasHoy)} icon={Receipt} accent />
-        <KPI title="Órdenes activas" value={String(activas.length)} icon={Package} sub="Pendientes de procesar" />
+        <div id="tour-kpi-ventas"><KPI title="Ventas del día" value={formatRD(ventasHoy)} icon={Receipt} accent /></div>
+        <div id="tour-kpi-activas"><KPI title="Órdenes activas" value={String(activas.length)} icon={Package} sub="Pendientes de procesar" /></div>
         <KPI title="Listas para entregar" value={String(listas.length)} icon={Truck} />
         <KPI title="Por cobrar" value={formatRD(totalCxC)} icon={AlertCircle} sub={`${cuentasCobrar.length} órdenes`} warn={totalCxC > 0} />
       </div>
@@ -140,7 +140,7 @@ function DashboardPage() {
         </Card>
 
         {/* Caja */}
-        <Card className="p-6">
+        <Card id="tour-caja-turno" className="p-6">
           <div className="mb-4 flex items-center justify-between">
             <div className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">Caja del turno</div>
             <Wallet className="h-4 w-4 text-muted-foreground" />

@@ -14,6 +14,8 @@ import { Toaster, toast } from "sonner";
 import { useEffect } from "react";
 import { motion } from "framer-motion";
 import { CloudSync } from "@/components/klynn/CloudSync";
+import { TourManager, resetTours } from "@/components/klynn/onboarding/TourManager";
+import { HelpCircle } from "lucide-react";
 
 interface NavItem {
   to: string;
@@ -99,9 +101,10 @@ export function TenantShell() {
   return (
     <div className="min-h-screen bg-background print:hidden">
       <BrandStyle tenant={tenant} />
+      <TourManager />
 
       {/* Sidebar desktop */}
-      <aside className="sidebar-desktop fixed inset-y-0 left-0 z-30 hidden w-64 border-r border-border bg-surface lg:flex lg:flex-col transition-all duration-500 ease-in-out">
+      <aside id="tour-sidebar" className="sidebar-desktop fixed inset-y-0 left-0 z-30 hidden w-64 border-r border-border bg-surface lg:flex lg:flex-col transition-all duration-500 ease-in-out">
         <SidebarContent tenant={tenant} empleado={empleado} pathname={pathname} isActive={isActive} />
       </aside>
 
@@ -268,6 +271,7 @@ function SidebarContent({
             <Link
               key={item.to}
               to={item.to}
+              id={`tour-nav-${item.permission}`}
               onClick={onNavigate}
               className={`mb-0.5 flex items-center gap-3 rounded-lg px-3 py-2.5 text-sm font-medium transition ${
                 active
@@ -323,6 +327,12 @@ function UserMenu({ nombre, rol, onLogout }: { nombre: string; rol: string; onLo
               <div className="text-sm font-semibold">{nombre}</div>
               <div className="text-xs text-muted-foreground">{rol}</div>
             </div>
+            <button 
+              onClick={() => { resetTours(); setOpen(false); }} 
+              className="flex w-full items-center gap-2 px-3 py-2.5 text-sm text-foreground hover:bg-accent border-b border-border"
+            >
+              <HelpCircle className="h-4 w-4" /> Ver Tour de nuevo
+            </button>
             <button onClick={onLogout} className="flex w-full items-center gap-2 px-3 py-2.5 text-sm text-destructive hover:bg-accent">
               <LogOut className="h-4 w-4" /> Cerrar sesión
             </button>

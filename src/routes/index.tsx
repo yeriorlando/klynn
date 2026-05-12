@@ -48,15 +48,15 @@ export const Route = createFileRoute("/")({
       {
         name: "description",
         content:
-          "Software de gestión para lavanderías en RD: facturación con ITBIS 18% y NCF, tickets térmicos 57/80mm, caja, clientes, entregas y reportes DGII. Prueba gratis 14 días. Santo Domingo, Santiago y todo el país.",
+          "La plataforma #1 para lavanderías en República Dominicana. Controla tus sucursales, repartidores, caja y WhatsApp desde la nube. ¡Simplifica tu operación y crece hoy mismo!",
       },
       {
         name: "keywords",
         content:
-          "software para lavanderías República Dominicana, sistema POS lavandería RD, facturación ITBIS NCF, software lavandería Santo Domingo, programa lavandería Santiago, gestión lavandería dominicana, ticket térmico 80mm RD, software DGII lavandería",
+          "plataforma para lavanderías RD, software para lavanderías República Dominicana, sistema POS lavandería RD, gestión lavandería dominicana, control de repartidores lavandería, software lavandería Santo Domingo, programa lavandería Santiago",
       },
       { property: "og:title", content: "Klynn — Software para lavanderías en República Dominicana" },
-      { property: "og:description", content: "Gestiona órdenes, caja, ITBIS, NCF, clientes y entregas desde una sola pantalla. Hecho en RD 🇩🇴. Prueba gratis 14 días." },
+      { property: "og:description", content: "Moderniza tu lavandería con nuestra plataforma integral. Controla sucursales, repartidores y caja desde la nube. Prueba gratis 14 días." },
       { property: "og:locale", content: "es_DO" },
     ],
   }),
@@ -201,20 +201,7 @@ function LandingPage() {
           }),
         }}
       />
-      <script
-        type="application/ld+json"
-        dangerouslySetInnerHTML={{
-          __html: JSON.stringify({
-            "@context": "https://schema.org",
-            "@type": "FAQPage",
-            mainEntity: faqs.map((f) => ({
-              "@type": "Question",
-              name: f.q,
-              acceptedAnswer: { "@type": "Answer", text: f.a },
-            })),
-          }),
-        }}
-      />
+
       <script
         type="application/ld+json"
         dangerouslySetInnerHTML={{
@@ -539,11 +526,11 @@ function LandingPage() {
             {/* TOGGLE MENSUAL / ANUAL */}
             <div className="mt-10 flex items-center justify-center gap-4">
               <span className={`text-sm font-bold transition-colors ${billingCycle === "monthly" ? "text-primary" : "text-muted-foreground"}`}>Pago Mensual</span>
-              <button 
+              <button
                 onClick={() => setBillingCycle(billingCycle === "monthly" ? "yearly" : "monthly")}
                 className="relative h-7 w-12 rounded-full bg-slate-200 p-1 transition-colors hover:bg-slate-300"
               >
-                <motion.div 
+                <motion.div
                   animate={{ x: billingCycle === "monthly" ? 0 : 20 }}
                   className="h-5 w-5 rounded-full bg-white shadow-sm"
                 />
@@ -562,15 +549,14 @@ function LandingPage() {
               const price = billingCycle === "monthly" ? plan.precio_mensual : (plan.precio_anual || (plan.precio_mensual * 12 * 0.85));
               const polarUrl = billingCycle === "monthly" ? plan.polar_product_monthly_url : plan.polar_product_yearly_url;
               const checkoutUrl = polarUrl || "/registro";
-              
+
               return (
                 <div
                   key={plan.id}
-                  className={`relative flex flex-col rounded-2xl border p-7 transition ${
-                    plan.destacado
+                  className={`relative flex flex-col rounded-2xl border p-7 transition ${plan.destacado
                       ? "border-primary bg-surface shadow-elegant lg:scale-[1.03]"
                       : "border-border bg-surface shadow-card hover:shadow-elegant"
-                  }`}
+                    }`}
                 >
                   {plan.destacado && (
                     <div className="absolute -top-3 left-1/2 -translate-x-1/2 rounded-full bg-gradient-gold px-3 py-1 text-xs font-semibold text-gold-foreground shadow-elegant">
@@ -705,9 +691,18 @@ function LandingPage() {
             <div>
               <div className="mb-3 text-sm font-semibold">Recursos</div>
               <ul className="space-y-2 text-xs text-muted-foreground">
+                <li><Link to="/blog" className="hover:text-foreground">Blog y Consejos</Link></li>
                 <li><a href="#faq" className="hover:text-foreground">Preguntas frecuentes</a></li>
                 <li><a href="#sectores" className="hover:text-foreground">¿Para quién es?</a></li>
                 <li><span>Reportes DGII (606/607)</span></li>
+              </ul>
+            </div>
+            <div>
+              <div className="mb-3 text-sm font-semibold">Ciudades</div>
+              <ul className="space-y-2 text-xs text-muted-foreground">
+                <li><Link to="/software-lavanderia-santo-domingo" className="hover:text-foreground">Santo Domingo</Link></li>
+                <li><Link to="/software-lavanderia-santiago" className="hover:text-foreground">Santiago</Link></li>
+                <li><Link to="/software-lavanderia-punta-cana" className="hover:text-foreground">Punta Cana / Bávaro</Link></li>
               </ul>
             </div>
             <div>

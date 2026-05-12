@@ -2,7 +2,7 @@ import { Link } from "@tanstack/react-router";
 import { useState, useEffect } from "react";
 import { 
   MapPin, Clock, MessageCircle, Shield, Lock, Sparkles, ArrowRight, Menu, X,
-  CreditCard, Droplets, Users
+  CreditCard, Droplets, Users, BookOpen
 } from "lucide-react";
 import { Logo } from "./Logo";
 import { Button } from "@/components/ui/button";
@@ -12,6 +12,7 @@ const NAV_ITEMS = [
   { label: "Funciones", href: "/#features", icon: Sparkles, desc: "POS, NCF, ITBIS, tickets" },
   { label: "Para quién", href: "/#sectores", icon: Users, desc: "Lavanderías, sastrerías, hoteles" },
   { label: "Planes", href: "/#planes", icon: CreditCard, desc: "Desde RD$ 1,500/mes" },
+  { label: "Blog", href: "/blog", icon: BookOpen, desc: "Consejos y tecnología" },
   { label: "FAQ", href: "/#faq", icon: MessageCircle, desc: "Preguntas frecuentes" },
 ];
 
@@ -45,7 +46,7 @@ export function LandingNavbar() {
       <header className="sticky top-0 z-50 border-b border-border/60 bg-background/85 backdrop-blur-xl">
         <div className="mx-auto flex h-16 max-w-7xl items-center justify-between gap-3 px-4 md:h-18 md:gap-6 md:px-6 md:py-3">
           <Logo />
-          <nav className="absolute left-1/2 -translate-x-1/2 hidden items-center gap-1 rounded-full border border-border bg-surface/70 p-1 text-sm font-medium text-muted-foreground shadow-card backdrop-blur lg:flex">
+          <nav className="absolute left-[46%] -translate-x-1/2 hidden items-center gap-1 rounded-full border border-border bg-surface/70 p-1 text-sm font-medium text-muted-foreground shadow-card backdrop-blur lg:flex">
             {NAV_ITEMS.map((item) => (
               <a
                 key={item.href}
