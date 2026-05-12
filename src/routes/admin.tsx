@@ -15,7 +15,7 @@ import { Label } from "@/components/ui/label";
 import { Switch } from "@/components/ui/switch";
 import { Badge } from "@/components/ui/badge";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter, DialogDescription } from "@/components/ui/dialog";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { 
   getTenants, 
@@ -30,6 +30,7 @@ import {
   deletePlan,
   updateTenantAdmin,
   updateTenantPlan,
+  updateTenantStatus,
   getGlobalConfig,
   saveGlobalConfig,
   ADMIN_EMAILS,
@@ -106,6 +107,7 @@ function AdminPage() {
   const [newEmail, setNewEmail] = useState("");
   const [newPassword, setNewPassword] = useState("");
   const [selectedPlanId, setSelectedPlanId] = useState<PlanId>("basico");
+  const [newStatus, setNewStatus] = useState<any>("ACTIVO");
 
   useEffect(() => {
     async function load() {
@@ -130,13 +132,19 @@ function AdminPage() {
 
   const ingresos = tenants.reduce((s, t) => s + (plans.find((p) => p.id === t.plan_id)?.precio_mensual || 0), 0);
 
-  function handleUpdateAdmin() {
+  async function handleUpdateAdmin() {
     if (!editingTenant) return;
-    updateTenantAdmin(editingTenant.id, newEmail, newPassword || undefined);
-    updateTenantPlan(editingTenant.id, selectedPlanId);
-    toast.success("Información de lavandería actualizada");
-    setOpenEditModal(false);
-    setTick(t => t + 1);
+    try {
+      await updateTenantAdmin(editingTenant.id, newEmail, newPassword || undefined);
+      await updateTenantPlan(editingTenant.id, selectedPlanId);
+      await updateTenantStatus(editingTenant.id, newStatus);
+      toast.success("Información de lavandería actualizada");
+      setOpenEditModal(false);
+      setTick(t => t + 1);
+    } catch (error) {
+      console.error("Error updating tenant:", error);
+      toast.error("Error al actualizar la lavandería");
+    }
   }
 
   function handleLogout() {
@@ -247,6 +255,7 @@ function AdminPage() {
                                       setNewEmail(t.email);
                                       setNewPassword("");
                                       setSelectedPlanId(t.plan_id);
+                                      setNewStatus(t.estado);
                                       setOpenEditModal(true);
                                     }}
                                   >
@@ -271,7 +280,7 @@ function AdminPage() {
                                       <AlertDialogFooter>
                                         <AlertDialogCancel className="rounded-xl">Cancelar</AlertDialogCancel>
                                         <AlertDialogAction 
-                                          onClick={() => { deleteTenant(t.id); setTick((r) => r + 1); toast.success("Lavandería eliminada"); }}
+                                          onClick={async () => { await deleteTenant(t.id); setTick((r) => r + 1); toast.success("Lavandería eliminada"); }}
                                           className="bg-destructive text-destructive-foreground hover:bg-destructive/90 rounded-xl"
                                         >
                                           Eliminar
@@ -394,9 +403,9 @@ function AdminPage() {
               <DialogTitle className="font-display text-2xl flex items-center gap-2">
                 <Shield className="h-5 w-5 text-primary" /> Editar Credenciales
               </DialogTitle>
-              <p className="text-sm text-muted-foreground mt-1">
-                Actualiza el acceso para <strong>{editingTenant?.nombre}</strong>
-              </p>
+              <DialogDescription>
+                Actualiza el acceso y estado para <strong>{editingTenant?.nombre}</strong>
+              </DialogDescription>
             </DialogHeader>
 
             <div className="space-y-5 py-4">
@@ -444,6 +453,21 @@ function AdminPage() {
                         </div>
                       </SelectItem>
                     ))}
+                  </SelectContent>
+                </Select>
+              </div>
+
+              <div className="space-y-2">
+                <Label htmlFor="edit-status">Estado de la Lavandería</Label>
+                <Select value={newStatus} onValueChange={(v: any) => setNewStatus(v)}>
+                  <SelectTrigger className="h-11 rounded-xl">
+                    <SelectValue placeholder="Seleccionar estado" />
+                  </SelectTrigger>
+                  <SelectContent className="rounded-xl shadow-elegant">
+                    <SelectItem value="ACTIVO" className="rounded-lg">Activo</SelectItem>
+                    <SelectItem value="TRIAL" className="rounded-lg">En Prueba</SelectItem>
+                    <SelectItem value="SUSPENDIDO" className="rounded-lg text-amber-600">Suspendido</SelectItem>
+                    <SelectItem value="CANCELADO" className="rounded-lg text-destructive">Cancelado</SelectItem>
                   </SelectContent>
                 </Select>
               </div>

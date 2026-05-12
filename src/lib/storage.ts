@@ -563,6 +563,31 @@ export async function registerBranch(tenant: Tenant, admin: Empleado, userId: st
 }
 
 export async function deleteTenant(id: string) {
+  // 1. Limpiar Archivos en Storage (Bucket 'catalogo')
+  try {
+    const { data: files } = await supabase.storage.from('catalogo').list(id);
+    if (files && files.length > 0) {
+      const paths = files.map(f => `${id}/${f.name}`);
+      await supabase.storage.from('catalogo').remove(paths);
+      console.log(`Archivos de lavandería ${id} eliminados.`);
+    }
+  } catch (e) {
+    console.error("Error al limpiar archivos:", e);
+  }
+
+  // 2. Limpiar Usuarios en Auth (Vía RPC de Admin)
+  try {
+    const emps = await getEmpleados(id);
+    for (const emp of emps) {
+      // Intentamos borrar el usuario de Auth mediante el RPC seguro
+      await supabase.rpc('admin_delete_user', { target_user_id: emp.id });
+    }
+    console.log(`Usuarios de Auth para lavandería ${id} eliminados.`);
+  } catch (e) {
+    console.error("Error al limpiar usuarios de Auth:", e);
+  }
+
+  // 3. Eliminar la lavandería (La cascada de DB borrará el resto: órdenes, clientes, empleados en tabla)
   const { error } = await supabase.from('tenants').delete().eq('id', id);
   if (error) throw error;
 }
@@ -623,6 +648,11 @@ export async function updateTenantAdmin(tenant_id: string, newEmail: string, new
 
 export async function updateTenantPlan(tenantId: string, planId: PlanId) {
   const { error } = await supabase.from('tenants').update({ plan_id: planId }).eq('id', tenantId);
+  return !error;
+}
+
+export async function updateTenantStatus(tenantId: string, status: "TRIAL" | "ACTIVO" | "SUSPENDIDO" | "CANCELADO") {
+  const { error } = await supabase.from('tenants').update({ estado: status }).eq('id', tenantId);
   return !error;
 }
 
@@ -758,6 +788,14 @@ export async function saveEmpleado(e: Empleado) {
 }
 
 export async function deleteEmpleado(id: string) {
+  // 1. Intentar borrar de Auth primero (vía RPC)
+  try {
+    await supabase.rpc('admin_delete_user', { target_user_id: id });
+  } catch (e) {
+    console.warn("No se pudo eliminar el usuario de Auth, procediendo con DB...", e);
+  }
+
+  // 2. Borrar de la tabla empleados
   const { error } = await supabase.from('empleados').delete().eq('id', id);
   if (error) throw error;
 }

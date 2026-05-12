@@ -2,7 +2,7 @@ import { Link, Outlet, useNavigate, useRouterState } from "@tanstack/react-route
 import { useMemo, useState } from "react";
 import {
   LayoutDashboard, FilePlus2, Receipt, Wallet, Users, UserCog, Truck, FileBarChart,
-  Settings, LogOut, Bell, Menu, X, Shield, Droplets, ChevronDown, Banknote, BookOpen, Check, PlusCircle
+  Settings, LogOut, Bell, Menu, X, Shield, Droplets, ChevronDown, Banknote, BookOpen, Check, PlusCircle, MessageCircle
 } from "lucide-react";
 import { useRequireAuth } from "@/lib/useRequireAuth";
 import { BrandStyle } from "@/components/klynn/BrandStyle";
@@ -101,7 +101,69 @@ export function TenantShell() {
   return (
     <div className="min-h-screen bg-background print:hidden">
       <BrandStyle tenant={tenant} />
-      <TourManager userId={empleado.id} />
+      {tenant.estado !== "SUSPENDIDO" && tenant.estado !== "CANCELADO" && <TourManager userId={empleado.id} />}
+
+      {/* Overlay de Suspensión Premium Compacto */}
+      {(tenant.estado === "SUSPENDIDO" || tenant.estado === "CANCELADO") && (
+        <div className="fixed inset-0 z-[9999] flex items-center justify-center bg-slate-950/20 backdrop-blur-sm p-4">
+          <motion.div 
+            initial={{ scale: 0.98, opacity: 0, y: 10 }}
+            animate={{ scale: 1, opacity: 1, y: 0 }}
+            className="w-full max-w-sm overflow-hidden rounded-[2rem] border border-white/40 bg-white/90 shadow-[0_20px_50px_rgba(0,0,0,0.1)] backdrop-blur-xl"
+          >
+            <div className="relative p-6 pt-8 text-center">
+              <div className="mx-auto mb-4 flex h-14 w-14 items-center justify-center rounded-2xl bg-destructive text-white shadow-xl ring-2 ring-white">
+                <Shield className="h-6 w-6" />
+              </div>
+              
+              <div className="inline-flex items-center gap-1.5 rounded-full bg-destructive/10 px-2 py-0.5 text-[9px] font-bold uppercase tracking-widest text-destructive mb-3 border border-destructive/20">
+                <span className="relative flex h-1.5 w-1.5">
+                  <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-destructive opacity-75"></span>
+                  <span className="relative inline-flex rounded-full h-1.5 w-1.5 bg-destructive"></span>
+                </span>
+                Cuenta Suspendida
+              </div>
+
+              <h2 className="font-display text-2xl font-black text-slate-900 tracking-tight leading-none mb-2">
+                Acceso pausado
+              </h2>
+              
+              <p className="mx-auto max-w-[240px] text-[13px] font-medium leading-relaxed text-slate-500">
+                El acceso para <span className="text-slate-900 font-bold">{tenant.nombre}</span> ha sido restringido temporalmente.
+              </p>
+            </div>
+            
+            <div className="p-6 pt-0 space-y-4">
+              <div className="rounded-xl bg-slate-900/5 p-4 text-center">
+                <p className="text-[11px] font-semibold leading-relaxed text-slate-500">
+                  Contacta a soporte para reactivar tu cuenta y servicios.
+                </p>
+              </div>
+              
+              <div className="flex gap-2">
+                <Button 
+                  className="h-11 flex-1 rounded-xl bg-slate-950 text-white text-xs font-bold shadow-lg transition-all active:scale-95 group"
+                  onClick={() => window.open(`https://wa.me/18299416546?text=Hola Klynn, mi lavandería ${tenant.nombre} tiene el acceso suspendido. Quisiera más información.`, "_blank")}
+                >
+                  <MessageCircle className="mr-1.5 h-3.5 w-3.5 text-emerald-400" /> Soporte
+                </Button>
+                
+                <Button 
+                  variant="outline" 
+                  className="h-11 flex-1 rounded-xl text-slate-600 text-xs font-bold border-slate-200 hover:bg-slate-50 transition-all active:scale-95"
+                  onClick={onLogout}
+                >
+                  <LogOut className="mr-1.5 h-3.5 w-3.5" /> Salir
+                </Button>
+              </div>
+
+              <div className="text-center pt-1">
+                <p className="text-[9px] font-bold text-slate-400 uppercase tracking-widest">Klynn · ID: {tenant.id.slice(0, 8)}</p>
+              </div>
+            </div>
+          </motion.div>
+        </div>
+      )}
 
       {/* Sidebar desktop */}
       <aside id="tour-sidebar" className="sidebar-desktop fixed inset-y-0 left-0 z-30 hidden w-64 border-r border-border bg-surface lg:flex lg:flex-col transition-all duration-500 ease-in-out">
