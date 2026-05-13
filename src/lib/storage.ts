@@ -248,7 +248,7 @@ const KEY = {
   globalConfig: "lvx:globalConfig",
 };
 
-export const ADMIN_EMAILS = ['admin@klynn.com.do', 'admin@flowchat.do'];
+export const ADMIN_EMAILS = ['admin@klynn.com.do'];
 
 export interface Plan {
   id: PlanId;
