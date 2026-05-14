@@ -24,9 +24,6 @@ export function CloudSync({ tenantId }: { tenantId: string }) {
       
       if (!navigator.onLine) {
         setStatus("offline");
-      } else if (hasDataForTenant) {
-        // Si hay datos y estamos online, intentamos sync o mostramos advertencia
-        setStatus("offline"); 
       } else {
         setStatus("online");
       }
@@ -38,33 +35,44 @@ export function CloudSync({ tenantId }: { tenantId: string }) {
   };
 
   const sync = async () => {
-    if (!navigator.onLine || !tenantId) return;
+    if (!navigator.onLine) {
+      toast.error("Sin conexión a internet 🌐");
+      return;
+    }
+    if (!tenantId || status === "syncing") return;
     
     setStatus("syncing");
     try {
       const res = await migrateLocalDataToSupabase(tenantId);
       // Solo mostramos "hecho" si realmente movimos algo
       if (res.ordenes > 0 || res.clientes > 0 || res.catalogo > 0 || res.gastos > 0) {
+        toast.success(`¡Sincronización completada! ✨ (${res.ordenes} órdenes, ${res.clientes} clientes)`);
         setStatus("done");
         setTimeout(() => {
           checkLocalData();
         }, 3000);
       } else {
+        toast.info("No hay datos pendientes de sincronizar para esta lavandería.");
         checkLocalData();
       }
     } catch (e) {
       console.error("Sync error", e);
-      setStatus("offline");
+      toast.error("Error al sincronizar datos. Verifique su conexión.");
+      setStatus("online");
     }
   };
 
   useEffect(() => {
-    const hasData = checkLocalData();
+    checkLocalData();
     
     // Auto-sync al montar si estamos online y hay datos
-    if (hasData && navigator.onLine) {
-      sync();
-    }
+    // Usamos un pequeño delay para evitar colisiones con la carga inicial
+    const timeout = setTimeout(() => {
+      const hasData = checkLocalData();
+      if (hasData && navigator.onLine && status !== "syncing") {
+        sync();
+      }
+    }, 1000);
 
     const handleOnline = () => {
       if (checkLocalData()) sync();
@@ -73,9 +81,12 @@ export function CloudSync({ tenantId }: { tenantId: string }) {
     const handleOffline = () => setStatus("offline");
     const handleLocalSave = () => {
       setHasLocalData(true);
-      setStatus("offline");
-      // Intentar sync inmediato si hay internet
-      if (navigator.onLine) sync();
+      // Solo intentamos sync si estamos online y no estamos ya sincronizando
+      if (navigator.onLine && status !== "syncing") {
+        sync();
+      } else {
+        setStatus("offline");
+      }
     };
 
     window.addEventListener("online", handleOnline);
@@ -83,6 +94,7 @@ export function CloudSync({ tenantId }: { tenantId: string }) {
     window.addEventListener("klynn-offline-save", handleLocalSave);
 
     return () => {
+      clearTimeout(timeout);
       window.removeEventListener("online", handleOnline);
       window.removeEventListener("offline", handleOffline);
       window.removeEventListener("klynn-offline-save", handleLocalSave);

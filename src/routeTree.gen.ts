@@ -34,6 +34,7 @@ import { Route as TSlugNuevaOrdenRouteImport } from './routes/t.$slug.nueva-orde
 import { Route as TSlugLogisticaRouteImport } from './routes/t.$slug.logistica'
 import { Route as TSlugLoginRouteImport } from './routes/t.$slug.login'
 import { Route as TSlugGastosRouteImport } from './routes/t.$slug.gastos'
+import { Route as TSlugFiscalHomologacionRouteImport } from './routes/t.$slug.fiscal-homologacion'
 import { Route as TSlugConfiguracionRouteImport } from './routes/t.$slug.configuracion'
 import { Route as TSlugClientesRouteImport } from './routes/t.$slug.clientes'
 import { Route as TSlugCatalogoRouteImport } from './routes/t.$slug.catalogo'
@@ -167,6 +168,11 @@ const TSlugGastosRoute = TSlugGastosRouteImport.update({
   path: '/gastos',
   getParentRoute: () => TSlugRoute,
 } as any)
+const TSlugFiscalHomologacionRoute = TSlugFiscalHomologacionRouteImport.update({
+  id: '/fiscal-homologacion',
+  path: '/fiscal-homologacion',
+  getParentRoute: () => TSlugRoute,
+} as any)
 const TSlugConfiguracionRoute = TSlugConfiguracionRouteImport.update({
   id: '/configuracion',
   path: '/configuracion',
@@ -210,6 +216,7 @@ export interface FileRoutesByFullPath {
   '/t/$slug/catalogo': typeof TSlugCatalogoRoute
   '/t/$slug/clientes': typeof TSlugClientesRoute
   '/t/$slug/configuracion': typeof TSlugConfiguracionRoute
+  '/t/$slug/fiscal-homologacion': typeof TSlugFiscalHomologacionRoute
   '/t/$slug/gastos': typeof TSlugGastosRoute
   '/t/$slug/login': typeof TSlugLoginRoute
   '/t/$slug/logistica': typeof TSlugLogisticaRoute
@@ -240,6 +247,7 @@ export interface FileRoutesByTo {
   '/t/$slug/catalogo': typeof TSlugCatalogoRoute
   '/t/$slug/clientes': typeof TSlugClientesRoute
   '/t/$slug/configuracion': typeof TSlugConfiguracionRoute
+  '/t/$slug/fiscal-homologacion': typeof TSlugFiscalHomologacionRoute
   '/t/$slug/gastos': typeof TSlugGastosRoute
   '/t/$slug/login': typeof TSlugLoginRoute
   '/t/$slug/logistica': typeof TSlugLogisticaRoute
@@ -272,6 +280,7 @@ export interface FileRoutesById {
   '/t/$slug/catalogo': typeof TSlugCatalogoRoute
   '/t/$slug/clientes': typeof TSlugClientesRoute
   '/t/$slug/configuracion': typeof TSlugConfiguracionRoute
+  '/t/$slug/fiscal-homologacion': typeof TSlugFiscalHomologacionRoute
   '/t/$slug/gastos': typeof TSlugGastosRoute
   '/t/$slug/login': typeof TSlugLoginRoute
   '/t/$slug/logistica': typeof TSlugLogisticaRoute
@@ -305,6 +314,7 @@ export interface FileRouteTypes {
     | '/t/$slug/catalogo'
     | '/t/$slug/clientes'
     | '/t/$slug/configuracion'
+    | '/t/$slug/fiscal-homologacion'
     | '/t/$slug/gastos'
     | '/t/$slug/login'
     | '/t/$slug/logistica'
@@ -335,6 +345,7 @@ export interface FileRouteTypes {
     | '/t/$slug/catalogo'
     | '/t/$slug/clientes'
     | '/t/$slug/configuracion'
+    | '/t/$slug/fiscal-homologacion'
     | '/t/$slug/gastos'
     | '/t/$slug/login'
     | '/t/$slug/logistica'
@@ -366,6 +377,7 @@ export interface FileRouteTypes {
     | '/t/$slug/catalogo'
     | '/t/$slug/clientes'
     | '/t/$slug/configuracion'
+    | '/t/$slug/fiscal-homologacion'
     | '/t/$slug/gastos'
     | '/t/$slug/login'
     | '/t/$slug/logistica'
@@ -573,6 +585,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof TSlugGastosRouteImport
       parentRoute: typeof TSlugRoute
     }
+    '/t/$slug/fiscal-homologacion': {
+      id: '/t/$slug/fiscal-homologacion'
+      path: '/fiscal-homologacion'
+      fullPath: '/t/$slug/fiscal-homologacion'
+      preLoaderRoute: typeof TSlugFiscalHomologacionRouteImport
+      parentRoute: typeof TSlugRoute
+    }
     '/t/$slug/configuracion': {
       id: '/t/$slug/configuracion'
       path: '/configuracion'
@@ -609,6 +628,7 @@ interface TSlugRouteChildren {
   TSlugCatalogoRoute: typeof TSlugCatalogoRoute
   TSlugClientesRoute: typeof TSlugClientesRoute
   TSlugConfiguracionRoute: typeof TSlugConfiguracionRoute
+  TSlugFiscalHomologacionRoute: typeof TSlugFiscalHomologacionRoute
   TSlugGastosRoute: typeof TSlugGastosRoute
   TSlugLoginRoute: typeof TSlugLoginRoute
   TSlugLogisticaRoute: typeof TSlugLogisticaRoute
@@ -624,6 +644,7 @@ const TSlugRouteChildren: TSlugRouteChildren = {
   TSlugCatalogoRoute: TSlugCatalogoRoute,
   TSlugClientesRoute: TSlugClientesRoute,
   TSlugConfiguracionRoute: TSlugConfiguracionRoute,
+  TSlugFiscalHomologacionRoute: TSlugFiscalHomologacionRoute,
   TSlugGastosRoute: TSlugGastosRoute,
   TSlugLoginRoute: TSlugLoginRoute,
   TSlugLogisticaRoute: TSlugLogisticaRoute,

@@ -1,7 +1,8 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { useMemo, useState, useEffect } from "react";
 import { createPortal } from "react-dom";
-import { Search, Printer, Eye, XCircle, MessageCircle } from "lucide-react";
+import { Search, Printer, Eye, XCircle, MessageCircle, DownloadCloud, MoreVertical, ArrowUpCircle } from "lucide-react";
+import { notificarWhatsApp } from "@/lib/whatsapp";
 import { useRequireAuth } from "@/lib/useRequireAuth";
 import { PageHeader } from "@/components/klynn/PageHeader";
 import { ExportAndPrintButtons } from "@/components/klynn/ExportAndPrintButtons";
@@ -14,12 +15,20 @@ import { Badge } from "@/components/ui/badge";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
 import {
-  getOrdenes, saveOrden, getClientes, getEmpleadoById, formatRD, formatDateTimeRD,
+  getOrdenes, saveOrden, getClientes, getEmpleadoById, formatRD, formatDateTimeRD, getServicios,
   type Orden, type EstadoOrden,
-  checkPlanLimits, getCajaAbierta, saveMovimiento, uid
+  checkPlanLimits, getCajaAbierta, saveMovimiento, uid, nextECFNumero, saveECFDocument
 } from "@/lib/storage";
 import { toast } from "sonner";
 import { AlertTriangle, Rocket } from "lucide-react";
+import { 
+  DropdownMenu, 
+  DropdownMenuContent, 
+  DropdownMenuItem, 
+  DropdownMenuTrigger,
+  DropdownMenuSeparator,
+  DropdownMenuLabel
+} from "@/components/ui/dropdown-menu";
 import { useNavigate } from "@tanstack/react-router";
 
 export const Route = createFileRoute("/t/$slug/ordenes")({
@@ -33,8 +42,13 @@ function OrdenesPage() {
   const [view, setView] = useState<Orden | null>(null);
   const [anular, setAnular] = useState<Orden | null>(null);
   const [motivoAnular, setMotivoAnular] = useState("");
+  const [codigoAnular, setCodigoAnular] = useState("01");
+  const [debito, setDebito] = useState<Orden | null>(null);
+  const [montoDebito, setMontoDebito] = useState(0);
+  const [motivoDebito, setMotivoDebito] = useState("");
   const [refresh, setRefresh] = useState(0);
   const [showPrint, setShowPrint] = useState<Orden | null>(null);
+  const [showDownloadA4, setShowDownloadA4] = useState<Orden | null>(null);
   const navigate = useNavigate();
 
   const [ordenes, setOrdenes] = useState<Orden[]>([]);
@@ -100,10 +114,46 @@ function OrdenesPage() {
     if (!anular || motivoAnular.length < 5) { toast.error("Indica el motivo (mín 5 caracteres)"); return; }
     
     try {
-      // Actualizar orden
-      await saveOrden({ ...anular, estado: "ANULADA", motivo_anulacion: motivoAnular });
+      let notaCreditoNCF = "";
       
-      // Registrar egreso automático si hubo pago y hay caja abierta
+      // 1. Generar Nota de Crédito (E34) si la orden tenía NCF electrónico
+      if (anular.tipo_ecf && anular.ncf) {
+        try {
+          notaCreditoNCF = await nextECFNumero(tenant.id, "E34");
+          
+          await saveECFDocument({
+            id: uid("ecf"),
+            tenant_id: tenant.id,
+            order_id: anular.id,
+            encf: notaCreditoNCF,
+            tipo_ecf: "E34",
+            rnc_receptor: clientes.find(c => c.id === anular.cliente_id)?.cedula,
+            status: "accepted",
+            monto_total: anular.total,
+            monto_itbis: anular.itbis,
+            fecha_emision: new Date().toISOString(),
+            xml_content: "ANULACION_FISCAL",
+          });
+
+          toast.info(`Nota de Crédito generada: ${notaCreditoNCF} 📄`);
+        } catch (e: any) {
+          console.error("Error fiscal:", e);
+          toast.warning("No se pudo generar el documento fiscal E34. Revise sus secuencias.");
+        }
+      }
+
+      // 2. Actualizar orden
+      const ordenAnulada: Orden = { 
+        ...anular, 
+        estado: "ANULADA", 
+        motivo_anulacion: motivoAnular,
+        motivo_anulacion_codigo: codigoAnular,
+        nota_credito_ncf: notaCreditoNCF || undefined
+      };
+      
+      await saveOrden(ordenAnulada);
+      
+      // 3. Registrar egreso automático si hubo pago y hay caja abierta
       if (anular.pagado > 0 && cajaAbierta) {
         await saveMovimiento({
           id: uid("mov"),
@@ -120,10 +170,67 @@ function OrdenesPage() {
         toast.info(`Se registró un egreso de ${formatRD(anular.pagado)} en caja por el reembolso. 💸`);
       }
 
-      setAnular(null); setMotivoAnular(""); setRefresh((r) => r + 1);
-      toast.success("Orden anulada ✓");
+      setAnular(null); 
+      setMotivoAnular(""); 
+      setRefresh((r) => r + 1);
+      
+      // ACTIVAR MODAL DE IMPRESIÓN AUTOMÁTICAMENTE
+      setShowPrint(ordenAnulada);
+      
+      toast.success("Orden anulada correctamente ✓");
     } catch (err: any) {
-      toast.error("Error al anular orden");
+      console.error("DEBUG: Error en anularOrden:", err);
+      toast.error("Error al anular orden. Asegúrate de haber ejecutado el script SQL para añadir las nuevas columnas.");
+    }
+  }
+
+  async function generarNotaDebito() {
+    if (!debito) return;
+    try {
+      const isECF = debito.ncf?.startsWith("E");
+      let notaDebitoNCF = "";
+      let notaDebitoID = "";
+
+      if (isECF) {
+        const next = await nextECFNumero(tenant.id, "33"); // E33
+        if (next) {
+          notaDebitoNCF = next.ncf;
+          notaDebitoID = uid("ecf");
+          await saveECFDocument({
+            id: notaDebitoID,
+            tenant_id: tenant.id,
+            tipo: "33",
+            ncf: notaDebitoNCF,
+            monto_total: montoDebito,
+            rnc_receptor: clientes.find(c => c.id === debito.cliente_id)?.cedula || "",
+            fecha_emision: new Date().toISOString(),
+            estado: "ACEPTADO",
+            ncf_modificado: debito.ncf
+          });
+        }
+      }
+
+      const ordenActualizada: Orden = {
+        ...debito,
+        total: debito.total + montoDebito,
+        saldo: debito.saldo + montoDebito,
+        nota_debito_ncf: notaDebitoNCF || undefined,
+        nota_debito_id: notaDebitoID || undefined,
+        nota_debito_monto: montoDebito
+      };
+
+      await saveOrden(ordenActualizada);
+      
+      setDebito(null);
+      setMontoDebito(0);
+      setMotivoDebito("");
+      setRefresh(r => r + 1);
+      setShowPrint(ordenActualizada);
+      
+      toast.success("Nota de Débito generada correctamente ✓");
+    } catch (err) {
+      console.error("Error ND:", err);
+      toast.error("Error al generar Nota de Débito");
     }
   }
 
@@ -202,12 +309,12 @@ function OrdenesPage() {
               <tr>
                 <th className="px-4 py-3 text-left">Número</th>
                 <th className="px-4 py-3 text-left">Cliente</th>
-                <th className="px-4 py-3 text-left">Estado</th>
-                <th className="px-4 py-3 text-right">Total</th>
-                <th className="px-4 py-3 text-right">Saldo</th>
-                <th className="px-4 py-3 text-left">Pago</th>
-                <th className="px-4 py-3 text-right">Fecha</th>
-                <th className="px-4 py-3 text-right">Acciones</th>
+                <th className="px-4 py-3 text-center">Estado</th>
+                <th className="px-4 py-3 text-center">Total</th>
+                <th className="px-4 py-3 text-center">Saldo</th>
+                <th className="px-4 py-3 text-center">Pago</th>
+                <th className="px-4 py-3 text-center">Fecha</th>
+                <th className="px-4 py-3 text-center">Acciones</th>
               </tr>
             </thead>
             <tbody>
@@ -217,17 +324,52 @@ function OrdenesPage() {
                   <tr key={o.id} className="border-b border-border/50 hover:bg-accent/30">
                     <td className="px-4 py-3 font-mono text-xs font-semibold">{o.numero}</td>
                     <td className="px-4 py-3">{c?.nombre || "—"}</td>
-                    <td className="px-4 py-3"><EstadoBadge estado={o.estado} /></td>
-                    <td className="px-4 py-3 text-right font-medium">{formatRD(o.total)}</td>
-                    <td className="px-4 py-3 text-right">{o.saldo > 0 ? <Badge variant="outline" className="border-warning/40 bg-warning/10 text-warning-foreground">{formatRD(o.saldo)}</Badge> : <span className="text-muted-foreground">—</span>}</td>
-                    <td className="px-4 py-3 text-xs">{o.metodo_pago}</td>
-                    <td className="px-4 py-3 text-right text-xs text-muted-foreground">{formatDateTimeRD(o.creado_en)}</td>
+                    <td className="px-4 py-3 text-center"><EstadoBadge estado={o.estado} /></td>
+                    <td className="px-4 py-3 text-center font-medium">{formatRD(o.total)}</td>
+                    <td className="px-4 py-3 text-center">
+                      <div className="flex justify-center">
+                        {o.saldo > 0 ? <Badge variant="outline" className="border-warning/40 bg-warning/10 text-warning-foreground">{formatRD(o.saldo)}</Badge> : <span className="text-muted-foreground">—</span>}
+                      </div>
+                    </td>
+                    <td className="px-4 py-3 text-center text-xs">{o.metodo_pago}</td>
+                    <td className="px-4 py-3 text-center text-xs text-muted-foreground">{formatDateTimeRD(o.creado_en)}</td>
                     <td className="px-4 py-3">
-                      <div className="flex justify-end gap-1">
-                        <Button size="icon" variant="ghost" onClick={() => setView(o)}><Eye className="h-4 w-4" /></Button>
-                        {o.estado !== "ANULADA" && (
-                          <Button size="icon" variant="ghost" onClick={() => setAnular(o)}><XCircle className="h-4 w-4 text-destructive" /></Button>
-                        )}
+                      <div className="flex justify-center">
+                        <DropdownMenu>
+                          <DropdownMenuTrigger asChild>
+                            <Button size="icon" variant="ghost" className="h-8 w-8">
+                              <MoreVertical className="h-4 w-4" />
+                            </Button>
+                          </DropdownMenuTrigger>
+                          <DropdownMenuContent align="end" className="w-56">
+                            <DropdownMenuLabel>Acciones de Orden</DropdownMenuLabel>
+                            <DropdownMenuSeparator />
+                            
+                            <DropdownMenuItem onClick={() => setView(o)}>
+                              <Eye className="mr-2 h-4 w-4" /> Ver Detalles
+                            </DropdownMenuItem>
+                            
+                            <DropdownMenuItem onClick={() => setShowPrint(o)}>
+                              <Printer className="mr-2 h-4 w-4" /> Imprimir Ticket
+                            </DropdownMenuItem>
+                            
+                            <DropdownMenuItem onClick={() => setShowDownloadA4(o)}>
+                              <DownloadCloud className="mr-2 h-4 w-4" /> Ver Factura A4
+                            </DropdownMenuItem>
+ 
+                            {o.estado !== "ANULADA" && (
+                              <>
+                                <DropdownMenuSeparator />
+                                <DropdownMenuItem onClick={() => setDebito(o)}>
+                                  <ArrowUpCircle className="mr-2 h-4 w-4 text-blue-600" /> Nota de Débito
+                                </DropdownMenuItem>
+                                <DropdownMenuItem onClick={() => setAnular(o)} className="text-destructive focus:bg-destructive/10 focus:text-destructive">
+                                  <XCircle className="mr-2 h-4 w-4" /> Anular Orden
+                                </DropdownMenuItem>
+                              </>
+                            )}
+                          </DropdownMenuContent>
+                        </DropdownMenu>
                       </div>
                     </td>
                   </tr>
@@ -264,17 +406,81 @@ function OrdenesPage() {
         />
       )}
 
+      {showDownloadA4 && (
+        <FacturaA4PrintPortal
+          orden={showDownloadA4}
+          tenant={tenant}
+          onClose={() => setShowDownloadA4(null)}
+        />
+      )}
+
       {/* Anular */}
       <Dialog open={!!anular} onOpenChange={(o) => !o && setAnular(null)}>
         <DialogContent>
           <DialogHeader><DialogTitle>Anular {anular?.numero}</DialogTitle></DialogHeader>
-          <div>
-            <label className="text-sm font-medium">Motivo de anulación</label>
-            <Input value={motivoAnular} onChange={(e) => setMotivoAnular(e.target.value)} placeholder="ej. error de cobro" className="mt-1.5" />
+          <div className="space-y-4">
+            <div>
+              <label className="text-sm font-bold mb-1.5 block">Tipo de Modificación (DGII)</label>
+              <Select value={codigoAnular} onValueChange={setCodigoAnular}>
+                <SelectTrigger className="w-full">
+                  <SelectValue placeholder="Seleccione código" />
+                </SelectTrigger>
+                <SelectContent align="start" sideOffset={4}>
+                  <SelectItem value="01">01 - Anulación Total</SelectItem>
+                  <SelectItem value="02">02 - Anulación Parcial</SelectItem>
+                  <SelectItem value="03">03 - Descuento o Bonificación</SelectItem>
+                  <SelectItem value="04">04 - Devolución de Mercancía</SelectItem>
+                  <SelectItem value="05">05 - Otros</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+            <div>
+              <label className="text-sm font-bold mb-1.5 block">Motivo descriptivo</label>
+              <Input value={motivoAnular} onChange={(e) => setMotivoAnular(e.target.value)} placeholder="Ej: Error en el monto digitado" />
+            </div>
           </div>
           <DialogFooter>
             <Button variant="outline" onClick={() => setAnular(null)}>Cancelar</Button>
             <Button variant="destructive" onClick={anularOrden}>Anular orden</Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Nota de Débito */}
+      <Dialog open={!!debito} onOpenChange={(o) => !o && setDebito(null)}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <ArrowUpCircle className="h-5 w-5 text-blue-600" />
+              Generar Nota de Débito
+            </DialogTitle>
+          </DialogHeader>
+          <div className="space-y-4 py-4">
+            <div className="bg-blue-50 p-3 rounded-lg text-xs text-blue-700 border border-blue-100">
+              Esta acción generará un <b>e-NCF E33</b> y aumentará el total de la orden #{debito?.numero}.
+            </div>
+            <div>
+              <label className="text-sm font-bold mb-1.5 block">Monto a adicionar (RD$)</label>
+              <Input 
+                type="number" 
+                value={montoDebito} 
+                onChange={(e) => setMontoDebito(Number(e.target.value))} 
+                placeholder="0.00" 
+                className="text-lg font-bold"
+              />
+            </div>
+            <div>
+              <label className="text-sm font-bold mb-1.5 block">Concepto / Motivo</label>
+              <Input 
+                value={motivoDebito} 
+                onChange={(e) => setMotivoDebito(e.target.value)} 
+                placeholder="Ej: Ajuste por servicio adicional" 
+              />
+            </div>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setDebito(null)}>Cancelar</Button>
+            <Button onClick={generarNotaDebito} disabled={montoDebito <= 0}>Generar Nota de Débito</Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>
@@ -286,12 +492,14 @@ function OrderDetail({ view, tenant, clientes, cambiarEstado, setView, onPrint }
   view: Orden; tenant: any; clientes: any[]; cambiarEstado: any; setView: any; onPrint: () => void;
 }) {
   const [empleadoView, setEmpleadoView] = useState<any>(null);
+  const [srvList, setSrvList] = useState<any[]>([]);
   
   useEffect(() => {
     if (view) {
       getEmpleadoById(view.empleado_id).then(setEmpleadoView);
+      getServicios(tenant.id).then(setSrvList);
     }
-  }, [view]);
+  }, [view, tenant.id]);
 
   const c = clientes.find((x) => x.id === view?.cliente_id);
   if (!c || !empleadoView) return <div className="p-12 text-center">Cargando detalles...</div>;
@@ -322,7 +530,15 @@ function OrderDetail({ view, tenant, clientes, cambiarEstado, setView, onPrint }
           </div>
 
           <div className="flex gap-2 pt-6">
-            <Button variant="outline" className="flex-1" onClick={() => toast.success("Mensaje enviado por WhatsApp (simulado)")}>
+            <Button className="flex-1 bg-emerald-600 hover:bg-emerald-700 text-white shadow-sm" onClick={() => {
+              if (!c.telefono) { toast.error("El cliente no tiene teléfono"); return; }
+              const promise = notificarWhatsApp(tenant, c, view, "creada", view.pagado);
+              toast.promise(promise, {
+                loading: "Enviando recibo por WhatsApp...",
+                success: (r) => r.ok ? "¡Recibo enviado exitosamente! ✅" : `Fallo al enviar: ${r.reason}`,
+                error: "Error inesperado al enviar WhatsApp",
+              });
+            }}>
               <MessageCircle className="mr-1.5 h-4 w-4" /> Enviar WhatsApp
             </Button>
             <Button className="flex-1 bg-gradient-primary text-white" onClick={onPrint}>
@@ -331,7 +547,7 @@ function OrderDetail({ view, tenant, clientes, cambiarEstado, setView, onPrint }
           </div>
         </div>
         <div className="max-h-[500px] overflow-auto rounded-xl bg-zinc-100 p-4 shadow-inner dark:bg-zinc-800/50">
-          <Ticket orden={view} tenant={tenant} empleado={empleadoView} cliente={c} formato={tenant.config!.formato_ticket} />
+          <Ticket orden={view} tenant={tenant} empleado={empleadoView} cliente={c} formato={tenant.config!.formato_ticket} serviciosList={srvList} />
         </div>
       </div>
     </>
@@ -340,14 +556,17 @@ function OrderDetail({ view, tenant, clientes, cambiarEstado, setView, onPrint }
 function TicketPrintPortal({ orden, tenant, onClose }: { orden: Orden; tenant: any; onClose: () => void }) {
   const [emp, setEmp] = useState<any>(null);
   const [cli, setCli] = useState<any>(null);
+  const [srvList, setSrvList] = useState<any[]>([]);
 
   useEffect(() => {
     Promise.all([
       getEmpleadoById(orden.empleado_id),
-      getClientes(tenant.id).then(list => list.find(c => c.id === orden.cliente_id))
-    ]).then(([e, c]) => {
+      getClientes(tenant.id).then(list => list.find(c => c.id === orden.cliente_id)),
+      getServicios(tenant.id)
+    ]).then(([e, c, s]) => {
       setEmp(e);
       setCli(c);
+      setSrvList(s);
     });
   }, [orden, tenant.id]);
 
@@ -378,19 +597,20 @@ function TicketPrintPortal({ orden, tenant, onClose }: { orden: Orden; tenant: a
           empleado={emp} 
           cliente={cli} 
           formato={tenant.config?.formato_ticket || "80mm"} 
+          serviciosList={srvList}
         />
       </div>
 
       <style dangerouslySetInnerHTML={{ __html: `
         @media print {
           @page {
-            size: ${tenant.config?.formato_ticket === "57mm" ? "57mm 210mm" : "80mm 297mm"};
+            size: ${tenant.config?.formato_ticket === "57mm" ? "57mm auto" : "80mm auto"};
             margin: 0;
           }
 
           html,
           body {
-            width: ${tenant.config?.formato_ticket === "57mm" ? "57mm" : "80mm"};
+            width: 100% !important;
             margin: 0 !important;
             padding: 0 !important;
             background: #fff;
@@ -409,7 +629,7 @@ function TicketPrintPortal({ orden, tenant, onClose }: { orden: Orden; tenant: a
             width: ${tenant.config?.formato_ticket === "57mm" ? "57mm" : "80mm"} !important;
             max-width: ${tenant.config?.formato_ticket === "57mm" ? "57mm" : "80mm"} !important;
             padding: ${tenant.config?.formato_ticket === "57mm" ? "2.5mm" : "4mm"};
-            margin: 0;
+            margin: 0 auto !important;
             background: white;
             color: black;
             font-family: monospace;
@@ -421,6 +641,213 @@ function TicketPrintPortal({ orden, tenant, onClose }: { orden: Orden; tenant: a
           .no-print, nav, aside, header, footer, button {
             display: none !important;
           }
+        }
+      `}} />
+    </div>,
+    document.body
+  );
+}
+
+function FacturaA4PrintPortal({ orden, tenant, onClose }: { orden: Orden; tenant: any; onClose: () => void }) {
+  const [emp, setEmp] = useState<any>(null);
+  const [cli, setCli] = useState<any>(null);
+  const [srvList, setSrvList] = useState<any[]>([]);
+
+  useEffect(() => {
+    Promise.all([
+      getEmpleadoById(orden.empleado_id),
+      getClientes(tenant.id).then(list => list.find(c => c.id === orden.cliente_id)),
+      getServicios(tenant.id)
+    ]).then(([e, c, s]) => {
+      setEmp(e);
+      setCli(c);
+      setSrvList(s);
+    });
+  }, [orden, tenant.id]);
+
+  if (!emp || !cli) return null;
+
+  const isCréditoFiscal = orden.ncf?.startsWith("E31") || orden.ncf?.startsWith("B01");
+  const isECF = orden.ncf?.startsWith("E");
+  const qrUrl = isECF ? `https://dgii.gov.do/consulta_ecf?RNC_EMISOR=${tenant.rnc}&E_NCF=${orden.ncf}&MONTO_TOTAL=${orden.total}&FECHA_EMISION=${new Date(orden.creado_en).toLocaleDateString('en-GB').replace(/\//g, '')}` : "";
+
+  return createPortal(
+    <div className="fixed inset-0 bg-white z-[99999] overflow-y-auto pointer-events-auto atomic-print-target">
+      <div className="max-w-4xl mx-auto p-8 print:p-12 print:max-w-4xl print:mx-auto">
+        <div className="flex justify-between items-start border-b-2 border-primary/20 pb-6 mb-8 print:hidden relative z-[100000]">
+          <Button variant="outline" onClick={(e) => { e.preventDefault(); e.stopPropagation(); onClose(); }} className="gap-2 cursor-pointer">
+            Cerrar
+          </Button>
+          <Button onClick={(e) => { e.preventDefault(); e.stopPropagation(); window.print(); }} className="bg-primary text-white gap-2 cursor-pointer">
+            <Printer className="h-4 w-4" /> Imprimir / Guardar PDF
+          </Button>
+        </div>
+
+        <div className="print-area">
+          <div className="flex justify-between items-start mb-10">
+            <div>
+              {tenant.logo_url ? (
+                <img src={tenant.logo_url} alt={tenant.nombre} className="h-16 object-contain mb-4" />
+              ) : (
+                <h1 className="text-4xl font-display font-black text-primary uppercase tracking-tighter mb-1">{tenant.nombre}</h1>
+              )}
+              <div className="text-sm font-bold text-slate-500 uppercase">
+                {tenant.rnc ? `RNC: ${tenant.rnc}` : "Sin RNC Configurado"}
+              </div>
+              <div className="text-xs text-slate-500 max-w-sm mt-1">{tenant.direccion}</div>
+              <div className="text-xs text-slate-500">Tel: {tenant.telefono}</div>
+            </div>
+
+            <div className="text-right">
+              <h2 className="text-2xl font-display font-black uppercase text-slate-900 mb-1">
+                {orden.nota_credito_ncf ? (isECF ? "Nota de Crédito Electrónica" : "Nota de Crédito") : (isCréditoFiscal ? "Factura de Crédito Fiscal" : (isECF ? "Factura de Consumo Electrónica" : "Factura de Consumo"))}
+              </h2>
+              <div className="text-sm font-bold text-muted-foreground uppercase tracking-wider mb-4">
+                ORDEN #{orden.numero}
+              </div>
+              
+              <div className="grid grid-cols-2 gap-x-4 gap-y-1 text-xs text-slate-600 text-right">
+                <div className="font-bold">Fecha:</div>
+                <div>{new Date(orden.creado_en).toLocaleString("es-DO", { day: "2-digit", month: "2-digit", year: "numeric", hour: "2-digit", minute: "2-digit", hour12: true })}</div>
+                {orden.nota_credito_ncf ? (
+                  <>
+                    <div className="font-bold text-destructive">{isECF ? "e-NCF:" : "NCF:"}</div>
+                    <div className="font-mono font-bold text-destructive">{orden.nota_credito_ncf}</div>
+                    <div className="font-bold">Doc. Modificado:</div>
+                    <div className="font-mono">{orden.ncf}</div>
+                  </>
+                ) : (
+                  orden.ncf && (
+                    <>
+                      <div className="font-bold">{isECF ? "e-NCF:" : "NCF:"}</div>
+                      <div className="font-mono">{orden.ncf}</div>
+                    </>
+                  )
+                )}
+                <div className="font-bold">Atendido por:</div>
+                <div>{emp.nombre}</div>
+              </div>
+            </div>
+          </div>
+
+          <div className="bg-slate-50 p-4 rounded-xl border border-slate-100 print:bg-white mb-8 flex justify-between items-center">
+            <div>
+              <div className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-1">Facturado a</div>
+              <div className="text-lg font-bold text-slate-900">{cli.nombre}</div>
+              {cli.cedula && (
+                <div className="text-sm text-slate-600">
+                  <span className="font-bold">{cli.tipo === 'Empresa' ? "RNC:" : "Cédula:"}</span> {cli.cedula}
+                </div>
+              )}
+              {cli.direccion && <div className="text-sm text-slate-600">{cli.direccion}</div>}
+              {cli.telefono && <div className="text-sm text-slate-600">Tel: {cli.telefono}</div>}
+            </div>
+          </div>
+
+          <table className="w-full text-left border-collapse mb-8">
+            <thead>
+              <tr className="border-b-2 border-slate-200 text-[10px] font-black uppercase tracking-widest text-slate-400">
+                <th className="py-4 px-2 w-16">Cant.</th>
+                <th className="py-4 px-2">Descripción</th>
+                <th className="py-4 px-2 text-right">Precio Unit.</th>
+                <th className="py-4 px-2 text-right">Subtotal</th>
+              </tr>
+            </thead>
+            <tbody className="text-sm">
+              {orden.items.map((it, i) => (
+                <tr key={i} className="border-b border-slate-100">
+                  <td className="py-4 px-2 font-bold text-slate-500">{it.cantidad}</td>
+                  <td className="py-4 px-2 font-medium">{it.descripcion}</td>
+                  <td className="py-4 px-2 text-right text-slate-500">{formatRD(it.precio_unitario)}</td>
+                  <td className="py-4 px-2 text-right font-bold text-slate-900">{formatRD(it.precio_unitario * it.cantidad)}</td>
+                </tr>
+              ))}
+              {orden.servicios?.map((sName, i) => {
+                const srv = srvList.find(s => s.nombre === sName);
+                const p = srv ? srv.precio : 0;
+                return (
+                  <tr key={'s'+i} className="border-b border-slate-100">
+                    <td className="py-4 px-2 font-bold text-slate-500">1</td>
+                    <td className="py-4 px-2 font-medium">Servicio: {sName}</td>
+                    <td className="py-4 px-2 text-right text-slate-500">{formatRD(p)}</td>
+                    <td className="py-4 px-2 text-right font-bold text-slate-900">{formatRD(p)}</td>
+                  </tr>
+                )
+              })}
+            </tbody>
+          </table>
+
+          {orden.estado === "ANULADA" && (
+            <div className="mt-4 mb-8 p-6 border-2 border-destructive/20 bg-destructive/5 rounded-2xl text-center animate-in fade-in slide-in-from-top-4 duration-500">
+              <div className="text-destructive font-display font-black uppercase tracking-[0.2em] text-xs mb-2">Orden Anulada</div>
+              {orden.nota_credito_ncf && (
+                <div className="text-lg font-bold text-slate-900 mb-1">
+                  Nota de Crédito Fiscal: <span className="font-mono text-primary">{orden.nota_credito_ncf}</span>
+                </div>
+              )}
+              {orden.motivo_anulacion && (
+                <div className="text-sm text-slate-500 italic">
+                  Motivo ({orden.motivo_anulacion_codigo || "01"}): " {orden.motivo_anulacion} "
+                </div>
+              )}
+            </div>
+          )}
+
+          <div className="flex justify-end mb-10">
+            <div className="w-64">
+              <div className="flex justify-between py-2 border-b border-slate-100 text-sm text-slate-600">
+                <span>Subtotal:</span>
+                <span>{formatRD(orden.subtotal)}</span>
+              </div>
+              <div className="flex justify-between py-2 border-b border-slate-100 text-sm text-slate-600">
+                <span>ITBIS (18%):</span>
+                <span>{formatRD(orden.total - orden.subtotal)}</span>
+              </div>
+              <div className="flex justify-between py-4 text-xl font-black text-primary">
+                <span>TOTAL:</span>
+                <span>{formatRD(orden.total)}</span>
+              </div>
+              <div className="flex justify-between py-2 text-xs text-slate-500">
+                <span>Pago ({orden.metodo_pago}):</span>
+                <span>{formatRD(orden.pagado)}</span>
+              </div>
+            </div>
+          </div>
+
+          <div className="flex justify-between items-end border-t border-slate-200 pt-6">
+            <div className="text-center text-[10px] text-slate-400 italic max-w-xs text-left">
+              ¡Gracias por su preferencia!<br/>
+              Documento generado por Klynn POS
+            </div>
+            
+            {isECF && qrUrl && (
+              <div className="flex flex-col items-center gap-2">
+                <img src={`https://api.qrserver.com/v1/create-qr-code/?size=100x100&data=${encodeURIComponent(qrUrl)}`} alt="QR DGII" className="w-24 h-24" />
+                <div className="text-[10px] text-center font-bold text-slate-500">
+                  Consulte su factura en:<br/>dgii.gov.do
+                </div>
+              </div>
+            )}
+          </div>
+        </div>
+      </div>
+
+      <style dangerouslySetInnerHTML={{ __html: `
+        @media print {
+          @page { size: portrait; margin: 20mm; }
+          html, body { overflow: visible !important; height: auto !important; background: white !important; }
+          body > *:not(.atomic-print-target) { display: none !important; }
+          .atomic-print-target { 
+            display: block !important; 
+            visibility: visible !important; 
+            position: static !important; 
+            width: 100% !important;
+            height: auto !important;
+            padding: 0 !important;
+            margin: 0 !important;
+          }
+          .print-area { visibility: visible !important; display: block !important; }
+          .no-print { display: none !important; }
         }
       `}} />
     </div>,

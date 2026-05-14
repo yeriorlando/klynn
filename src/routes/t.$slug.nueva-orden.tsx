@@ -4,7 +4,7 @@ import { motion } from "framer-motion";
 import { 
   ArrowLeft, ArrowRight, Plus, Trash2, Search, UserPlus, Check, AlertTriangle, 
   Printer, Phone, Shirt, Truck, Maximize2, Minimize2, LayoutGrid, List,
-  ShoppingCart, User as UserIcon, X, Minus
+  ShoppingCart, User as UserIcon, X, Minus, CheckCircle2
 } from "lucide-react";
 import { useRequireAuth } from "@/lib/useRequireAuth";
 import { PageHeader } from "@/components/klynn/PageHeader";
@@ -25,10 +25,14 @@ import {
   getClientes, saveCliente, getCatalogo, getServicios, getCajaAbierta, saveOrden, saveMovimiento,
   nextOrdenNumero, formatRD, formatPhoneRD, uid, DEFAULT_CONFIG,
   formatAmountInput, parseAmount, saveTenant,
-  checkPlanLimits,
-  type Cliente, type OrdenItem, type MetodoPago, type Orden, type CatalogoItem, type Servicio, type Caja
+  checkPlanLimits, getECFConfig, getECFSequences, nextECFNumero, saveECFDocument,
+  type Cliente, type OrdenItem, type MetodoPago, type Orden, type CatalogoItem, type Servicio, type Caja,
+  type ECFConfig, type ECFSequence, type ECFDocument
 } from "@/lib/storage";
+import { generateECFXML } from "@/lib/fiscal/dgii-xml-generator";
+import { signXML } from "@/lib/fiscal/dgii-signer";
 import { PlanLimitModal } from "@/components/klynn/PlanLimitModal";
+import { ClienteDialog } from "@/components/klynn/ClienteDialog";
 import { toast } from "sonner";
 
 export const Route = createFileRoute("/t/$slug/nueva-orden")({
@@ -63,6 +67,9 @@ function NuevaOrdenPage() {
   const [servicioDomicilio, setServicioDomicilio] = useState(false);
   const [direccionDomicilio, setDireccionDomicilio] = useState("");
 
+  const [tipoECF, setTipoECF] = useState<string>("E32");
+  const [fiscalConfig, setFiscalConfig] = useState<ECFConfig | null>(null);
+
   useEffect(() => {
     if (isPosMode) {
       document.body.classList.add("pos-mode");
@@ -88,6 +95,36 @@ function NuevaOrdenPage() {
   const [catalogo, setCatalogo] = useState<CatalogoItem[]>([]);
   const [servicios, setServicios] = useState<Servicio[]>([]);
   const [loadingCatalog, setLoadingCatalog] = useState(true);
+
+  async function handleSelectGeneric(tipo: "Persona" | "Empresa") {
+    const isPersona = tipo === "Persona";
+    // Generar un UUID válido (36 chars) determinista basado en el tenantId
+    const gid = tenantId.substring(0, 24) + (isPersona ? "f000" : "e000") + tenantId.substring(28);
+    const c: Cliente = {
+      id: gid,
+      tenant_id: tenantId,
+      nombre: isPersona ? "Consumidor" : "Empresa",
+      apellido: isPersona ? "Final" : "Genérica",
+      cedula: "",
+      telefono: "---",
+      email: "",
+      direccion: "",
+      tipo: isPersona ? "Consumidor Final" : "Empresa",
+      limite_credito: 0,
+      creado_en: new Date().toISOString()
+    };
+    
+    // Asegurar que existe en la DB para que la orden sea válida (Foreign Key)
+    try {
+      await saveCliente(c);
+    } catch (e) {
+      console.warn("Cliente genérico ya existe");
+    }
+    
+    setCliente(c);
+    setTipoECF(isPersona ? "E32" : "E31");
+    setStep(2);
+  }
 
   useEffect(() => {
     async function load() {
@@ -116,6 +153,9 @@ function NuevaOrdenPage() {
       ]);
       setClientes(list);
       setCaja(activeCaja);
+      
+      // Cargar config fiscal
+      getECFConfig(tenantId).then(setFiscalConfig);
     }
     load();
   }, [tenantId]);
@@ -291,28 +331,43 @@ function NuevaOrdenPage() {
 
       await saveOrden(orden);
 
-      // Incrementar NCF si se usó
-      if (orden.ncf) {
-        await saveTenant({
-          ...tenant,
-          config: {
-            ...cfg,
-            ncf_proximo: (cfg.ncf_proximo || 1) + 1,
-          },
-        });
+      // --- LOGICA FISCAL ELECTRONICA ---
+      let ordenActualizada = { ...orden };
+      if (fiscalConfig?.is_active && tipoECF) {
+        try {
+          const encf = await nextECFNumero(tenant.id, tipoECF);
+          const xml = generateECFXML(orden, tenant, cliente);
+          const signedXml = await signXML(xml, fiscalConfig.certificate_data || "", fiscalConfig.certificate_password || "");
+          
+          const ecfDoc: ECFDocument = {
+            id: uid("ecf"),
+            tenant_id: tenant.id,
+            order_id: orden.id,
+            encf,
+            tipo_ecf: tipoECF,
+            rnc_receptor: cliente.cedula || cliente.telefono.replace(/[^0-9]/g, ''),
+            status: "pending",
+            xml_content: signedXml,
+            monto_total: total,
+            monto_itbis: itbis,
+            fecha_emision: new Date().toISOString()
+          };
+
+          await saveECFDocument(ecfDoc);
+          
+          // Actualizar orden con el NCF electrónico en base de datos y memoria
+          ordenActualizada = { ...orden, ncf: encf, tipo_ecf: tipoECF, ecf_id: ecfDoc.id };
+          await saveOrden(ordenActualizada);
+          toast.success(`Factura Electrónica ${encf} generada`);
+        } catch (fErr: any) {
+          console.error("Error Fiscal:", fErr);
+          toast.error("Error al generar comprobante electrónico: " + fErr.message);
+        }
       }
 
-      if (caja && metodo !== "CREDITO") {
-        await saveMovimiento({
-          id: uid("mov"), tenant_id: tenant.id, caja_id: caja.id, empleado_id: empleado.id,
-          tipo: "VENTA", concepto: `Venta ${orden.numero}`, monto: pagado, metodo,
-          orden_id: orden.id, creado_en: new Date().toISOString(),
-        });
-      }
-      
-      setCreada(orden);
+      setCreada(ordenActualizada);
       setShowTicket(true);
-      toast.success(`Orden ${orden.numero} creada ✅`);
+      toast.success(`Orden ${ordenActualizada.numero} creada ✅`);
 
       // Actualizar dirección del cliente si cambió o es nueva
       if (cliente && servicioDomicilio && direccionDomicilio.trim() && direccionDomicilio !== cliente.direccion) {
@@ -462,7 +517,7 @@ function NuevaOrdenPage() {
                     </div>
                   </div>
                   
-                  <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4 mb-8">
+                  <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4 mb-4">
                     {[
                       { id: "EFECTIVO", label: "Efectivo", icon: "💵" },
                       { id: "TARJETA", label: "Tarjeta", icon: "💳" },
@@ -481,9 +536,33 @@ function NuevaOrdenPage() {
                       </button>
                     ))}
                   </div>
+                  {fiscalConfig?.is_active && (
+                    <div className="mb-4 p-4 rounded-2xl border-2 border-primary/10 bg-primary/5">
+                      <Label className="text-xs font-black uppercase tracking-widest text-primary mb-2 block">Tipo de Comprobante Fiscal</Label>
+                      <div className="grid grid-cols-2 gap-2">
+                        <button 
+                          onClick={() => setTipoECF("E32")}
+                          className={`py-2 px-4 rounded-xl font-bold text-xs transition-all ${tipoECF === "E32" ? "bg-primary text-white" : "bg-background border border-border"}`}
+                        >
+                          CONSUMO (E32)
+                        </button>
+                        <button 
+                          onClick={() => setTipoECF("E31")}
+                          className={`py-2 px-4 rounded-xl font-bold text-xs transition-all ${tipoECF === "E31" ? "bg-primary text-white" : "bg-background border border-border"}`}
+                        >
+                          CRÉDITO FISCAL (E31)
+                        </button>
+                      </div>
+                      {tipoECF === "E31" && !cliente?.cedula && (
+                        <p className="mt-2 text-[10px] text-destructive font-bold flex items-center gap-1">
+                          <AlertTriangle className="h-3 w-3" /> El cliente debe tener RNC/Cédula para Crédito Fiscal.
+                        </p>
+                      )}
+                    </div>
+                  )}
 
                   {metodo === "EFECTIVO" && (
-                    <div className="rounded-3xl border-2 border-border/60 bg-accent/5 p-6 mb-8">
+                    <div className="rounded-3xl border-2 border-border/60 bg-accent/5 p-4 mb-4">
                       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 items-center">
                         <Field label="Monto recibido">
                           <div className="relative h-24">
@@ -521,7 +600,7 @@ function NuevaOrdenPage() {
                   )}
 
                   {metodo === "CREDITO" && (
-                    <div className="flex items-center gap-4 rounded-xl border border-warning/40 bg-warning/5 p-6 text-warning-foreground mb-8">
+                    <div className="flex items-center gap-4 rounded-xl border border-warning/40 bg-warning/5 p-4 text-warning-foreground mb-4">
                       <AlertTriangle className="h-8 w-8 text-warning shrink-0" />
                       <div>
                         <strong className="block text-lg">Venta a crédito</strong>
@@ -530,14 +609,14 @@ function NuevaOrdenPage() {
                     </div>
                   )}
 
-                  <div className="flex flex-col gap-4">
+                  <div className="flex justify-center px-4 pb-4">
                     <Button 
                       size="lg" 
-                      className="w-full h-16 text-xl font-bold bg-primary hover:bg-primary/90 text-white shadow-glow"
+                      className="w-full md:max-w-md h-14 text-base tracking-wide rounded-[1.25rem] font-bold bg-[#16A34A] hover:bg-[#15803D] text-white hover:-translate-y-0.5 transition-all shadow-none"
                       onClick={onCrearOrden}
                       disabled={metodo === "EFECTIVO" && faltante > 0}
                     >
-                      CONFIRMAR Y CREAR ORDEN
+                      <CheckCircle2 className="mr-2 h-5 w-5" /> CONFIRMAR Y CREAR ORDEN
                     </Button>
                   </div>
                 </div>
@@ -549,7 +628,7 @@ function NuevaOrdenPage() {
                       <p className="text-sm text-muted-foreground">Busca un cliente existente o registra uno nuevo.</p>
                     </div>
                     <div className="flex items-center gap-2">
-                      <Button variant="outline" size="sm" onClick={() => setShowNewCliente(true)}>
+                      <Button className="bg-emerald-600 hover:bg-emerald-700 text-white border-none shadow-sm transition-all active:scale-95" size="sm" onClick={() => setShowNewCliente(true)}>
                         <UserPlus className="mr-2 h-4 w-4" /> Nuevo cliente
                       </Button>
                       <Button variant="ghost" size="sm" onClick={() => setStep(2)}>
@@ -568,7 +647,37 @@ function NuevaOrdenPage() {
                     />
                   </div>
 
-                  <div className="grid gap-3">
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 mb-8">
+                    <button 
+                      onClick={() => handleSelectGeneric("Persona")}
+                      className="flex items-center gap-4 p-5 rounded-[2rem] border-2 border-dashed border-primary/20 bg-primary/5 hover:bg-primary/10 hover:border-primary/40 transition-all group text-left"
+                    >
+                      <div className="h-12 w-12 rounded-full bg-primary/20 flex items-center justify-center group-hover:scale-110 transition-transform">
+                        <UserIcon className="h-6 w-6 text-primary" />
+                      </div>
+                      <div>
+                        <div className="font-bold text-lg text-primary leading-tight">Consumidor Final</div>
+                        <div className="text-[10px] uppercase tracking-widest font-black opacity-60">Para Factura de Consumo</div>
+                      </div>
+                    </button>
+
+                    <button 
+                      onClick={() => handleSelectGeneric("Empresa")}
+                      className="flex items-center gap-4 p-5 rounded-[2rem] border-2 border-dashed border-blue-200 bg-blue-50/50 hover:bg-blue-100/50 hover:border-blue-400 transition-all group text-left"
+                    >
+                      <div className="h-12 w-12 rounded-full bg-blue-100 flex items-center justify-center group-hover:scale-110 transition-transform">
+                        <Truck className="h-6 w-6 text-blue-600" />
+                      </div>
+                      <div>
+                        <div className="font-bold text-lg text-blue-700 leading-tight">Empresa / RNC</div>
+                        <div className="text-[10px] uppercase tracking-widest font-black opacity-60">Para Crédito Fiscal</div>
+                      </div>
+                    </button>
+                  </div>
+
+                  <div className="text-[10px] font-black uppercase tracking-widest text-muted-foreground/60 px-2 mb-4">O busca en tu base de datos</div>
+
+                  <div className="grid gap-3 grid-cols-1 md:grid-cols-2">
                     {clientes.filter(c => 
                       c.nombre.toLowerCase().includes(clienteSearch.toLowerCase()) || 
                       (c.apellido && c.apellido.toLowerCase().includes(clienteSearch.toLowerCase())) ||
@@ -592,7 +701,7 @@ function NuevaOrdenPage() {
                       </button>
                     ))}
                   </div>
-                  <NewClienteDialog open={showNewCliente} onOpenChange={setShowNewCliente} tenantId={tenant.id} onCreated={(c) => { setCliente(c); setStep(2); }} />
+                  <ClienteDialog open={showNewCliente} onOpenChange={setShowNewCliente} tenant={user.tenant} onDone={(c) => { if (c) { setCliente(c); setStep(2); } setShowNewCliente(false); }} />
                 </div>
               ) : (
                 <>
@@ -821,14 +930,47 @@ function NuevaOrdenPage() {
                     <Input value={clienteSearch} onChange={(e) => setClienteSearch(e.target.value)} placeholder="Nombre o teléfono..." className="pl-10" />
                   </div>
 
-                  <div className="mt-3 flex justify-end">
-                    <Button variant="outline" size="sm" onClick={() => setShowNewCliente(true)}>
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 mt-6">
+                    <button 
+                      onClick={() => handleSelectGeneric("Persona")}
+                      className={`flex items-center gap-4 p-4 rounded-2xl border-2 transition-all text-left ${
+                        cliente?.id.includes("generic-consumidor") ? "border-primary bg-primary/10 ring-1 ring-primary" : "border-dashed border-primary/20 bg-primary/5 hover:border-primary/40"
+                      }`}
+                    >
+                      <div className="h-10 w-10 rounded-full bg-primary/20 flex items-center justify-center">
+                        <UserIcon className="h-5 w-5 text-primary" />
+                      </div>
+                      <div>
+                        <div className="font-bold text-sm text-primary leading-tight">Consumidor Final</div>
+                        <div className="text-[10px] uppercase tracking-widest font-black opacity-60">Factura de Consumo</div>
+                      </div>
+                    </button>
+
+                    <button 
+                      onClick={() => handleSelectGeneric("Empresa")}
+                      className={`flex items-center gap-4 p-4 rounded-2xl border-2 transition-all text-left ${
+                        cliente?.id.includes("generic-empresa") ? "border-blue-600 bg-blue-50 ring-1 ring-blue-600" : "border-dashed border-blue-200 bg-blue-50/50 hover:border-blue-400"
+                      }`}
+                    >
+                      <div className="h-10 w-10 rounded-full bg-blue-100 flex items-center justify-center">
+                        <Truck className="h-5 w-5 text-blue-600" />
+                      </div>
+                      <div>
+                        <div className="font-bold text-sm text-blue-700 leading-tight">Empresa / RNC</div>
+                        <div className="text-[10px] uppercase tracking-widest font-black opacity-60">Crédito Fiscal</div>
+                      </div>
+                    </button>
+                  </div>
+
+                  <div className="mt-8 flex items-center justify-between">
+                    <div className="text-[10px] font-black uppercase tracking-widest text-muted-foreground/60">O busca en tu base de datos</div>
+                    <Button className="bg-emerald-600 hover:bg-emerald-700 text-white border-none shadow-sm transition-all active:scale-95" size="sm" onClick={() => setShowNewCliente(true)}>
                       <UserPlus className="mr-1.5 h-4 w-4" /> Nuevo cliente
                     </Button>
                   </div>
 
-                  <div className="mt-4 max-h-80 space-y-3 overflow-auto rounded-xl border border-border bg-accent/10 p-3">
-                    {filtrados.length === 0 && <div className="py-12 text-center text-sm text-muted-foreground">No se encontraron clientes</div>}
+                  <div className="mt-4 max-h-80 grid gap-3 grid-cols-1 sm:grid-cols-2 overflow-auto rounded-xl border border-border bg-accent/10 p-3">
+                    {filtrados.length === 0 && <div className="col-span-full py-12 text-center text-sm text-muted-foreground">No se encontraron clientes</div>}
                     {filtrados.map((c) => (
                       <button
                         key={c.id}
@@ -866,7 +1008,7 @@ function NuevaOrdenPage() {
                     ))}
                   </div>
 
-                  <NewClienteDialog open={showNewCliente} onOpenChange={setShowNewCliente} tenantId={tenant.id} onCreated={(c) => { setCliente(c); setShowNewCliente(false); }} />
+                  <ClienteDialog open={showNewCliente} onOpenChange={setShowNewCliente} tenant={user.tenant} onDone={(c) => { if (c) { setCliente(c); } setShowNewCliente(false); }} />
                 </>
               )}
 
@@ -1067,8 +1209,14 @@ function NuevaOrdenPage() {
 
               {step === 5 && (
                 <>
-                  <h2 className="mb-1 text-2xl font-display">Cobro</h2>
-                  <p className="mb-5 text-sm text-muted-foreground">Selecciona el método de pago para el total de <strong className="text-foreground">{formatRD(total)}</strong></p>
+                  <div className="flex flex-col items-center text-center mb-10 mt-2">
+                    <span className="text-[11px] font-black uppercase tracking-[0.2em] text-muted-foreground/60 mb-2">Total a cobrar</span>
+                    <div className="text-6xl font-display font-black text-primary tracking-tight">
+                      {formatRD(total)}
+                    </div>
+                    <div className="mt-6 w-16 h-1 bg-primary/10 rounded-full mb-6"></div>
+                    <p className="text-sm font-bold text-muted-foreground/80">Selecciona el método de pago</p>
+                  </div>
 
                   <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
                     {[
@@ -1089,6 +1237,28 @@ function NuevaOrdenPage() {
                       </button>
                     ))}
                   </div>
+
+                  {cfg.ncf_facturacion_activa && fiscalConfig?.is_active && (
+                    <div className="mt-4 rounded-2xl border-2 border-primary/20 bg-primary/5 p-4">
+                      <div className="text-xs font-bold uppercase tracking-widest text-primary mb-3">TIPO DE COMPROBANTE FISCAL</div>
+                      <div className="flex gap-2">
+                         <Button 
+                           variant="outline"
+                           className={`flex-1 h-12 rounded-xl font-bold transition-all border-2 ${tipoECF === "E32" ? "bg-primary text-white border-primary shadow-glow hover:bg-primary/90 hover:text-white" : "bg-card text-muted-foreground border-border hover:bg-accent/50"}`}
+                           onClick={() => setTipoECF("E32")}
+                         >
+                           CONSUMO (E32)
+                         </Button>
+                         <Button 
+                           variant="outline"
+                           className={`flex-1 h-12 rounded-xl font-bold transition-all border-2 ${tipoECF === "E31" ? "bg-primary text-white border-primary shadow-glow hover:bg-primary/90 hover:text-white" : "bg-card text-muted-foreground border-border hover:bg-accent/50"}`}
+                           onClick={() => setTipoECF("E31")}
+                         >
+                           CRÉDITO FISCAL (E31)
+                         </Button>
+                      </div>
+                    </div>
+                  )}
 
                   {metodo === "EFECTIVO" && (
                     <div className="mt-4 rounded-2xl border-2 border-border/60 bg-accent/5 p-6">
@@ -1135,18 +1305,39 @@ function NuevaOrdenPage() {
               )}
             </motion.div>
 
-            <div className="mt-4 flex items-center justify-between border-t border-border pt-6">
-              <Button variant="ghost" onClick={() => setStep((s) => Math.max(1, s - 1))} disabled={step === 1}>
-                <ArrowLeft className="mr-1 h-4 w-4" /> Atrás
-              </Button>
-              {step < 5 ? (
-                <Button onClick={next} className="bg-gradient-primary text-white shadow-elegant hover:opacity-95">
-                  Continuar <ArrowRight className="ml-1 h-4 w-4" />
-                </Button>
+            <div className={`mt-4 flex ${step === 5 ? "flex-col items-center gap-6" : "items-center justify-between"} border-t border-border pt-8`}>
+              {step === 5 ? (
+                <>
+                  <Button 
+                    size="lg" 
+                    className="w-full md:max-w-md h-14 text-base tracking-wide rounded-[1.25rem] font-bold bg-[#16A34A] hover:bg-[#15803D] text-white shadow-none transition-all active:scale-95"
+                    onClick={onCrearOrden}
+                    disabled={metodo === "EFECTIVO" && (faltante > 0)}
+                  >
+                    <CheckCircle2 className="mr-2 h-5 w-5" /> CONFIRMAR Y CREAR ORDEN
+                  </Button>
+                  <Button 
+                    variant="outline" 
+                    className="h-10 px-8 rounded-xl bg-accent/50 border-border/50 font-bold text-xs text-muted-foreground hover:bg-accent hover:text-foreground transition-all"
+                    onClick={() => setStep((s) => Math.max(1, s - 1))}
+                  >
+                    <ArrowLeft className="mr-2 h-3 w-3" /> VOLVER ATRÁS
+                  </Button>
+                </>
               ) : (
-                <Button onClick={onCrearOrden} className="bg-gradient-primary text-white shadow-elegant hover:opacity-95">
-                  Confirmar y crear orden
-                </Button>
+                <>
+                  <Button 
+                    variant="outline" 
+                    className="rounded-xl bg-accent/50 border-border/50 font-bold text-xs px-6 h-10 transition-all hover:bg-accent"
+                    onClick={() => setStep((s) => Math.max(1, s - 1))} 
+                    disabled={step === 1}
+                  >
+                    <ArrowLeft className="mr-2 h-3 w-3" /> ATRÁS
+                  </Button>
+                  <Button onClick={next} className="bg-gradient-primary text-white shadow-elegant hover:opacity-95 rounded-xl h-10 px-8 font-bold text-xs uppercase tracking-wider">
+                    Continuar <ArrowRight className="ml-2 h-3 w-3" />
+                  </Button>
+                </>
               )}
             </div>
           </Card>
@@ -1207,69 +1398,6 @@ function Field({ label, children }: { label: string; children: React.ReactNode }
 }
 function Row({ k, v, className = "" }: { k: string; v: string; className?: string }) {
   return <div className={`flex justify-between text-sm ${className}`}><span className="text-muted-foreground">{k}</span><span className="font-medium">{v}</span></div>;
-}
-
-// === New Cliente Dialog ===
-function NewClienteDialog({ open, onOpenChange, tenantId, onCreated }: { open: boolean; onOpenChange: (o: boolean) => void; tenantId: string; onCreated: (c: Cliente) => void }) {
-  const [f, setF] = useState({ nombre: "", apellido: "", telefono: "", email: "", direccion: "", tipo: "Consumidor Final" as Cliente["tipo"] });
-  async function submit() {
-    const isEmpresa = f.tipo === "Empresa";
-    if (!f.nombre.trim()) { toast.error(isEmpresa ? "Nombre de empresa requerido" : "Nombre requerido"); return; }
-    if (!isEmpresa && !f.apellido.trim()) { toast.error("Apellido requerido"); return; }
-    if (f.telefono.replace(/\D/g, "").length < 10) { toast.error("Teléfono inválido"); return; }
-    try {
-      const c: Cliente = {
-        id: uid("cli"), tenant_id: tenantId, nombre: f.nombre, apellido: f.apellido || undefined, telefono: f.telefono,
-        email: f.email || undefined, direccion: f.direccion || undefined,
-        tipo: f.tipo, limite_credito: 0, creado_en: new Date().toISOString(),
-      };
-      await saveCliente(c); 
-      onCreated(c);
-      setF({ nombre: "", apellido: "", telefono: "", email: "", direccion: "", tipo: "Consumidor Final" });
-      toast.success("Cliente creado");
-    } catch (err: any) {
-      toast.error("Error al crear cliente");
-    }
-  }
-  return (
-    <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent>
-        <DialogHeader><DialogTitle>Nuevo cliente</DialogTitle></DialogHeader>
-        <div className="space-y-3">
-          <div className="grid grid-cols-2 gap-3">
-            <Field label="Tipo de Cliente">
-              <Select value={f.tipo} onValueChange={(v) => setF({ ...f, tipo: v as Cliente["tipo"] })}>
-                <SelectTrigger><SelectValue /></SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="Consumidor Final">Consumidor Final</SelectItem>
-                  <SelectItem value="Empresa">Empresa</SelectItem>
-                </SelectContent>
-              </Select>
-            </Field>
-            <Field label="Teléfono *"><Input value={f.telefono} onChange={(e) => setF({ ...f, telefono: formatPhoneRD(e.target.value) })} placeholder="809-555-0000" /></Field>
-          </div>
-          <div className="grid grid-cols-2 gap-3">
-            <div className={f.tipo === "Empresa" ? "col-span-2" : ""}>
-              <Field label={f.tipo === "Empresa" ? "Nombre de la empresa *" : "Nombre *"}>
-                <Input value={f.nombre} onChange={(e) => setF({ ...f, nombre: e.target.value })} placeholder={f.tipo === "Empresa" ? "Ej. Planix" : "Ej. Juan"} />
-              </Field>
-            </div>
-            {f.tipo !== "Empresa" && (
-              <Field label="Apellido *">
-                <Input value={f.apellido} onChange={(e) => setF({ ...f, apellido: e.target.value })} placeholder="Ej. Pérez" />
-              </Field>
-            )}
-          </div>
-          <Field label="Email"><Input type="email" value={f.email} onChange={(e) => setF({ ...f, email: e.target.value })} /></Field>
-          <Field label="Dirección"><Input value={f.direccion} onChange={(e) => setF({ ...f, direccion: e.target.value })} /></Field>
-        </div>
-        <DialogFooter>
-          <Button variant="outline" onClick={() => onOpenChange(false)}>Cancelar</Button>
-          <Button onClick={submit} className="bg-gradient-primary text-white">Crear</Button>
-        </DialogFooter>
-      </DialogContent>
-    </Dialog>
-  );
 }
 
 // === Add Item Dialog ===

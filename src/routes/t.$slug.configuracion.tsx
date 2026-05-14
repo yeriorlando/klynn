@@ -26,19 +26,20 @@ import {
 import {
   saveTenant, DEFAULT_CONFIG, formatPhoneRD, formatCedulaRD, PROVINCIAS_RD, NCF_TIPOS,
   formatAmountInput, parseAmount, getPlans, updateTenantPlan, getGlobalConfig, formatRD,
-  getTenantPlan,
+  getTenantPlan, getECFConfig, saveECFConfig, getECFSequences, saveECFSequence, nextECFNumero,
   type Tenant, type TenantConfig, type WhatsAppConfig, type PlanId, type Plan, type Gasto,
-  type GlobalConfig, type BankDetails
+  type GlobalConfig, type BankDetails, type ECFConfig, type ECFSequence
 } from "@/lib/storage";
+import { authenticateDGII } from "@/lib/fiscal";
 import { notificarWhatsApp } from "@/lib/whatsapp";
 import { toast } from "sonner";
 import { 
   Building2, Shield, TrendingUp, Users, Trash2, ExternalLink, Plus, Pencil, 
   RefreshCw, Package, LogOut, MoreHorizontal, Key, Droplets as DropletsIcon,
   CreditCard, MessageCircle, Send, Loader2, Save, Image as ImageIcon, Upload,
-  User, Palette, FileText, Banknote, Star, Sparkles, ArrowRight, Copy, Smartphone, CheckCircle2
+  User, Palette, FileText, Banknote, Star, Sparkles, ArrowRight, Copy, Smartphone, CheckCircle2, ShieldCheck
 } from "lucide-react";
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from "@/components/ui/dialog";
 
 export const Route = createFileRoute("/t/$slug/configuracion")({ component: ConfigPage });
 
@@ -67,9 +68,15 @@ function ConfigPage() {
   const [showCheckout, setShowCheckout] = useState(false);
   const [showSuccess, setShowSuccess] = useState(false);
 
+  // ECF State
+  const [ecfConfig, setEcfConfig] = useState<ECFConfig | null>(null);
+  const [ecfSequences, setEcfSequences] = useState<ECFSequence[]>([]);
+  const [loadingECF, setLoadingECF] = useState(false);
+
   useEffect(() => {
     if (auth?.tenant && auth.tenant.id !== '__loading__' && !tenant) {
       setTenant(auth.tenant);
+      loadECF(auth.tenant.id);
     }
     getPlans().then(setPlans);
     getGlobalConfig().then(setGlobalConfig);
@@ -82,6 +89,17 @@ function ConfigPage() {
       window.history.replaceState({}, '', window.location.pathname);
     }
   }, [auth, tenant]);
+
+  async function loadECF(tid: string) {
+    setLoadingECF(true);
+    const [config, seqs] = await Promise.all([
+      getECFConfig(tid),
+      getECFSequences(tid)
+    ]);
+    setEcfConfig(config);
+    setEcfSequences(seqs);
+    setLoadingECF(false);
+  }
 
   if (!auth || auth.tenant.id === '__loading__' || !tenant) return null;
 
@@ -126,8 +144,9 @@ function ConfigPage() {
           {[
             { id: 'perfil', label: 'Perfil', icon: User },
             { id: 'apariencia', label: 'Apariencia', icon: Palette },
-            { id: 'factura', label: 'Factura', icon: FileText },
-            { id: 'caja', label: 'Caja & ITBIS', icon: Banknote },
+            { id: 'factura', label: 'Ticket', icon: FileText },
+            { id: 'caja', label: 'Caja', icon: Banknote },
+            { id: 'fiscal', label: 'Fiscal', icon: Shield },
             { id: 'whatsapp', label: 'WhatsApp', icon: MessageCircle },
             { id: 'plan', label: 'Plan', icon: CreditCard },
           ].map(t => (
@@ -155,12 +174,7 @@ function ConfigPage() {
                 <Field label="Email"><Input className={FIELD} placeholder="Ej: admin@lavanderia.com" value={tenant.email} onChange={(e) => setTenant({ ...tenant, email: e.target.value })} /></Field>
               </div>
 
-              {/* RNC condicional */}
-              {cfg.ncf_facturacion_activa && (
-                <div className="grid gap-4 md:grid-cols-3">
-                  <Field label="RNC"><Input className={FIELD} placeholder="Ej: 402-..." value={tenant.rnc || ""} onChange={(e) => setTenant({ ...tenant, rnc: formatCedulaRD(e.target.value) })} /></Field>
-                </div>
-              )}
+
 
               {/* Fila 2: Ubicación */}
               <div className="grid gap-4 md:grid-cols-2">
@@ -295,31 +309,21 @@ function ConfigPage() {
                 </Select>
               </Field>
 
-              {cfg.ncf_facturacion_activa && (
-                <>
-                  <Field label="NCF serie (ej: B01 o B02)"><Input className={FIELD} value={cfg.ncf_secuencia} onChange={(e) => saveCfg({ ncf_secuencia: e.target.value.toUpperCase() })} /></Field>
-                  <Field label="Próximo número NCF" hint={`Ejemplo: ${cfg.ncf_secuencia || "BXX"}${String(cfg.ncf_proximo || 1).padStart(8, "0")}`}>
-                    <Input 
-                      className={FIELD} 
-                      type="number" 
-                      value={cfg.ncf_proximo || 1} 
-                      onChange={(e) => saveCfg({ ncf_proximo: Number(e.target.value) })} 
-                    />
-                  </Field>
-                </>
-              )}
               <Field label="Pie de página del ticket" span>
-                <Textarea className="rounded-md border-input focus-visible:ring-1 focus-visible:ring-ring" value={cfg.ticket_pie} onChange={(e) => saveCfg({ ticket_pie: e.target.value })} rows={3} />
+                <Textarea 
+                  className="rounded-md border-input focus-visible:ring-1 focus-visible:ring-ring" 
+                  value={cfg.ticket_pie} 
+                  onChange={(e) => saveCfg({ ticket_pie: e.target.value })} 
+                  rows={3} 
+                />
               </Field>
-              {cfg.ncf_facturacion_activa && (
-                <label className="flex items-center justify-between rounded-md border border-input p-3">
-                  <span className="text-sm font-medium">Mostrar RNC en ticket</span>
-                  <Switch checked={cfg.ticket_mostrar_rnc} onCheckedChange={(v) => saveCfg({ ticket_mostrar_rnc: v })} />
-                </label>
-              )}
+
               <label className="flex items-center justify-between rounded-md border border-input p-3">
-                <span className="text-sm font-medium">Mostrar empleado</span>
-                <Switch checked={cfg.ticket_mostrar_empleado} onCheckedChange={(v) => saveCfg({ ticket_mostrar_empleado: v })} />
+                <span className="text-sm font-medium">Mostrar empleado en ticket</span>
+                <Switch 
+                  checked={cfg.ticket_mostrar_empleado} 
+                  onCheckedChange={(v) => saveCfg({ ticket_mostrar_empleado: v })} 
+                />
               </label>
             </div>
             <Button className="mt-6" onClick={() => save(tenant)}>
@@ -331,73 +335,30 @@ function ConfigPage() {
         <TabsContent value="caja">
           <Card className={CARD}>
             <div className="grid gap-4 md:grid-cols-2">
-              {cfg.ncf_facturacion_activa && (
-                <>
-                  <Field label="ITBIS %"><Input className={FIELD} type="number" value={cfg.itbis_porcentaje} onChange={(e) => saveCfg({ itbis_porcentaje: Number(e.target.value) })} /></Field>
-                  <label className="flex items-center justify-between rounded-md border border-input p-3 md:col-span-1">
-                    <span className="text-sm font-medium">Precios incluyen ITBIS</span>
-                    <Switch checked={cfg.itbis_incluido} onCheckedChange={(v) => saveCfg({ itbis_incluido: v })} />
-                  </label>
-                </>
-              )}
-              <Field label="Recargo urgencia %"><Input className={FIELD} type="number" value={cfg.recargo_urgencia} onChange={(e) => saveCfg({ recargo_urgencia: Number(e.target.value) })} /></Field>
-              <Field label="Umbral diferencia caja (RD$)"><Input className={FIELD} value={formatAmountInput(String(cfg.umbral_diferencia_caja))} onChange={(e) => saveCfg({ umbral_diferencia_caja: parseAmount(e.target.value) })} /></Field>
-              <Field label="Máx caja chica (RD$)"><Input className={FIELD} value={formatAmountInput(String(cfg.monto_max_caja_chica))} onChange={(e) => saveCfg({ monto_max_caja_chica: parseAmount(e.target.value) })} /></Field>
-
-              <div className="md:col-span-2">
-                <label className={`mb-3 flex items-center justify-between rounded-md border p-4 transition-all ${
-                  hasFiscal ? "border-primary bg-primary/5" : "border-muted bg-muted/20 opacity-80"
-                }`}>
-                  <div>
-                    <div className={`text-sm font-bold ${hasFiscal ? "text-primary" : "text-muted-foreground"}`}>
-                      Facturación Fiscal {!hasFiscal && <span className="ml-2 text-[10px] bg-muted px-1.5 py-0.5 rounded text-muted-foreground">PLAN SUPERIOR</span>}
-                    </div>
-                    <div className="text-xs text-muted-foreground">Activa ITBIS, RNC y comprobantes fiscales de la DGII.</div>
-                  </div>
-                  <Switch 
-                    disabled={!hasFiscal}
-                    checked={!!cfg.ncf_facturacion_activa} 
-                    onCheckedChange={(v) => saveCfg({ ncf_facturacion_activa: v })} 
-                  />
-                </label>
-                {cfg.ncf_facturacion_activa && (
-                  <div>
-                    <Label className={LABEL + " mb-2 block"}>Tipos de NCF habilitados</Label>
-                    <div className="grid gap-2">
-                      {NCF_TIPOS.map((t) => {
-                        const tipos = cfg.ncf_tipos || [];
-                        const checked = tipos.includes(t.codigo);
-                        return (
-                          <label key={t.codigo}
-                            className={`flex cursor-pointer items-center gap-3 rounded-xl border-2 p-3 transition ${
-                              checked ? "border-primary bg-accent/40" : "border-border hover:border-primary/40"
-                            }`}>
-                            <input type="checkbox" checked={checked}
-                              onChange={(e) => {
-                                const set = new Set(tipos);
-                                if (e.target.checked) set.add(t.codigo); else set.delete(t.codigo);
-                                saveCfg({ ncf_tipos: Array.from(set) });
-                              }}
-                              className="h-5 w-5 accent-primary" />
-                            <div className="flex-1">
-                              <div className="flex items-baseline gap-2">
-                                <span className="font-mono font-bold">{t.codigo}</span>
-                                <span className="text-sm font-medium">{t.nombre}</span>
-                              </div>
-                              <div className="text-xs text-muted-foreground">{t.descripcion}</div>
-                            </div>
-                          </label>
-                        );
-                      })}
-                    </div>
-                  </div>
-                )}
-              </div>
+              <Field label="Recargo urgencia %">
+                <Input className={FIELD} type="number" value={cfg.recargo_urgencia} onChange={(e) => saveCfg({ recargo_urgencia: Number(e.target.value) })} />
+              </Field>
+              <Field label="Umbral diferencia caja (RD$)">
+                <Input className={FIELD} value={formatAmountInput(String(cfg.umbral_diferencia_caja))} onChange={(e) => saveCfg({ umbral_diferencia_caja: parseAmount(e.target.value) })} />
+              </Field>
+              <Field label="Máx caja chica (RD$)">
+                <Input className={FIELD} value={formatAmountInput(String(cfg.monto_max_caja_chica))} onChange={(e) => saveCfg({ monto_max_caja_chica: parseAmount(e.target.value) })} />
+              </Field>
             </div>
             <Button className="mt-6" onClick={() => save(tenant)}>
               <Save className="mr-2 h-4 w-4" /> Guardar cambios
             </Button>
           </Card>
+        </TabsContent>
+
+        <TabsContent value="fiscal">
+          <FiscalTab 
+            tenant={tenant} 
+            config={ecfConfig} 
+            sequences={ecfSequences} 
+            onRefresh={() => loadECF(tenant.id)}
+            enabled={!!hasFiscal}
+          />
         </TabsContent>
 
         <TabsContent value="whatsapp">
@@ -936,6 +897,407 @@ function SuccessModal({ open, onOpenChange, planName }: { open: boolean; onOpenC
             Cerrar esta ventana
           </button>
         </div>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+function FiscalTab({ tenant, config, sequences, onRefresh, enabled }: { 
+  tenant: Tenant; config: ECFConfig | null; sequences: ECFSequence[]; onRefresh: () => void; enabled: boolean;
+}) {
+  const [loading, setLoading] = useState(false);
+  const [showNewSeq, setShowNewSeq] = useState(false);
+  
+  const cfg: TenantConfig = tenant.config || DEFAULT_CONFIG;
+  const isElectronic = !!config?.is_active;
+
+  const [draft, setDraft] = useState<Partial<ECFConfig>>(config || {
+    tenant_id: tenant.id,
+    rnc_emisor: tenant.rnc || "",
+    razon_social: tenant.nombre,
+    ambiente: "pruebas",
+    is_active: false
+  });
+
+  async function saveECF() {
+    setLoading(true);
+    try {
+      const cleanRNC = draft.rnc_emisor ? draft.rnc_emisor.replace(/\D/g, '') : '';
+      
+      // 1. Guardar la config electrónica
+      await saveECFConfig({
+        ...draft,
+        rnc_emisor: cleanRNC,
+        id: config?.id || crypto.randomUUID(),
+        tenant_id: tenant.id,
+        updated_at: new Date().toISOString(),
+        created_at: config?.created_at || new Date().toISOString(),
+      } as ECFConfig);
+
+      // 2. IMPORTANTÍSIMO: Guardar también el RNC en el tenant base para que los tickets lo usen
+      await saveTenant({ ...tenant, rnc: cleanRNC } as Tenant);
+
+      toast.success("Datos fiscales guardados correctamente");
+      onRefresh();
+    } catch (err: any) {
+      toast.error("Error: " + err.message);
+    }
+    setLoading(false);
+  }
+
+  async function updateCfg(c: Partial<TenantConfig>) {
+    const next: Tenant = { ...tenant, config: { ...cfg, ...c } } as Tenant;
+    await saveTenant(next);
+    toast.success("Ajustes fiscales actualizados");
+  }
+
+  async function testConnection() {
+    if (!config) return;
+    setLoading(true);
+    try {
+      const auth = await authenticateDGII(config);
+      toast.success("¡Conexión Exitosa! Token obtenido.");
+      console.log("DGII Token:", auth.token);
+    } catch (err: any) {
+      toast.error("Error de conexión: " + err.message);
+    }
+    setLoading(false);
+  }
+
+  return (
+    <div className="space-y-6">
+      {!enabled && (
+        <Card className="p-8 border-dashed border-primary/20 bg-primary/5 text-center rounded-3xl">
+          <Shield className="h-12 w-12 text-primary mx-auto mb-4 opacity-50" />
+          <h3 className="text-xl font-display mb-2">Módulo Fiscal Avanzado</h3>
+          <p className="text-sm text-muted-foreground mb-6 max-w-sm mx-auto">
+            La gestión de RNC, ITBIS y Comprobantes Fiscales (NCF/e-CF) requiere el plan **Enterprise**.
+          </p>
+          <Button onClick={() => (document.querySelector('[data-value="plan"]') as HTMLElement)?.click()}>
+            Mejorar Plan
+          </Button>
+        </Card>
+      )}
+
+      <div className={!enabled ? "opacity-40 pointer-events-none space-y-6" : "space-y-6"}>
+        {/* 1. Configuración de Impuestos (ITBIS) */}
+        <Card className={CARD}>
+          <div className="flex items-center gap-3 mb-6">
+            <div className="h-10 w-10 rounded-xl bg-primary/10 flex items-center justify-center text-primary">
+              <Banknote className="h-5 w-5" />
+            </div>
+            <div>
+              <h3 className="text-lg font-display">Configuración de Impuestos</h3>
+              <p className="text-xs text-muted-foreground">Define el ITBIS y cómo se aplica a tus precios.</p>
+            </div>
+          </div>
+          
+          <div className="grid gap-6 md:grid-cols-2">
+            <Field label="ITBIS (%)">
+              <Input 
+                className={FIELD} 
+                type="number" 
+                value={cfg.itbis_porcentaje} 
+                onChange={(e) => updateCfg({ itbis_porcentaje: Number(e.target.value) })} 
+              />
+            </Field>
+            <div className="flex items-center justify-between p-4 border rounded-2xl bg-accent/5">
+              <div className="space-y-0.5">
+                <div className="text-sm font-bold">Precios incluyen ITBIS</div>
+                <div className="text-xs text-muted-foreground">Si está activo, el ITBIS se desglosa del total.</div>
+              </div>
+              <Switch checked={cfg.itbis_incluido} onCheckedChange={(v) => updateCfg({ itbis_incluido: v })} />
+            </div>
+          </div>
+        </Card>
+
+        {/* 2. Selector de Modo de Facturación */}
+        <Card className={CARD + " border-primary/20 bg-primary/5"}>
+          <div className="flex flex-col md:flex-row md:items-center justify-between gap-6">
+            <div className="flex items-center gap-4">
+              <div className={`h-12 w-12 rounded-2xl flex items-center justify-center transition-colors ${isElectronic ? "bg-primary text-white shadow-glow" : "bg-white text-slate-400 border"}`}>
+                {isElectronic ? <Sparkles className="h-6 w-6" /> : <FileText className="h-6 w-6" />}
+              </div>
+              <div>
+                <div className="flex items-center gap-3">
+                  <h3 className="text-lg font-display">Modo de Facturación</h3>
+                  {isElectronic && (
+                    <Button variant="ghost" size="sm" asChild className="h-6 text-[10px] bg-emerald-50 text-emerald-600 hover:bg-emerald-100 rounded-full font-bold">
+                      <Link to={`/t/${tenant.slug}/fiscal-homologacion`}>
+                        <ShieldCheck className="h-3 w-3 mr-1" /> Panel de Homologación
+                      </Link>
+                    </Button>
+                  )}
+                </div>
+                <p className="text-xs text-muted-foreground">
+                  {isElectronic 
+                    ? "Estás utilizando Facturación Electrónica (e-CF) conectada con DGII." 
+                    : "Estás utilizando Comprobantes Fiscales tradicionales (NCF)."}
+                </p>
+              </div>
+            </div>
+            
+                <div className="flex items-center gap-2">
+                  <Button variant="outline" size="sm" className="h-9 rounded-xl" onClick={testConnection} disabled={loading || !config?.certificate_data}>
+                    {loading ? <Loader2 className="h-4 w-4 animate-spin mr-2" /> : <RefreshCw className="h-4 w-4 mr-2" />}
+                    Probar Conexión
+                  </Button>
+                  <div className="flex p-1 bg-white rounded-xl border shadow-sm">
+                    <button 
+                onClick={() => {
+                  setDraft({ ...draft, is_active: false });
+                  updateCfg({ ncf_facturacion_activa: true });
+                  saveECF();
+                }}
+                className={`px-4 py-2 rounded-lg text-xs font-bold transition-all ${!isElectronic ? "bg-primary text-white" : "hover:bg-slate-50"}`}
+              >
+                TRADICIONAL (NCF)
+              </button>
+              <button 
+                onClick={() => {
+                  setDraft({ ...draft, is_active: true });
+                  updateCfg({ ncf_facturacion_activa: true });
+                  saveECF();
+                }}
+                className={`px-4 py-2 rounded-lg text-xs font-bold transition-all ${isElectronic ? "bg-primary text-white" : "hover:bg-slate-50"}`}
+              >
+                ELECTRÓNICA (e-CF)
+              </button>
+            </div>
+          </div>
+        </div>
+      </Card>
+
+      {/* 3. Contenido según el modo */}
+        <div className="grid gap-6 md:grid-cols-2">
+          {/* Columna Izquierda: Datos del Emisor y NCF/Certificado */}
+          <div className="space-y-6">
+            <Card className={CARD}>
+              <h3 className="text-lg font-display mb-4">Datos del Contribuyente</h3>
+              <div className="space-y-4">
+                <Field label="RNC / Cédula">
+                  <Input 
+                    className={FIELD} 
+                    value={draft.rnc_emisor} 
+                    onChange={(e) => setDraft({ ...draft, rnc_emisor: formatCedulaRD(e.target.value) })} 
+                    placeholder="Ej: 402-..."
+                  />
+                </Field>
+                <Field label="Nombre o Razón Social">
+                  <Input 
+                    className={FIELD} 
+                    value={draft.razon_social} 
+                    onChange={(e) => setDraft({ ...draft, razon_social: e.target.value })} 
+                  />
+                </Field>
+                
+                {isElectronic && (
+                  <div className="flex items-center justify-between p-3 border rounded-xl bg-accent/10">
+                    <div className="space-y-0.5">
+                      <div className="text-sm font-bold">Ambiente DGII</div>
+                      <div className="text-xs text-muted-foreground">Pruebas u Producción.</div>
+                    </div>
+                    <Select value={draft.ambiente} onValueChange={(v: any) => setDraft({ ...draft, ambiente: v })}>
+                      <SelectTrigger className="w-32 h-9 rounded-lg"><SelectValue /></SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="pruebas">PRUEBAS</SelectItem>
+                        <SelectItem value="produccion">PRODUCCIÓN</SelectItem>
+                      </SelectContent>
+                    </Select>
+                  </div>
+                )}
+                
+                <Button className="w-full" onClick={saveECF} disabled={loading}>
+                  {loading && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
+                  Guardar Datos Fiscales
+                </Button>
+              </div>
+            </Card>
+
+            {!isElectronic ? (
+              <Card className={CARD}>
+                <h3 className="text-lg font-display mb-4">Configuración de NCF</h3>
+                <div className="space-y-4">
+                  <Field label="Serie NCF (Ej: B02)">
+                    <Input className={FIELD} value={cfg.ncf_secuencia} onChange={(e) => updateCfg({ ncf_secuencia: e.target.value.toUpperCase() })} />
+                  </Field>
+                  <Field label="Próximo Número" hint={`Ej: ${cfg.ncf_secuencia}${String(cfg.ncf_proximo).padStart(8, '0')}`}>
+                    <Input type="number" className={FIELD} value={cfg.ncf_proximo} onChange={(e) => updateCfg({ ncf_proximo: Number(e.target.value) })} />
+                  </Field>
+                  <div className="flex items-center justify-between p-3 border rounded-xl">
+                    <span className="text-sm font-medium text-muted-foreground">Mostrar RNC en Ticket</span>
+                    <Switch checked={cfg.ticket_mostrar_rnc} onCheckedChange={(v) => updateCfg({ ticket_mostrar_rnc: v })} />
+                  </div>
+                </div>
+              </Card>
+            ) : (
+              <Card className={CARD}>
+                <h3 className="text-lg font-display mb-4 flex items-center gap-2">
+                  <Key className="h-5 w-5 text-primary" /> Certificado Digital (.p12)
+                </h3>
+                <div className="space-y-4">
+                  {draft.certificate_data || config?.certificate_data ? (
+                    <div className="p-4 rounded-xl border border-emerald-200 bg-emerald-50">
+                      <div className="flex items-center gap-3 text-emerald-700 font-bold mb-1">
+                        <CheckCircle2 className="h-5 w-5" /> Cargado y Listo
+                      </div>
+                      <p className="text-[10px] text-emerald-600">Certificado P12 adjunto.</p>
+                    </div>
+                  ) : (
+                    <div className="p-4 rounded-xl border border-dashed border-amber-200 bg-amber-50 text-center">
+                      <p className="text-xs text-amber-700">Pendiente de subir certificado.</p>
+                    </div>
+                  )}
+                  <Field label="Contraseña del .p12">
+                    <Input type="password" className={FIELD} value={draft.certificate_password || ""} onChange={(e) => setDraft({ ...draft, certificate_password: e.target.value })} />
+                  </Field>
+                  <input type="file" id="cert-upload" className="hidden" accept=".p12,.pfx" onChange={async (e) => {
+                    const file = e.target.files?.[0];
+                    if (file) {
+                      const reader = new FileReader();
+                      reader.onload = (ev) => {
+                        const base64 = ev.target?.result?.toString().split(',')[1];
+                        setDraft({ ...draft, certificate_data: base64 });
+                        toast.success("Certificado listo");
+                      };
+                      reader.readAsDataURL(file);
+                    }
+                  }} />
+                  <Button variant="outline" className="w-full h-11 rounded-xl" onClick={() => document.getElementById('cert-upload')?.click()}>
+                    <Upload className="mr-2 h-4 w-4" /> Subir Archivo
+                  </Button>
+                </div>
+              </Card>
+            )}
+          </div>
+
+          {/* Columna Derecha: Tipos de Comprobantes o Secuencias e-CF */}
+          <div className="space-y-6">
+            {!isElectronic ? (
+              <Card className={CARD}>
+                <h3 className="text-lg font-display mb-4">Tipos de NCF Habilitados</h3>
+                <div className="grid gap-2">
+                  {NCF_TIPOS.map((t) => {
+                    const tipos = cfg.ncf_tipos || [];
+                    const checked = tipos.includes(t.codigo);
+                    return (
+                      <label key={t.codigo} className={`flex cursor-pointer items-center gap-3 rounded-xl border-2 p-3 transition ${checked ? "border-primary bg-primary/5" : "border-border hover:border-primary/40"}`}>
+                        <input type="checkbox" checked={checked} onChange={(e) => {
+                          const set = new Set(tipos);
+                          if (e.target.checked) set.add(t.codigo); else set.delete(t.codigo);
+                          updateCfg({ ncf_tipos: Array.from(set) });
+                        }} className="h-5 w-5 accent-primary" />
+                        <div className="flex-1">
+                          <div className="text-sm font-bold font-mono">{t.codigo} - {t.nombre}</div>
+                          <div className="text-[10px] text-muted-foreground">{t.descripcion}</div>
+                        </div>
+                      </label>
+                    );
+                  })}
+                </div>
+              </Card>
+            ) : (
+              <Card className={CARD}>
+                <div className="flex items-center justify-between mb-4">
+                  <h3 className="text-lg font-display">Secuencias e-NCF</h3>
+                  <Button size="sm" variant="outline" className="h-8 rounded-lg" onClick={() => setShowNewSeq(true)}>
+                    <Plus className="h-4 w-4" />
+                  </Button>
+                </div>
+                <div className="space-y-3">
+                  {sequences.length === 0 ? (
+                    <div className="py-10 text-center text-muted-foreground text-xs border border-dashed rounded-xl">No hay secuencias e-CF.</div>
+                  ) : (
+                    sequences.map(seq => (
+                      <div key={seq.id} className="p-3 border rounded-xl flex items-center justify-between">
+                        <div>
+                          <div className="text-xs font-bold font-mono">{seq.tipo_ecf}</div>
+                          <div className="text-[10px] text-muted-foreground">{seq.prefijo}{seq.tipo_ecf}{String(seq.valor_actual).padStart(10, '0')}</div>
+                        </div>
+                        <div className="text-right">
+                          <div className="text-xs font-bold text-emerald-600">{seq.valor_final - seq.valor_actual} disp.</div>
+                          <Badge variant="success" className="text-[9px] h-4">ACTIVA</Badge>
+                        </div>
+                      </div>
+                    ))
+                  )}
+                </div>
+              </Card>
+            )}
+          </div>
+        </div>
+      </div>
+
+      <NewSequenceDialog open={showNewSeq} onOpenChange={setShowNewSeq} tenantId={tenant.id} onCreated={onRefresh} />
+    </div>
+  );
+}
+
+function NewSequenceDialog({ open, onOpenChange, tenantId, onCreated }: {
+  open: boolean; onOpenChange: (o: boolean) => void; tenantId: string; onCreated: () => void;
+}) {
+  const [loading, setLoading] = useState(false);
+  const [seq, setSeq] = useState<Partial<ECFSequence>>({
+    tenant_id: tenantId,
+    tipo_ecf: "E32",
+    prefijo: "E",
+    valor_inicial: 1,
+    valor_final: 100,
+    valor_actual: 0,
+    is_active: true
+  });
+
+  async function save() {
+    setLoading(true);
+    try {
+      await saveECFSequence({
+        ...seq,
+        id: crypto.randomUUID(),
+        tenant_id: tenantId,
+      } as ECFSequence);
+      toast.success("Secuencia creada");
+      onCreated();
+      onOpenChange(false);
+    } catch (err: any) {
+      toast.error(err.message);
+    }
+    setLoading(false);
+  }
+
+  return (
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogContent className="sm:max-w-[400px]">
+        <DialogHeader>
+          <DialogTitle>Nueva Secuencia e-CF</DialogTitle>
+          <DialogDescription>Configura los rangos autorizados por la DGII.</DialogDescription>
+        </DialogHeader>
+        <div className="space-y-4 pt-4">
+          <Field label="Tipo de Comprobante">
+            <Select value={seq.tipo_ecf} onValueChange={(v) => setSeq({ ...seq, tipo_ecf: v })}>
+              <SelectTrigger><SelectValue /></SelectTrigger>
+              <SelectContent>
+                <SelectItem value="E31">E31 - CRÉDITO FISCAL</SelectItem>
+                <SelectItem value="E32">E32 - CONSUMIDOR FINAL</SelectItem>
+                <SelectItem value="E33">E33 - NOTA DE DÉBITO</SelectItem>
+                <SelectItem value="E34">E34 - NOTA DE CRÉDITO</SelectItem>
+              </SelectContent>
+            </Select>
+          </Field>
+          <div className="grid grid-cols-2 gap-4">
+            <Field label="Desde"><Input type="number" value={seq.valor_inicial} onChange={(e) => setSeq({ ...seq, valor_inicial: Number(e.target.value) })} /></Field>
+            <Field label="Hasta"><Input type="number" value={seq.valor_final} onChange={(e) => setSeq({ ...seq, valor_final: Number(e.target.value) })} /></Field>
+          </div>
+          <Field label="Valor Actual (Último emitido)">
+            <Input type="number" value={seq.valor_actual} onChange={(e) => setSeq({ ...seq, valor_actual: Number(e.target.value) })} />
+          </Field>
+        </div>
+        <DialogFooter className="mt-6">
+          <Button variant="ghost" onClick={() => onOpenChange(false)}>Cancelar</Button>
+          <Button onClick={save} disabled={loading}>
+            {loading && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
+            Crear Secuencia
+          </Button>
+        </DialogFooter>
       </DialogContent>
     </Dialog>
   );

@@ -29,6 +29,8 @@ import {
   AlertDialogTrigger
 } from "@/components/ui/alert-dialog";
 
+import { ClienteDialog } from "@/components/klynn/ClienteDialog";
+
 export const Route = createFileRoute("/t/$slug/clientes")({ component: ClientesPage });
 
 function ClientesPage() {
@@ -39,7 +41,7 @@ function ClientesPage() {
   const [refresh, setRefresh] = useState(0);
 
   const [clientes, setClientes] = useState<Cliente[]>([]);
-  const [ordenes, setOrdenes] = useState<Orden[]>([]);
+  const [ordenes, setOrdenes] = useState<any[]>([]); // Usar any si Orden no está importado aquí
   const [loading, setLoading] = useState(true);
 
   const tenant = user?.tenant;
@@ -126,181 +128,13 @@ function ClientesPage() {
         {filt.length === 0 && <div className="col-span-full py-12 text-center text-muted-foreground">Sin clientes.</div>}
       </div>
  
-      <ClienteDialog open={showNew || !!edit} onOpenChange={(o) => { if (!o) { setShowNew(false); setEdit(null); } }} cliente={edit} tenantId={tenant.id} onDone={() => { setRefresh((r) => r + 1); setEdit(null); setShowNew(false); }} />
+      <ClienteDialog 
+        open={showNew || !!edit} 
+        onOpenChange={(o) => { if (!o) { setShowNew(false); setEdit(null); } }} 
+        cliente={edit} 
+        tenant={tenant} 
+        onDone={() => { setRefresh((r) => r + 1); setEdit(null); setShowNew(false); }} 
+      />
     </div>
-  );
-}
- 
-function ClienteDialog({ open, onOpenChange, cliente, tenantId, onDone }: { open: boolean; onOpenChange: (o: boolean) => void; cliente: Cliente | null; tenantId: string; onDone: () => void }) {
-  const user = useRequireAuth();
-  const empty = { nombre: "", apellido: "", telefono: "", email: "", direccion: "", cedula: "", notas: "", tipo: "Consumidor Final" as Cliente["tipo"], limite_credito: 0 };
-  const [f, setF] = useState(cliente ? { ...empty, ...cliente } : empty);
-  const [hasDelivery, setHasDelivery] = useState(!!cliente?.direccion);
-
-  useEffect(() => {
-    if (open) {
-      const data = cliente ? { ...empty, ...cliente } : empty;
-      setF(data);
-      setHasDelivery(!!cliente?.direccion);
-    }
-  }, [cliente, open]);
- 
-  async function submit() {
-    const isEmpresa = f.tipo === "Empresa";
-    if (!f.nombre.trim() || (!isEmpresa && !f.apellido.trim()) || f.telefono.replace(/\D/g, "").length < 10) { 
-      toast.error(isEmpresa ? "Nombre de empresa y teléfono válidos requeridos" : "Nombre, apellido y teléfono válidos requeridos"); 
-      return; 
-    }
-    if (hasDelivery && !f.direccion?.trim()) {
-      toast.error("La dirección es requerida para envío a domicilio");
-      return;
-    }
-    try {
-      const c: Cliente = {
-        id: cliente?.id || uid("cli"), tenant_id: tenantId, nombre: f.nombre, apellido: f.apellido || undefined, telefono: f.telefono,
-        email: f.email || undefined, direccion: hasDelivery ? f.direccion : undefined, cedula: f.cedula || undefined,
-        notas: f.notas || undefined, tipo: f.tipo, limite_credito: f.limite_credito,
-        creado_en: cliente?.creado_en || new Date().toISOString(),
-      };
-      await saveCliente(c); 
-      toast.success(cliente ? "Actualizado ✨" : "Cliente creado ✅"); 
-      onDone();
-    } catch (err: any) {
-      toast.error("Error al guardar cliente");
-    }
-  }
-  async function remove() {
-    if (cliente) { 
-      try {
-        await deleteCliente(cliente.id); 
-        toast.success("Eliminado 🗑️"); 
-        onDone(); 
-      } catch (err) {
-        toast.error("Error al eliminar");
-      }
-    }
-  }
-  return (
-    <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent>
-        <DialogHeader><DialogTitle>{cliente ? "Editar cliente" : "Nuevo cliente"}</DialogTitle></DialogHeader>
-        <div className="grid gap-4 md:grid-cols-2">
-          {/* Fila 1: Siempre Tipo y Telefono para aprovechar espacio */}
-          <div>
-            <Label>Tipo de Cliente</Label>
-            <Select value={f.tipo} onValueChange={(v) => setF({ ...f, tipo: v as Cliente["tipo"] })}>
-              <SelectTrigger><SelectValue /></SelectTrigger>
-              <SelectContent>
-                <SelectItem value="Consumidor Final">Consumidor Final</SelectItem>
-                {user.tenant.config?.ncf_facturacion_activa && <SelectItem value="Empresa">Empresa</SelectItem>}
-              </SelectContent>
-            </Select>
-          </div>
-          <div>
-            <Label>Telefono/whatsapp</Label>
-            <Input value={f.telefono} onChange={(e) => setF({ ...f, telefono: formatPhoneRD(e.target.value) })} placeholder="809-000-0000" />
-          </div>
-
-          {f.tipo === "Empresa" ? (
-            <>
-              {/* Flujo Empresa: Nombre (Solo) -> RNC + Email (Juntos) */}
-              <div className="md:col-span-2 animate-in fade-in slide-in-from-left-1 duration-200">
-                <Label>Nombre de la empresa</Label>
-                <Input value={f.nombre} onChange={(e) => setF({ ...f, nombre: e.target.value })} placeholder="Ej. Inversiones Dominicana" />
-              </div>
-              {user.tenant.config?.ncf_facturacion_activa && (
-                <div className="animate-in fade-in slide-in-from-left-1 duration-200">
-                  <Label>RNC de la Empresa</Label>
-                  <Input value={f.cedula} onChange={(e) => setF({ ...f, cedula: e.target.value })} placeholder="131-12345-6" />
-                </div>
-              )}
-              <div>
-                <Label>Email (Opcional)</Label>
-                <Input value={f.email} onChange={(e) => setF({ ...f, email: e.target.value })} placeholder="cliente@correo.com" />
-              </div>
-            </>
-          ) : (
-            <>
-              {/* Flujo Consumidor: Nombre + Apellido (Juntos) -> Email (Solo) */}
-              <div className="animate-in fade-in slide-in-from-left-1 duration-200">
-                <Label>Nombre</Label>
-                <Input value={f.nombre} onChange={(e) => setF({ ...f, nombre: e.target.value })} placeholder="Ej. Juan" />
-              </div>
-              <div className="animate-in fade-in slide-in-from-left-1 duration-200">
-                <Label>Apellido</Label>
-                <Input value={f.apellido} onChange={(e) => setF({ ...f, apellido: e.target.value })} placeholder="Ej. Pérez" />
-              </div>
-              <div className="md:col-span-2">
-                <Label>Email (Opcional)</Label>
-                <Input value={f.email} onChange={(e) => setF({ ...f, email: e.target.value })} placeholder="cliente@correo.com" />
-              </div>
-            </>
-          )}
-          
-          {/* Toggles de Preferencias */}
-          <div className="flex items-center justify-between rounded-lg border border-border p-3 md:col-span-2 bg-accent/30">
-            <div className="space-y-0.5">
-              <Label className="text-sm font-semibold">Envío a domicilio</Label>
-              <div className="text-[11px] text-muted-foreground">¿Este cliente requiere delivery para sus órdenes?</div>
-            </div>
-            <Switch 
-              checked={hasDelivery} 
-              onCheckedChange={(checked) => {
-                setHasDelivery(checked);
-                if (!checked) setF({ ...f, direccion: "" });
-              }} 
-            />
-          </div>
-
-          {hasDelivery && (
-            <div className="md:col-span-2 animate-in fade-in slide-in-from-top-1 duration-200">
-              <Label>Dirección de entrega</Label>
-              <Input value={f.direccion} onChange={(e) => setF({ ...f, direccion: e.target.value })} placeholder="Calle, # Casa, Sector..." />
-            </div>
-          )}
-
-          <div className="flex items-center justify-between rounded-lg border border-border p-3 md:col-span-2 bg-accent/30">
-            <div className="space-y-0.5">
-              <Label className="text-sm font-semibold">Habilitar crédito</Label>
-              <div className="text-[11px] text-muted-foreground">Permite que este cliente deje órdenes por pagar.</div>
-            </div>
-            <Switch 
-              checked={f.limite_credito > 0} 
-              onCheckedChange={(checked) => setF({ ...f, limite_credito: checked ? 5000 : 0 })} 
-            />
-          </div>
-
-          {f.limite_credito > 0 && (
-            <div className="md:col-span-2 animate-in fade-in slide-in-from-top-1 duration-200">
-              <Label>Límite de crédito (RD$)</Label>
-              <Input type="number" value={f.limite_credito} onChange={(e) => setF({ ...f, limite_credito: Number(e.target.value) || 0 })} />
-            </div>
-          )}
-        </div>
-        <DialogFooter className="gap-2">
-          {cliente && (
-            <AlertDialog>
-              <AlertDialogTrigger asChild>
-                <Button variant="ghost" className="text-destructive mr-auto"><Trash2 className="mr-1.5 h-4 w-4" /> Eliminar</Button>
-              </AlertDialogTrigger>
-              <AlertDialogContent className="rounded-2xl border-none shadow-card">
-                <AlertDialogHeader>
-                  <AlertDialogTitle>¿Eliminar a {cliente.nombre}?</AlertDialogTitle>
-                  <AlertDialogDescription>
-                    Esta acción no se puede deshacer. Se eliminará el registro del cliente pero sus órdenes pasadas permanecerán en el sistema para fines contables.
-                  </AlertDialogDescription>
-                </AlertDialogHeader>
-                <AlertDialogFooter>
-                  <AlertDialogCancel className="rounded-xl">Cancelar</AlertDialogCancel>
-                  <AlertDialogAction onClick={remove} className="bg-destructive text-white rounded-xl">Eliminar permanentemente</AlertDialogAction>
-                </AlertDialogFooter>
-              </AlertDialogContent>
-            </AlertDialog>
-          )}
-          <Button variant="outline" onClick={() => onOpenChange(false)}>Cancelar</Button>
-          <Button onClick={submit} className="bg-gradient-primary text-white">Guardar</Button>
-        </DialogFooter>
-      </DialogContent>
-    </Dialog>
   );
 }

@@ -155,9 +155,65 @@ export interface Orden {
   notas?: string;
   creado_en: string;
   ncf?: string;
+  tipo_ecf?: string; // Nuevo: E31, E32, etc.
+  ecf_id?: string;   // Nuevo: ID del documento en ecf_documents
   motivo_anulacion?: string;
+  motivo_anulacion_codigo?: string; // Código DGII: 01, 02, 03, 04, 05
+  nota_credito_ncf?: string; // NCF de la nota de crédito (E34)
+  nota_credito_id?: string;  // ID del documento ECF E34
+  nota_debito_ncf?: string;  // NCF de la nota de débito (E33)
+  nota_debito_id?: string;   // ID del documento ECF E33
+  nota_debito_monto?: number; // Monto adicionado
   entrega_domicilio?: boolean;
   repartidor_id?: string;
+}
+
+// ============ ECF Types ============
+
+export interface ECFConfig {
+  id: string;
+  tenant_id: string;
+  rnc_emisor: string;
+  razon_social: string;
+  nombre_comercial?: string;
+  certificate_data?: string;
+  certificate_password?: string;
+  certificate_expiry?: string;
+  ambiente: "pruebas" | "produccion";
+  is_active: boolean;
+  api_auth_token?: string;
+  api_token_expires_at?: string;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface ECFSequence {
+  id: string;
+  tenant_id: string;
+  tipo_ecf: string;
+  prefijo: string;
+  valor_inicial: number;
+  valor_final: number;
+  valor_actual: number;
+  is_active: boolean;
+}
+
+export interface ECFDocument {
+  id: string;
+  tenant_id: string;
+  order_id?: string;
+  encf: string;
+  tipo_ecf: string;
+  rnc_receptor?: string;
+  track_id?: string;
+  status: "pending" | "accepted" | "rejected" | "accepted_with_reservations";
+  dgii_response?: any;
+  xml_content: string;
+  signature_value?: string;
+  qr_content?: string;
+  monto_total: number;
+  monto_itbis: number;
+  fecha_emision: string;
 }
 
 export type EstadoCaja = "ABIERTA" | "CERRADA";
@@ -331,16 +387,19 @@ export const DEFAULT_CONFIG: TenantConfig = {
     notif_orden_creada: true,
     notif_orden_lista: true,
     notif_orden_entregada: false,
-    plantilla_creada: `✨ *FACTURA DIGITAL* ✨
+    plantilla_creada: `✨ *{tipo_documento}* ✨
 -----------------------------------
 🧺 *{lavanderia}*
+🏢 RNC: {rnc}
 📞 Tel: {lavanderia_tel}
 📍 {lavanderia_dir}
 -----------------------------------
 📄 *ORDEN:* {numero}
+🧾 *NCF:* {ncf}
 📅 *Fecha:* {fecha}
 -----------------------------------
 👤 *CLIENTE:* {cliente}
+🪪 *{cliente_tipo_doc}:* {cliente_cedula}
 📞 Tel: {cliente_tel}
 📍 Dir: {cliente_dir}
 -----------------------------------
@@ -351,9 +410,13 @@ export const DEFAULT_CONFIG: TenantConfig = {
 {detalle}
 -----------------------------------
 💰 *SUBTOTAL:* {subtotal}
+💸 *ITBIS:* {itbis}
 🔥 *TOTAL:* {total}
-💵 *Vuelto:* {vuelto}
+-----------------------------------
 💳 *Pago:* {metodo_pago}
+💵 *Recibido:* {pagado}
+🔙 *Vuelto:* {vuelto}
+🛑 *Saldo Pendiente:* {saldo}
 -----------------------------------
 🚚 *Entrega:* {entrega}
 ✅ *Estado:* {estado}
@@ -841,8 +904,21 @@ export async function getClienteById(id: string): Promise<Cliente | undefined> {
 // ============ Órdenes (Supabase) ============
 export async function getOrdenes(tenant_id: string): Promise<Orden[]> {
   const { data, error } = await supabase.from('ordenes').select('*').eq('tenant_id', tenant_id).order('creado_en', { ascending: false });
-  if (error) { console.error("Error getOrdenes:", error); return []; }
-  return data || [];
+  let results = data || [];
+  
+  if (isBrowser()) {
+    const local = read<Orden[]>(KEY.ordenes, []).filter(o => o.tenant_id === tenant_id);
+    // Combinar y desduplicar por ID, priorizando local si hay colisión (ya que local podría ser una edición más reciente offline)
+    const combined = [...results];
+    local.forEach(lo => {
+      if (!combined.some(co => co.id === lo.id)) {
+        combined.push(lo);
+      }
+    });
+    results = combined.sort((a, b) => +new Date(b.creado_en) - +new Date(a.creado_en));
+  }
+  
+  return results;
 }
 
 export async function getOrdenesByPeriod(filters: { tenant_id: string; empleado_id?: string; desde?: string; hasta?: string }): Promise<Orden[]> {
@@ -1355,38 +1431,119 @@ export async function migrateLocalDataToSupabase(tenant_id: string) {
   if (!isBrowser()) return results;
 
   // 1. Clientes
-  const localClientes = read<Cliente[]>(KEY.clientes, []);
+  let localClientes = read<Cliente[]>(KEY.clientes, []);
+  let localOrds = read<Orden[]>(KEY.ordenes, []);
+
+  // REPARACIÓN PRE-MIGRACIÓN: Corregir IDs no-UUID (generic-...)
+  const oldToNewId = new Map<string, string>();
+  localClientes = localClientes.map(c => {
+    if (!c || !c.id) return c;
+    if (typeof c.id === 'string' && c.id.startsWith("generic-")) {
+      const isPersona = c.id.includes("consumidor");
+      const tid = c.tenant_id || tenant_id;
+      const newId = tid.substring(0, 24) + (isPersona ? "f000" : "e000") + tid.substring(28);
+      oldToNewId.set(c.id, newId);
+      return { ...c, id: newId, tenant_id: tid };
+    }
+    return c;
+  }).filter(Boolean);
+
+  if (oldToNewId.size > 0) {
+    // Actualizar órdenes locales que apuntaban a los IDs viejos
+    localOrds = localOrds.map(o => {
+      if (!o) return o;
+      if (oldToNewId.has(o.cliente_id)) {
+        return { ...o, cliente_id: oldToNewId.get(o.cliente_id)! };
+      }
+      return o;
+    }).filter(Boolean);
+    // Guardar los cambios locales antes de seguir
+    write(KEY.clientes, localClientes);
+    write(KEY.ordenes, localOrds);
+  }
+
   const toMigrateClientes = localClientes.filter(x => x.tenant_id === tenant_id);
-  for (const c of toMigrateClientes) {
-    try { await saveCliente(c); results.clientes++; } catch(e) { console.error("Migrate Cliente error:", e); }
+  const failedClientesIds = new Set<string>();
+  for (let c of toMigrateClientes) {
+    try { 
+      // REPARAR DATOS: Si tiene tipo "Persona" o le falta limite_credito
+      if (c.tipo === ("Persona" as any)) c.tipo = "Consumidor Final";
+      if (c.limite_credito === undefined) c.limite_credito = 0;
+
+      const { error } = await supabase.from('clientes').upsert(c);
+      if (error) {
+        console.error("Migrate Cliente error:", error);
+        failedClientesIds.add(c.id);
+      } else {
+        results.clientes++;
+      }
+    } catch(e) { 
+      console.error("Migrate Cliente network error:", e);
+      failedClientesIds.add(c.id);
+    }
   }
 
   // 2. Órdenes
-  const localOrds = read<Orden[]>(KEY.ordenes, []);
   const toMigrateOrds = localOrds.filter(x => x.tenant_id === tenant_id);
+  const failedOrdsIds = new Set<string>();
   for (const o of toMigrateOrds) {
-    try { await saveOrden(o); results.ordenes++; } catch(e) { console.error("Migrate Orden error:", e); }
+    try { 
+      const { error } = await supabase.from('ordenes').upsert(o);
+      if (error) {
+        console.error("Migrate Orden error:", error);
+        failedOrdsIds.add(o.id);
+      } else {
+        results.ordenes++;
+      }
+    } catch(e) { 
+      console.error("Migrate Orden network error:", e);
+      failedOrdsIds.add(o.id);
+    }
   }
 
   // 3. Catálogo
   const localCat = read<CatalogoItem[]>(KEY.catalogo, []);
   const toMigrateCat = localCat.filter(x => x.tenant_id === tenant_id);
+  const failedCatIds = new Set<string>();
   for (const item of toMigrateCat) {
-    try { await saveCatalogoItem(item); results.catalogo++; } catch(e) { console.error("Migrate Catalogo error:", e); }
+    try { 
+      const { error } = await supabase.from('catalogo_items').upsert(item);
+      if (error) {
+        console.error("Migrate Catalogo error:", error);
+        failedCatIds.add(item.id);
+      } else {
+        results.catalogo++;
+      }
+    } catch(e) { 
+      console.error("Migrate Catalogo network error:", e);
+      failedCatIds.add(item.id);
+    }
   }
 
   // 4. Gastos
   const localGastos = read<Gasto[]>(KEY.gastos, []);
   const toMigrateGastos = localGastos.filter(x => x.tenant_id === tenant_id);
+  const failedGastosIds = new Set<string>();
   for (const g of toMigrateGastos) {
-    try { await saveGasto(g); results.gastos++; } catch(e) { console.error("Migrate Gasto error:", e); }
+    try { 
+      const { error } = await supabase.from('gastos').upsert(g);
+      if (error) {
+        console.error("Migrate Gasto error:", error);
+        failedGastosIds.add(g.id);
+      } else {
+        results.gastos++;
+      }
+    } catch(e) { 
+      console.error("Migrate Gasto network error:", e);
+      failedGastosIds.add(g.id);
+    }
   }
 
-  // Limpiar del localStorage para evitar duplicados en el futuro
-  if (results.clientes > 0) write(KEY.clientes, localClientes.filter(x => x.tenant_id !== tenant_id));
-  if (results.ordenes > 0) write(KEY.ordenes, localOrds.filter(x => x.tenant_id !== tenant_id));
-  if (results.catalogo > 0) write(KEY.catalogo, localCat.filter(x => x.tenant_id !== tenant_id));
-  if (results.gastos > 0) write(KEY.gastos, localGastos.filter(x => x.tenant_id !== tenant_id));
+  // Limpiar solo lo que se migró exitosamente
+  if (results.clientes > 0) write(KEY.clientes, localClientes.filter(x => x.tenant_id !== tenant_id || failedClientesIds.has(x.id)));
+  if (results.ordenes > 0) write(KEY.ordenes, localOrds.filter(x => x.tenant_id !== tenant_id || failedOrdsIds.has(x.id)));
+  if (results.catalogo > 0) write(KEY.catalogo, localCat.filter(x => x.tenant_id !== tenant_id || failedCatIds.has(x.id)));
+  if (results.gastos > 0) write(KEY.gastos, localGastos.filter(x => x.tenant_id !== tenant_id || failedGastosIds.has(x.id)));
 
   return results;
 }
@@ -1549,4 +1706,59 @@ export async function incrementWhatsAppCount(tenantId: string) {
       whatsapp_last_reset: nextReset 
     })
     .eq('id', tenantId);
+}
+
+// ============ ECF Storage Functions ============
+
+export async function getECFConfig(tenantId: string): Promise<ECFConfig | null> {
+  const { data, error } = await supabase.from('ecf_config').select('*').eq('tenant_id', tenantId).maybeSingle();
+  if (error) return null;
+  return data;
+}
+
+export async function saveECFConfig(config: ECFConfig) {
+  const { error } = await supabase.from('ecf_config').upsert(config);
+  if (error) throw error;
+}
+
+export async function getECFSequences(tenantId: string): Promise<ECFSequence[]> {
+  const { data, error } = await supabase.from('ecf_sequences').select('*').eq('tenant_id', tenantId);
+  if (error) return [];
+  return data || [];
+}
+
+export async function saveECFSequence(seq: ECFSequence) {
+  const { error } = await supabase.from('ecf_sequences').upsert(seq);
+  if (error) throw error;
+}
+
+export async function getECFDocuments(tenantId: string): Promise<ECFDocument[]> {
+  const { data, error } = await supabase.from('ecf_documents').select('*').eq('tenant_id', tenantId).order('fecha_emision', { ascending: false });
+  if (error) return [];
+  return data || [];
+}
+
+export async function saveECFDocument(doc: ECFDocument) {
+  const { error } = await supabase.from('ecf_documents').upsert(doc);
+  if (error) throw error;
+}
+
+export async function nextECFNumero(tenantId: string, tipo: string): Promise<string> {
+  const { data: seq, error } = await supabase
+    .from('ecf_sequences')
+    .select('*')
+    .eq('tenant_id', tenantId)
+    .eq('tipo_ecf', tipo)
+    .single();
+
+  if (error || !seq) throw new Error(`No hay secuencia activa para ${tipo}`);
+  if (seq.valor_actual >= seq.valor_final) throw new Error(`Rango de secuencia agotado para ${tipo}`);
+
+  const proximo = seq.valor_actual + 1;
+  const encf = `${tipo}${String(proximo).padStart(10, '0')}`;
+
+  // Actualizamos el contador inmediatamente (Optimistic locking recomendado en el futuro)
+  await supabase.from('ecf_sequences').update({ valor_actual: proximo }).eq('id', seq.id);
+
+  return encf;
 }

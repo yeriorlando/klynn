@@ -87,6 +87,15 @@ export async function notificarWhatsApp(
     return sName;
   }).join("\n\n") || "Ninguno";
 
+  let tipoDoc = "RECIBO";
+  if (orden.ncf) {
+    if (orden.ncf.startsWith('E31') || orden.ncf.startsWith('B01')) tipoDoc = "FACTURA PARA CRÉDITO FISCAL";
+    else if (orden.ncf.startsWith('E32') || orden.ncf.startsWith('B02')) tipoDoc = "FACTURA PARA CONSUMIDOR FINAL";
+    else if (orden.ncf.startsWith('E33') || orden.ncf.startsWith('B03')) tipoDoc = "NOTA DE DÉBITO";
+    else if (orden.ncf.startsWith('E34') || orden.ncf.startsWith('B04')) tipoDoc = "NOTA DE CRÉDITO";
+    else tipoDoc = "COMPROBANTE FISCAL";
+  }
+
   const mensaje = render(tpl, {
     lavanderia: tenant.nombre,
     lavanderia_tel: tenant.telefono || "",
@@ -96,9 +105,15 @@ export async function notificarWhatsApp(
     cliente: cliente.nombre,
     cliente_tel: cliente.telefono || "",
     cliente_dir: cliente.direccion || "",
+    cliente_cedula: cliente.cedula || "",
+    cliente_tipo_doc: cliente.tipo === "Empresa" ? "RNC" : "Cédula",
+    ncf: orden.ncf || "",
+    rnc: tenant.rnc || "",
+    tipo_documento: tipoDoc,
     servicios: serviciosStr,
     detalle: detalleStr,
     subtotal: formatRD(orden.subtotal).replace("DOP", "RD$"),
+    itbis: formatRD(orden.itbis || 0).replace("DOP", "RD$"),
     total: formatRD(orden.total).replace("DOP", "RD$"),
     metodo_pago: orden.metodo_pago,
     pagado: formatRD(orden.pagado).replace("DOP", "RD$"),
