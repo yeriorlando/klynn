@@ -200,8 +200,13 @@ function CatalogoPage() {
                     <div className="absolute bottom-0 left-0 right-0 p-4">
                       <div className="backdrop-blur-md bg-white/10 rounded-2xl p-3 border border-white/20 shadow-lg">
                         <div className="flex items-start justify-between gap-2">
-                          <div className="font-display font-bold text-white text-lg leading-tight drop-shadow-md">
-                            {it.nombre}
+                          <div className="flex flex-col gap-1">
+                            <div className="font-display font-bold text-white text-lg leading-tight drop-shadow-md">
+                              {it.nombre}
+                            </div>
+                            {it.tenant_id === 'admin' && (
+                              <Badge className="w-fit bg-primary/80 backdrop-blur-md text-[9px] h-4 px-1.5 border-none text-white uppercase font-black tracking-wider">Muestra</Badge>
+                            )}
                           </div>
                           {!it.activo && <Badge variant="outline" className="text-[10px] bg-white/20 text-white border-white/40">Inactivo</Badge>}
                         </div>
@@ -230,8 +235,12 @@ function CatalogoPage() {
                             </AlertDialogHeader>
                             <AlertDialogFooter>
                               <AlertDialogCancel className="rounded-xl">Cancelar</AlertDialogCancel>
-                              <AlertDialogAction 
+                               <AlertDialogAction 
                                 onClick={async () => { 
+                                  if (it.tenant_id === 'admin') {
+                                    toast.error("No puedes eliminar prendas de muestra. Desactívala si no la usas. 🚫");
+                                    return;
+                                  }
                                   await deleteCatalogoItem(it.id); 
                                   queryClient.invalidateQueries({ queryKey: ['catalogo', tenantId] });
                                   toast.success("Eliminada 🗑️"); 
@@ -294,8 +303,13 @@ function CatalogoPage() {
                   <div className="absolute bottom-0 left-0 right-0 p-4">
                     <div className="backdrop-blur-md bg-white/10 rounded-2xl p-3 border border-white/20 shadow-lg mb-2">
                       <div className="flex items-start justify-between gap-2">
-                        <div className="font-display font-bold text-white text-lg leading-tight drop-shadow-md">
-                          {s.nombre}
+                        <div className="flex flex-col gap-1">
+                          <div className="font-display font-bold text-white text-lg leading-tight drop-shadow-md">
+                            {s.nombre}
+                          </div>
+                          {s.tenant_id === 'admin' && (
+                            <Badge className="w-fit bg-primary/80 backdrop-blur-md text-[9px] h-4 px-1.5 border-none text-white uppercase font-black tracking-wider">Muestra</Badge>
+                          )}
                         </div>
                         {!s.activo && <Badge variant="outline" className="text-[10px] bg-white/20 text-white border-white/40">Inactivo</Badge>}
                       </div>
@@ -326,6 +340,10 @@ function CatalogoPage() {
                             <AlertDialogCancel className="rounded-xl">Cancelar</AlertDialogCancel>
                             <AlertDialogAction 
                               onClick={async () => { 
+                                if (s.tenant_id === 'admin') {
+                                  toast.error("No puedes eliminar servicios de muestra. Desactívalo si no lo usas. 🚫");
+                                  return;
+                                }
                                 await deleteServicio(s.id); 
                                 queryClient.invalidateQueries({ queryKey: ['servicios', tenantId] });
                                 toast.success("Servicio eliminado 🗑️"); 
@@ -420,9 +438,10 @@ function ItemDialog({ open, onOpenChange, tenantId, initial, onSaved }: {
 
   async function submit() {
     if (!f.nombre?.trim() || !f.categoria?.trim()) { toast.error("Nombre y categoría requeridos"); return; }
+    const isCloning = initial?.tenant_id === 'admin';
     const item: CatalogoItem = {
-      id: initial?.id ?? uid("cat"),
-      tenant_id: initial?.tenant_id ?? tenantId,
+      id: isCloning ? uid("cat") : (initial?.id ?? uid("cat")),
+      tenant_id: tenantId,
       categoria: f.categoria!.trim(),
       nombre: f.nombre!.trim(),
       precio: Number(f.precio) || 0,
@@ -433,7 +452,7 @@ function ItemDialog({ open, onOpenChange, tenantId, initial, onSaved }: {
       imagen_url: mode === "image" ? f.imagen_url : undefined,
     };
     await saveCatalogoItem(item);
-    toast.success(initial ? "Prenda actualizada" : "Prenda creada");
+    toast.success(isCloning ? "Prenda personalizada para tu catálogo" : (initial ? "Prenda actualizada" : "Prenda creada"));
     onSaved();
   }
 
@@ -676,9 +695,10 @@ function ServDialog({ open, onOpenChange, tenantId, initial, onSaved }: {
 
   async function submit() {
     if (!f.nombre?.trim()) { toast.error("Nombre requerido"); return; }
+    const isCloning = initial?.tenant_id === 'admin';
     const s: Servicio = {
-      id: initial?.id ?? uid("srv"),
-      tenant_id: initial?.tenant_id ?? tenantId,
+      id: isCloning ? uid("srv") : (initial?.id ?? uid("srv")),
+      tenant_id: tenantId,
       nombre: f.nombre!.trim(),
       descripcion: f.descripcion?.trim() || undefined,
       icono: mode === "emoji" ? f.icono : undefined,
@@ -688,7 +708,7 @@ function ServDialog({ open, onOpenChange, tenantId, initial, onSaved }: {
       is_exento: !!f.is_exento,
     };
     await saveServicio(s);
-    toast.success(initial ? "Servicio actualizado" : "Servicio creado");
+    toast.success(isCloning ? "Servicio personalizado para tu catálogo" : (initial ? "Servicio actualizado" : "Servicio creado"));
     onSaved();
   }
 

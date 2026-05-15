@@ -1116,7 +1116,26 @@ export async function getCatalogo(tenant_id: string): Promise<CatalogoItem[]> {
     console.error('Error cargando catálogo:', error);
     return [];
   }
-  return data || [];
+
+  // Desduplicar: Si existe una versión del tenant, ocultar la versión 'admin' (global)
+  const results: CatalogoItem[] = data || [];
+  const finalItems: CatalogoItem[] = [];
+  const namesSet = new Set();
+
+  // Primero añadimos los del tenant
+  results.filter(i => i.tenant_id !== 'admin').forEach(i => {
+    finalItems.push(i);
+    namesSet.add(i.nombre.toLowerCase());
+  });
+
+  // Luego añadimos los admin solo si no hay uno del tenant con el mismo nombre
+  results.filter(i => i.tenant_id === 'admin').forEach(i => {
+    if (!namesSet.has(i.nombre.toLowerCase())) {
+      finalItems.push(i);
+    }
+  });
+
+  return finalItems;
 }
 
 export async function saveCatalogoItem(item: CatalogoItem) {
@@ -1154,7 +1173,24 @@ export async function getServicios(tenant_id: string): Promise<Servicio[]> {
     console.error('Error cargando servicios:', error);
     return [];
   }
-  return data || [];
+
+  // Desduplicar: Priorizar los servicios del propio tenant
+  const results: Servicio[] = data || [];
+  const finalItems: Servicio[] = [];
+  const namesSet = new Set();
+
+  results.filter(s => s.tenant_id !== 'admin').forEach(s => {
+    finalItems.push(s);
+    namesSet.add(s.nombre.toLowerCase());
+  });
+
+  results.filter(s => s.tenant_id === 'admin').forEach(s => {
+    if (!namesSet.has(s.nombre.toLowerCase())) {
+      finalItems.push(s);
+    }
+  });
+
+  return finalItems;
 }
 
 export async function saveServicio(s: Servicio) {
