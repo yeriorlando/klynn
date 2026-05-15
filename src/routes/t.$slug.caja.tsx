@@ -18,9 +18,12 @@ import {
   getCajaAbierta, getCajas, getMovimientos, saveCaja, saveMovimiento,
   formatRD, formatDateTimeRD, uid, CATEGORIAS_GASTOS,
   formatAmountInput, parseAmount, getHistoricoCierres, getEmpleados, getOrdenesByPeriod,
-  type Caja, type TipoMovimiento, type MetodoPago, type Empleado, type Orden, type Tenant, type MovimientoCaja,
+  type Caja, type TipoMovimiento, type MetodoPago, type Empleado, type Orden, type Tenant, type MovimientoCaja, type ECFConfig, type ECFDocument
 } from "@/lib/storage";
+import { getECFConfig, getECFDocuments, registerTenantInPronesoft } from "@/lib/fiscal";
 import { toast } from "sonner";
+import { BarChart3, Rocket, Activity, CheckCircle } from "lucide-react";
+import { Progress } from "@/components/ui/progress";
 
 export const Route = createFileRoute("/t/$slug/caja")({
   component: CajaPage,
@@ -39,6 +42,10 @@ function CajaPage() {
   const [todas, setTodas] = useState<Caja[]>([]);
   const [movs, setMovs] = useState<MovimientoCaja[]>([]);
   const [loading, setLoading] = useState(true);
+  
+  // Fiscal Data
+  const [fiscalConfig, setFiscalConfig] = useState<ECFConfig | null>(null);
+  const [fiscalDocs, setFiscalDocs] = useState<ECFDocument[]>([]);
 
   const tenant = user?.tenant;
   const empleado = user?.empleado;
@@ -48,14 +55,22 @@ function CajaPage() {
     async function load() {
       if (!tenantId || tenantId === '__loading__') return;
       setLoading(true);
-      const [activeCaja, list, mList] = await Promise.all([
-        getCajaAbierta(tenantId),
-        getCajas(tenantId),
-        getCajaAbierta(tenantId).then(c => c ? getMovimientos(tenantId, c.id) : [])
-      ]);
-      setCaja(activeCaja);
-      setTodas(list);
-      setMovs(mList);
+      try {
+        const [activeCaja, list, mList, config, docs] = await Promise.all([
+          getCajaAbierta(tenantId),
+          getCajas(tenantId),
+          getCajaAbierta(tenantId).then(c => c ? getMovimientos(tenantId, c.id) : []),
+          getECFConfig(tenantId),
+          getECFDocuments(tenantId)
+        ]);
+        setCaja(activeCaja);
+        setTodas(list);
+        setMovs(mList);
+        setFiscalConfig(config);
+        setFiscalDocs(docs);
+      } catch (err) {
+        console.error("Error cargando caja/fiscal:", err);
+      }
       setLoading(false);
     }
     load();
@@ -73,11 +88,14 @@ function CajaPage() {
   return (
     <div>
       <PageHeader title="Caja" description="Apertura, movimientos del turno y cierre con cuadre.">
-        {!caja ? (
-          <Button onClick={() => setShowApertura(true)} className="bg-gradient-primary text-white"><Wallet className="mr-1.5 h-4 w-4" /> Abrir caja</Button>
-        ) : (
-          <Button onClick={() => setShowCierre(true)} variant="outline"><Lock className="mr-1.5 h-4 w-4" /> Cerrar caja</Button>
-        )}
+        <div className="flex items-center gap-2">
+          <FiscalSummary config={fiscalConfig} docs={fiscalDocs} onRefresh={() => setRefresh(r => r + 1)} />
+          {!caja ? (
+            <Button onClick={() => setShowApertura(true)} className="bg-gradient-primary text-white"><Wallet className="mr-1.5 h-4 w-4" /> Abrir caja</Button>
+          ) : (
+            <Button onClick={() => setShowCierre(true)} variant="outline"><Lock className="mr-1.5 h-4 w-4" /> Cerrar caja</Button>
+          )}
+        </div>
       </PageHeader>
 
       {!caja && (
@@ -292,6 +310,116 @@ function CajaPage() {
         empleadoId={empleado?.id}
       />
     </div>
+  );
+}
+
+
+function FiscalSummary({ config, docs, onRefresh }: { config: ECFConfig | null; docs: ECFDocument[]; onRefresh: () => void }) {
+  const [loading, setLoading] = useState(false);
+  const [showResumen, setShowResumen] = useState(false);
+
+  // Calcular métricas del mes actual
+  const hoy = new Date();
+  const inicioMes = new Date(hoy.getFullYear(), hoy.getMonth(), 1);
+  const docsMes = docs.filter(d => new Date(d.fecha_emision) >= inicioMes);
+  const totalEmitido = docsMes.reduce((s, d) => s + d.monto_total, 0);
+  const count = docsMes.length;
+
+  // Lógica de Registro Automatizado
+  async function handleRegister() {
+    if (!config) return;
+    setLoading(true);
+    try {
+      await registerTenantInPronesoft(config.tenant_id);
+      toast.success("¡Registro fiscal completado exitosamente! 🚀");
+      onRefresh();
+    } catch (err: any) {
+      toast.error("Error al registrar: " + (err.message || "Servicio no disponible"));
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  // Si no está configurado, mostrar el botón de "Cohete" para registro rápido
+  if (!config?.pronesoft_tenant_id) {
+    return (
+      <Button 
+        variant="outline" 
+        onClick={handleRegister} 
+        disabled={loading || !config}
+        className="border-primary/30 text-primary hover:bg-primary/5 gap-2 font-bold shadow-sm"
+      >
+        <Rocket className={`h-4 w-4 ${loading ? 'animate-bounce' : ''}`} /> 
+        {loading ? "Configurando..." : "Activar Fiscal"}
+      </Button>
+    );
+  }
+
+  return (
+    <>
+      <Button 
+        variant="outline" 
+        onClick={() => setShowResumen(true)} 
+        className="border-emerald-500/30 text-emerald-600 hover:bg-emerald-500/5 gap-2 font-bold shadow-sm"
+      >
+        <BarChart3 className="h-4 w-4" /> Resumen Fiscal
+      </Button>
+
+      <Dialog open={showResumen} onOpenChange={setShowResumen}>
+        <DialogContent className="max-w-md rounded-3xl border-none shadow-elegant">
+          <DialogHeader>
+            <div className="flex items-center gap-3">
+              <div className="bg-emerald-500/10 p-2.5 rounded-2xl text-emerald-600">
+                <ShieldCheck className="h-6 w-6" />
+              </div>
+              <div>
+                <DialogTitle className="text-xl font-display font-black">Resumen Fiscal</DialogTitle>
+                <div className="text-[10px] uppercase font-bold tracking-widest text-muted-foreground/60">Mes actual: {hoy.toLocaleDateString('es-DO', { month: 'long', year: 'numeric' })}</div>
+              </div>
+            </div>
+          </DialogHeader>
+
+          <div className="py-6 space-y-6">
+            <div className="grid grid-cols-2 gap-4">
+              <div className="rounded-2xl bg-muted/30 p-4 border border-border/50">
+                <div className="text-[10px] font-black uppercase tracking-widest text-muted-foreground/60 mb-1">Documentos</div>
+                <div className="text-2xl font-display font-black">{count}</div>
+              </div>
+              <div className="rounded-2xl bg-primary/5 p-4 border border-primary/10">
+                <div className="text-[10px] font-black uppercase tracking-widest text-primary/60 mb-1">Total Emitido</div>
+                <div className="text-2xl font-display font-black text-primary">{formatRD(totalEmitido)}</div>
+              </div>
+            </div>
+
+            <div className="space-y-2">
+              <div className="flex justify-between items-end">
+                <div className="text-[10px] font-black uppercase tracking-widest text-muted-foreground/60">Actividad Mensual</div>
+                <div className="text-xs font-bold text-emerald-600">{count > 0 ? 'Saludable' : 'Sin actividad'}</div>
+              </div>
+              <div className="relative h-3 w-full overflow-hidden rounded-full bg-muted/30">
+                <motion.div 
+                  initial={{ width: 0 }}
+                  animate={{ width: count > 0 ? '100%' : '0%' }}
+                  transition={{ duration: 1 }}
+                  className="h-full bg-emerald-500" 
+                />
+              </div>
+            </div>
+
+            <div className="rounded-2xl bg-emerald-500/5 p-4 flex items-center gap-3 border border-emerald-500/10">
+              <CheckCircle className="h-5 w-5 text-emerald-600 shrink-0" />
+              <div className="text-xs text-emerald-800 leading-tight">
+                Tu integración con <span className="font-bold">Pronesoft e-CF</span> está activa y enviando datos correctamente a la DGII.
+              </div>
+            </div>
+          </div>
+
+          <DialogFooter>
+            <Button className="w-full rounded-2xl bg-slate-900 text-white font-bold" onClick={() => setShowResumen(false)}>Entendido</Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+    </>
   );
 }
 

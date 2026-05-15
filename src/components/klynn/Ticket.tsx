@@ -46,7 +46,7 @@ export function Ticket({ orden, tenant, empleado, cliente, formato = "80mm", pag
 
   // Generar URL para el QR de la DGII (e-CF)
   const isECF = orden.ncf?.startsWith("E");
-  const qrUrl = isECF ? `https://dgii.gov.do/consulta_ecf?RNC_EMISOR=${tenant.rnc}&E_NCF=${orden.ncf}&MONTO_TOTAL=${orden.total}&FECHA_EMISION=${new Date(orden.creado_en).toLocaleDateString('en-GB').replace(/\//g, '')}` : "";
+  const qrData = orden.ecf_qr || (isECF ? `https://dgii.gov.do/consulta_ecf?RNC_EMISOR=${tenant.rnc}&E_NCF=${orden.ncf}&MONTO_TOTAL=${orden.total}&FECHA_EMISION=${new Date(orden.creado_en).toLocaleDateString('en-GB').replace(/\//g, '')}` : "");
 
   let tipoDocumento = "RECIBO";
   if (orden.nota_credito_ncf) {
@@ -85,9 +85,19 @@ export function Ticket({ orden, tenant, empleado, cliente, formato = "80mm", pag
             <div><b>Doc. Modificado:</b> {orden.ncf}</div>
           </>
         ) : (
-          orden.ncf && <div><b>{isECF ? 'e-NCF' : 'NCF'}:</b> {orden.ncf}</div>
+          orden.ncf && (
+            <div className="flex flex-col">
+              <div><b>{isECF ? 'e-NCF' : 'NCF'}:</b> {orden.ncf}</div>
+              {isECF && orden.ecf_security_code && (
+                <div className="text-[9px]"><b>Cod. Seguridad:</b> {orden.ecf_security_code}</div>
+              )}
+            </div>
+          )
         )}
-        <div><b>Fecha:</b> {formatDateTimeRD(orden.creado_en)}</div>
+        <div><b>Fecha Emisión:</b> {formatDateTimeRD(orden.creado_en)}</div>
+        {isECF && orden.ecf_signature_date && (
+          <div><b>Fecha Firma:</b> {formatDateTimeRD(orden.ecf_signature_date)}</div>
+        )}
       </div>
       {cliente.id.includes("generic-consumidor") ? (
         <Sep />
@@ -228,11 +238,11 @@ export function Ticket({ orden, tenant, empleado, cliente, formato = "80mm", pag
         <div>{cfg?.ticket_pie ?? "¡Gracias por su preferencia!"}</div>
       </div>
 
-      {isECF && qrUrl && (
+      {isECF && qrData && (
         <div className="mt-4 flex flex-col items-center gap-2 border-t border-dashed border-black pt-4">
           <div className="text-[9px] font-bold uppercase">Factura de Consumo Electrónica</div>
           <div className="p-1 bg-white">
-            <QRCodeSVG value={qrUrl} size={100} level="M" />
+            <QRCodeSVG value={qrData} size={100} level="M" />
           </div>
           <div className="text-[8px] text-center leading-tight">
             Consulte su factura en:<br/>

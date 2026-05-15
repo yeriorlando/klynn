@@ -127,11 +127,13 @@ export async function notificarWhatsApp(
     estado: orden.estado,
   });
 
-  const phone = normalizePhoneRD(cliente.telefono);
-  const base = (wa.base_url || "https://wasenderapi.com").replace(/\/$/, "");
-  const url = `${base}/api/send-message`;
+    const phone = normalizePhoneRD(cliente.telefono);
+    const fullPhone = phone.startsWith('+') ? phone : `+${phone}`;
+    const base = (wa.base_url || "https://wasenderapi.com").replace(/\/$/, "");
+    const url = `${base}/api/send-message`;
 
-  try {
+    try {
+
     const res = await fetch(url, {
       method: "POST",
       headers: { 
@@ -139,8 +141,14 @@ export async function notificarWhatsApp(
         "Authorization": `Bearer ${wa.api_key}`,
         "Accept": "application/json"
       },
-      body: JSON.stringify({ to: phone, text: mensaje }),
+      body: JSON.stringify({ 
+        to: fullPhone, 
+        text: mensaje,
+        instance_id: wa.instance
+      }), 
     });
+
+    const data = await res.json().catch(() => ({}));
     if (!res.ok) return { ok: false, reason: data.message || `HTTP ${res.status}` };
     
     // 2. Incrementar contador en caso de éxito

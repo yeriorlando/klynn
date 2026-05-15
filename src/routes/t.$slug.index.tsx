@@ -73,7 +73,7 @@ function DashboardPage() {
       const d = new Date(); d.setDate(d.getDate() - i); d.setHours(0, 0, 0, 0);
       const next = new Date(d); next.setDate(next.getDate() + 1);
       const total = ordenes.filter((o) => o.estado !== "ANULADA" && new Date(o.creado_en) >= d && new Date(o.creado_en) < next).reduce((s, o) => s + o.total, 0);
-      v7.push({ dia: d.toLocaleDateString("es-DO", { weekday: "short" }), total });
+      v7.push({ dia: d.toLocaleDateString("es-DO", { weekday: "long" }), total });
     }
     const max = Math.max(1, ...v7.map((v) => v.total));
 
@@ -128,14 +128,32 @@ function DashboardPage() {
               <TrendingUp className="h-3.5 w-3.5" /> Día activo
             </div>
           </div>
-          <div className="flex h-48 items-end gap-3">
-            {ventas7dias.map((v, i) => (
-              <div key={i} className="flex flex-1 flex-col items-center gap-1">
-                <div className="text-[10px] font-medium text-muted-foreground">{v.total > 0 ? `${(v.total / 1000).toFixed(1)}k` : ""}</div>
-                <div className="w-full rounded-t-md bg-gradient-primary transition-all hover:opacity-80" style={{ height: `${(v.total / max) * 100}%`, minHeight: v.total > 0 ? 8 : 2 }} />
-                <div className="text-xs capitalize text-muted-foreground">{v.dia}</div>
-              </div>
-            ))}
+          <div className="flex h-48 items-end gap-3 pt-4">
+            {ventas7dias.map((v, i) => {
+              // Scale to 70% to leave room for tooltip at the top
+              const heightPct = (v.total / max) * 70;
+              return (
+                <div key={i} className="group relative flex h-full flex-1 flex-col items-center justify-end gap-1">
+                  {/* Tooltip Bubble - Dynamic position based on height */}
+                  <div 
+                    className="absolute opacity-0 group-hover:opacity-100 transition-all duration-300 pointer-events-none z-10 scale-90 group-hover:scale-100 origin-bottom"
+                    style={{ bottom: `calc(${heightPct}% + 2.8rem)` }}
+                  >
+                    <div className="bg-slate-900 text-white text-[10px] font-bold px-2 py-1 rounded-lg shadow-xl whitespace-nowrap">
+                      {formatRD(v.total)}
+                      <div className="absolute top-full left-1/2 -translate-x-1/2 border-4 border-transparent border-t-slate-900" />
+                    </div>
+                  </div>
+
+                  <div className="text-[10px] font-bold text-slate-500 z-0">{v.total > 0 ? `${(v.total / 1000).toFixed(1)}k` : ""}</div>
+                  <div 
+                    className="w-full rounded-t-lg bg-gradient-primary transition-all duration-500 hover:brightness-110 shadow-sm cursor-pointer" 
+                    style={{ height: `${Math.max(4, heightPct)}%` }} 
+                  />
+                  <div className="text-[10px] font-bold capitalize text-slate-400 mt-1">{v.dia}</div>
+                </div>
+              );
+            })}
           </div>
         </Card>
 

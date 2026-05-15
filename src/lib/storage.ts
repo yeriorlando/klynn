@@ -131,6 +131,7 @@ export interface OrdenItem {
   cantidad: number;
   precio_unitario: number;
   es_libra?: boolean;
+  is_exento?: boolean;
   notas?: string;
 }
 
@@ -166,6 +167,10 @@ export interface Orden {
   nota_debito_monto?: number; // Monto adicionado
   entrega_domicilio?: boolean;
   repartidor_id?: string;
+  // Metadatos e-CF para el ticket
+  ecf_qr?: string;
+  ecf_security_code?: string;
+  ecf_signature_date?: string;
 }
 
 // ============ ECF Types ============
@@ -183,8 +188,25 @@ export interface ECFConfig {
   is_active: boolean;
   api_auth_token?: string;
   api_token_expires_at?: string;
-  created_at: string;
+  // Pronesoft multi-empresa
+  pronesoft_tenant_id?: string;  // x-tenant-id (UUID asignado por Pronesoft a este negocio)
   updated_at: string;
+}
+
+export interface ECFDocumentRecibido {
+  id: string;
+  tenant_id: string;
+  pronesoft_id: string;
+  encf: string;
+  rnc_emisor: string;
+  nombre_emisor?: string;
+  tipo_ecf: string;
+  fecha_emision: string;
+  monto_total: number;
+  monto_itbis: number;
+  estado_comercial: 'PENDIENTE' | 'APROBADO' | 'RECHAZADO';
+  pdf_url?: string;
+  creado_en: string;
 }
 
 export interface ECFSequence {
@@ -195,6 +217,7 @@ export interface ECFSequence {
   valor_inicial: number;
   valor_final: number;
   valor_actual: number;
+  expiration_date?: string;
   is_active: boolean;
 }
 
@@ -210,6 +233,7 @@ export interface ECFDocument {
   dgii_response?: any;
   xml_content: string;
   signature_value?: string;
+  signature_date?: string;
   qr_content?: string;
   monto_total: number;
   monto_itbis: number;
@@ -272,6 +296,7 @@ export interface CatalogoItem {
   precio: number;
   por_libra?: boolean;
   activo: boolean;
+  is_exento?: boolean;
   imagen_url?: string;
   icono?: string; // emoji o nombre lucide
 }
@@ -285,6 +310,7 @@ export interface Servicio {
   imagen_url?: string;
   activo: boolean;
   precio: number;
+  is_exento?: boolean;
 }
 
 const KEY = {
@@ -1762,3 +1788,45 @@ export async function nextECFNumero(tenantId: string, tipo: string): Promise<str
 
   return encf;
 }
+
+export async function getECFDocumentosRecibidos(tenantId: string): Promise<ECFDocumentRecibido[]> {
+  const { data, error } = await supabase
+    .from('ecf_documentos_recibidos')
+    .select('*')
+    .eq('tenant_id', tenantId)
+    .order('creado_en', { ascending: false });
+
+  if (error) throw error;
+  return data || [];
+}
+
+export async function saveECFDocumentoRecibido(doc: Partial<ECFDocumentRecibido>) {
+  const { data, error } = await supabase
+    .from('ecf_documentos_recibidos')
+    .upsert(doc)
+    .select()
+    .single();
+
+  if (error) throw error;
+  return data;
+}
+
+export async function updateEstadoComercialECF(id: string, estado: 'APROBADO' | 'RECHAZADO') {
+  const { error } = await supabase
+    .from('ecf_documentos_recibidos')
+    .update({ estado_comercial: estado })
+    .eq('id', id);
+
+  if (error) throw error;
+}
+
+export async function updateECFConfig(tenantId: string, updates: Partial<ECFConfig>) {
+  const { error } = await supabase
+    .from('ecf_config')
+    .update(updates)
+    .eq('tenant_id', tenantId);
+
+  if (error) throw error;
+}
+
+

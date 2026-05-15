@@ -30,14 +30,14 @@ import {
   type Tenant, type TenantConfig, type WhatsAppConfig, type PlanId, type Plan, type Gasto,
   type GlobalConfig, type BankDetails, type ECFConfig, type ECFSequence
 } from "@/lib/storage";
-import { authenticateDGII } from "@/lib/fiscal";
+import { getProneSoftClient, registerTenantInPronesoft, uploadCertificateToPronesoft, importSequencesToPronesoft } from "@/lib/fiscal";
 import { notificarWhatsApp } from "@/lib/whatsapp";
 import { toast } from "sonner";
 import { 
   Building2, Shield, TrendingUp, Users, Trash2, ExternalLink, Plus, Pencil, 
   RefreshCw, Package, LogOut, MoreHorizontal, Key, Droplets as DropletsIcon,
   CreditCard, MessageCircle, Send, Loader2, Save, Image as ImageIcon, Upload,
-  User, Palette, FileText, Banknote, Star, Sparkles, ArrowRight, Copy, Smartphone, CheckCircle2, ShieldCheck
+  User, Palette, FileText, Banknote, Star, Sparkles, ArrowRight, Copy, Smartphone, CheckCircle2, ShieldCheck, PlusCircle
 } from "lucide-react";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from "@/components/ui/dialog";
 
@@ -140,7 +140,7 @@ function ConfigPage() {
     <div>
       <PageHeader title="Configuración" description="Personaliza tu lavandería." />
       <Tabs defaultValue="perfil" onValueChange={setActiveTab} className="space-y-6">
-        <TabsList className="grid w-full grid-cols-2 md:grid-cols-6 h-auto bg-accent/20 p-1.5 rounded-2xl gap-1.5 border-2 border-border/10">
+        <TabsList className="grid w-full grid-cols-2 md:grid-cols-6 h-auto bg-accent/20 p-1.5 rounded-2xl gap-1.5 border border-border">
           {[
             { id: 'perfil', label: 'Perfil', icon: User },
             { id: 'apariencia', label: 'Apariencia', icon: Palette },
@@ -153,7 +153,7 @@ function ConfigPage() {
             <TabsTrigger 
               key={t.id}
               value={t.id}
-              className="rounded-xl py-2 font-bold transition-all data-[state=active]:text-white data-[state=active]:shadow-none border border-transparent data-[state=inactive]:border-border/50 data-[state=inactive]:bg-background/50 flex items-center gap-2"
+              className="rounded-xl py-2 font-bold transition-all data-[state=active]:text-white data-[state=active]:shadow-lg border border-transparent data-[state=inactive]:border-border data-[state=inactive]:bg-white flex items-center gap-2"
               style={{ 
                 backgroundColor: activeTab === t.id ? tenant.color_primario : undefined
               }}
@@ -922,7 +922,11 @@ function FiscalTab({ tenant, config, sequences, onRefresh, enabled }: {
   async function saveECF() {
     setLoading(true);
     try {
-      const cleanRNC = draft.rnc_emisor ? draft.rnc_emisor.replace(/\D/g, '') : '';
+      // Si empieza con SBX, no limpiamos las letras. Si no, limpiamos solo guiones.
+      const isSandboxRNC = draft.rnc_emisor?.toUpperCase().startsWith('SBX');
+      const cleanRNC = isSandboxRNC 
+        ? draft.rnc_emisor?.toUpperCase() 
+        : (draft.rnc_emisor ? draft.rnc_emisor.replace(/\D/g, '') : '');
       
       // 1. Guardar la config electrónica
       await saveECFConfig({
@@ -934,10 +938,25 @@ function FiscalTab({ tenant, config, sequences, onRefresh, enabled }: {
         created_at: config?.created_at || new Date().toISOString(),
       } as ECFConfig);
 
-      // 2. IMPORTANTÍSIMO: Guardar también el RNC en el tenant base para que los tickets lo usen
+      // 2. Si es electrónico y no tiene ID de Pronesoft, registrar
+      let pTenantId = config?.pronesoft_tenant_id;
+      if (draft.is_active && !pTenantId) {
+        toast.info("Registrando negocio en el servidor de certificación...");
+        pTenantId = await registerTenantInPronesoft(tenant.id);
+      }
+
+      // 3. Si hay un certificado nuevo para subir
+      if (draft.is_active && draft.certificate_data && draft.certificate_password) {
+        toast.info("Sincronizando certificado digital...");
+        await uploadCertificateToPronesoft(tenant.id, draft.certificate_data, draft.certificate_password);
+        // Limpiar la data del certificado del estado (ya se subió)
+        setDraft(d => ({ ...d, certificate_data: undefined }));
+      }
+
+      // 4. IMPORTANTÍSIMO: Guardar también el RNC en el tenant base para que los tickets lo usen
       await saveTenant({ ...tenant, rnc: cleanRNC } as Tenant);
 
-      toast.success("Datos fiscales guardados correctamente");
+      toast.success("Datos fiscales guardados y sincronizados correctamente");
       onRefresh();
     } catch (err: any) {
       toast.error("Error: " + err.message);
@@ -952,17 +971,18 @@ function FiscalTab({ tenant, config, sequences, onRefresh, enabled }: {
   }
 
   async function testConnection() {
-    if (!config) return;
     setLoading(true);
     try {
-      const auth = await authenticateDGII(config);
-      toast.success("¡Conexión Exitosa! Token obtenido.");
-      console.log("DGII Token:", auth.token);
+      const client = getProneSoftClient(config?.pronesoft_tenant_id);
+      const token = await client.getToken();
+      toast.success("¡Conexión con Pronesoft exitosa! ✓");
+      console.log("Pronesoft Token OK:", token.slice(0, 20) + "...");
     } catch (err: any) {
-      toast.error("Error de conexión: " + err.message);
+      toast.error("Error de conexión con Pronesoft: " + err.message);
     }
     setLoading(false);
   }
+
 
   return (
     <div className="space-y-6">
@@ -1034,16 +1054,21 @@ function FiscalTab({ tenant, config, sequences, onRefresh, enabled }: {
                     ? "Estás utilizando Facturación Electrónica (e-CF) conectada con DGII." 
                     : "Estás utilizando Comprobantes Fiscales tradicionales (NCF)."}
                 </p>
+                {isElectronic && (
+                  <button 
+                    onClick={testConnection} 
+                    disabled={loading}
+                    className="mt-3 text-[10px] font-bold text-primary bg-primary/10 hover:bg-primary/20 px-3 py-1.5 rounded-full flex items-center gap-1.5 transition-all disabled:opacity-50 active:scale-95"
+                  >
+                    {loading ? <Loader2 className="h-3 w-3 animate-spin" /> : <RefreshCw className="h-3 w-3" />}
+                    PROBAR CONEXIÓN CON PRONESOFT
+                  </button>
+                )}
               </div>
             </div>
             
-                <div className="flex items-center gap-2">
-                  <Button variant="outline" size="sm" className="h-9 rounded-xl" onClick={testConnection} disabled={loading || !config?.certificate_data}>
-                    {loading ? <Loader2 className="h-4 w-4 animate-spin mr-2" /> : <RefreshCw className="h-4 w-4 mr-2" />}
-                    Probar Conexión
-                  </Button>
-                  <div className="flex p-1 bg-white rounded-xl border shadow-sm">
-                    <button 
+            <div className="flex p-1 bg-white rounded-xl border shadow-sm">
+              <button 
                 onClick={() => {
                   setDraft({ ...draft, is_active: false });
                   updateCfg({ ncf_facturacion_activa: true });
@@ -1065,7 +1090,6 @@ function FiscalTab({ tenant, config, sequences, onRefresh, enabled }: {
               </button>
             </div>
           </div>
-        </div>
       </Card>
 
       {/* 3. Contenido según el modo */}
@@ -1079,8 +1103,8 @@ function FiscalTab({ tenant, config, sequences, onRefresh, enabled }: {
                   <Input 
                     className={FIELD} 
                     value={draft.rnc_emisor} 
-                    onChange={(e) => setDraft({ ...draft, rnc_emisor: formatCedulaRD(e.target.value) })} 
-                    placeholder="Ej: 402-..."
+                    onChange={(e) => setDraft({ ...draft, rnc_emisor: e.target.value.toUpperCase() })} 
+                    placeholder="Ej: SBX123456 o 402-..."
                   />
                 </Field>
                 <Field label="Nombre o Razón Social">
@@ -1200,9 +1224,48 @@ function FiscalTab({ tenant, config, sequences, onRefresh, enabled }: {
               <Card className={CARD}>
                 <div className="flex items-center justify-between mb-4">
                   <h3 className="text-lg font-display">Secuencias e-NCF</h3>
-                  <Button size="sm" variant="outline" className="h-8 rounded-lg" onClick={() => setShowNewSeq(true)}>
-                    <Plus className="h-4 w-4" />
-                  </Button>
+                  <div className="flex items-center gap-2">
+                    <input 
+                      type="file" 
+                      id="import-excel" 
+                      className="hidden" 
+                      accept=".xlsx,.xls" 
+                      onChange={async (e) => {
+                        const file = e.target.files?.[0];
+                        if (file) {
+                          const reader = new FileReader();
+                          reader.onload = async (ev) => {
+                            const base64 = ev.target?.result?.toString().split(',')[1];
+                            if (base64) {
+                              toast.promise(importSequencesToPronesoft(tenant.id, base64), {
+                                loading: "Importando secuencias desde Excel...",
+                                success: () => {
+                                  onRefresh();
+                                  return "Secuencias importadas correctamente";
+                                },
+                                error: (err) => "Error al importar: " + err.message
+                              });
+                            }
+                          };
+                          reader.readAsDataURL(file);
+                        }
+                      }} 
+                    />
+                    <Button 
+                      size="sm" 
+                      className="h-7 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white border-none shadow-sm text-[10px] font-bold px-2"
+                      onClick={() => document.getElementById('import-excel')?.click()}
+                    >
+                      <Upload className="h-3 w-3 mr-1" /> IMPORTAR
+                    </Button>
+                    <Button 
+                      size="sm" 
+                      className="h-7 rounded-lg bg-primary hover:bg-primary/90 text-white border-none shadow-sm text-[10px] font-bold px-2" 
+                      onClick={() => setShowNewSeq(true)}
+                    >
+                      <PlusCircle className="h-3 w-3 mr-1" /> AÑADIR
+                    </Button>
+                  </div>
                 </div>
                 <div className="space-y-3">
                   {sequences.length === 0 ? (
@@ -1244,6 +1307,7 @@ function NewSequenceDialog({ open, onOpenChange, tenantId, onCreated }: {
     valor_inicial: 1,
     valor_final: 100,
     valor_actual: 0,
+    expiration_date: "",
     is_active: true
   });
 
@@ -1266,12 +1330,12 @@ function NewSequenceDialog({ open, onOpenChange, tenantId, onCreated }: {
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="sm:max-w-[400px]">
+      <DialogContent className="sm:max-w-[360px] rounded-[2rem]">
         <DialogHeader>
           <DialogTitle>Nueva Secuencia e-CF</DialogTitle>
           <DialogDescription>Configura los rangos autorizados por la DGII.</DialogDescription>
         </DialogHeader>
-        <div className="space-y-4 pt-4">
+        <div className="space-y-3 pt-2">
           <Field label="Tipo de Comprobante">
             <Select value={seq.tipo_ecf} onValueChange={(v) => setSeq({ ...seq, tipo_ecf: v })}>
               <SelectTrigger><SelectValue /></SelectTrigger>
@@ -1290,9 +1354,12 @@ function NewSequenceDialog({ open, onOpenChange, tenantId, onCreated }: {
           <Field label="Valor Actual (Último emitido)">
             <Input type="number" value={seq.valor_actual} onChange={(e) => setSeq({ ...seq, valor_actual: Number(e.target.value) })} />
           </Field>
+          <Field label="Fecha de Vencimiento">
+            <Input type="date" value={seq.expiration_date} onChange={(e) => setSeq({ ...seq, expiration_date: e.target.value })} />
+          </Field>
         </div>
-        <DialogFooter className="mt-6">
-          <Button variant="ghost" onClick={() => onOpenChange(false)}>Cancelar</Button>
+        <DialogFooter className="mt-4 gap-2">
+          <Button variant="outline" className="rounded-xl border-border hover:bg-accent" onClick={() => onOpenChange(false)}>Cancelar</Button>
           <Button onClick={save} disabled={loading}>
             {loading && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
             Crear Secuencia

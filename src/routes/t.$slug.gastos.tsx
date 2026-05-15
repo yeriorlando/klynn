@@ -10,8 +10,13 @@ import { Label } from "@/components/ui/label";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { getGastos, saveGasto, deleteGasto, formatRD, formatDateRD, uid, CATEGORIAS_GASTOS, type Gasto } from "@/lib/storage";
+import { 
+  getGastos, saveGasto, deleteGasto, formatRD, formatDateRD, uid, CATEGORIAS_GASTOS, 
+  getECFDocumentosRecibidos, updateEstadoComercialECF, type Gasto, type ECFDocumentRecibido 
+} from "@/lib/storage";
 import { toast } from "sonner";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { FileText, Receipt, Check, X as XIcon, ExternalLink, ShieldCheck } from "lucide-react";
 import { 
   AlertDialog, 
   AlertDialogAction, 
@@ -31,7 +36,9 @@ function GastosPage() {
   const [show, setShow] = useState(false);
   const [refresh, setRefresh] = useState(0);
   const [gastos, setGastos] = useState<Gasto[]>([]);
+  const [recibidos, setRecibidos] = useState<ECFDocumentRecibido[]>([]);
   const [loading, setLoading] = useState(true);
+  const [activeTab, setActiveTab] = useState("manual");
 
   const tenant = user?.tenant;
   const tenantId = tenant?.id || '';
@@ -40,8 +47,16 @@ function GastosPage() {
     async function load() {
       if (!tenantId || tenantId === '__loading__') return;
       setLoading(true);
-      const list = await getGastos(tenantId);
-      setGastos(list.sort((a, b) => +new Date(b.fecha) - +new Date(a.fecha)));
+      try {
+        const [listGastos, listRecibidos] = await Promise.all([
+          getGastos(tenantId),
+          getECFDocumentosRecibidos(tenantId)
+        ]);
+        setGastos(listGastos.sort((a, b) => +new Date(b.fecha) - +new Date(a.fecha)));
+        setRecibidos(listRecibidos);
+      } catch (err) {
+        console.error("Error cargando datos:", err);
+      }
       setLoading(false);
     }
     load();
@@ -71,74 +86,189 @@ function GastosPage() {
         <Button onClick={() => setShow(true)} className="bg-gradient-primary text-white"><Plus className="mr-1.5 h-4 w-4" /> Nuevo gasto</Button>
       </PageHeader>
 
-      <div className="mb-4 grid gap-3 md:grid-cols-3">
-        {Object.entries(porCategoria).slice(0, 3).map(([k, v]) => (
-          <Card key={k} className="p-4"><div className="text-xs uppercase text-muted-foreground">{k}</div><div className="font-display text-xl">{formatRD(v)}</div></Card>
-        ))}
-      </div>
+      <Tabs value={activeTab} onValueChange={setActiveTab} className="w-full">
+        <TabsList className="mb-8 bg-muted/30 p-1 rounded-2xl border border-primary/5 shadow-sm inline-flex h-auto">
+          <TabsTrigger 
+            value="manual" 
+            className="rounded-xl px-6 py-1.5 text-xs font-bold transition-all data-[state=active]:bg-primary data-[state=active]:text-white data-[state=active]:shadow-md"
+          >
+            <Receipt className="mr-2 h-4 w-4" /> Gastos Manuales
+          </TabsTrigger>
+          <TabsTrigger 
+            value="fiscal" 
+            className="rounded-xl px-6 py-1.5 text-xs font-bold transition-all data-[state=active]:bg-primary data-[state=active]:text-white data-[state=active]:shadow-md"
+          >
+            <ShieldCheck className="mr-2 h-4 w-4" /> Facturas Fiscales (e-CF)
+          </TabsTrigger>
+        </TabsList>
 
-      <Card className="overflow-hidden">
-        <div className="overflow-x-auto">
-          <table className="w-full text-sm">
-            <thead className="border-b border-border bg-surface-elevated text-xs uppercase text-muted-foreground">
-              <tr>
-                <th className="px-4 py-3 text-left">Fecha</th>
-                <th className="px-4 py-3 text-left">Categoría</th>
-                <th className="px-4 py-3 text-left">Descripción</th>
-                <th className="px-4 py-3 text-left">Proveedor</th>
-                <th className="px-4 py-3 text-left">Pago</th>
-                <th className="px-4 py-3 text-right">Monto</th>
-                <th></th>
-              </tr>
-            </thead>
-            <tbody>
-              {gastos.map((g) => (
-                <tr key={g.id} className="border-b border-border/50">
-                  <td className="px-4 py-2.5 text-xs">{formatDateRD(g.fecha)}</td>
-                  <td className="px-4 py-2.5">{g.categoria}</td>
-                  <td className="px-4 py-2.5">{g.descripcion}</td>
-                  <td className="px-4 py-2.5 text-xs text-muted-foreground">{g.proveedor || "—"}</td>
-                  <td className="px-4 py-2.5 text-xs">{g.metodo_pago}</td>
-                  <td className="px-4 py-2.5 text-right font-medium text-destructive">{formatRD(g.monto)}</td>
-                  <td className="px-4 py-2.5">
-                    <AlertDialog>
-                      <AlertDialogTrigger asChild>
-                        <Button size="icon" variant="ghost"><Trash2 className="h-4 w-4 text-destructive" /></Button>
-                      </AlertDialogTrigger>
-                      <AlertDialogContent className="rounded-2xl border-none shadow-card">
-                        <AlertDialogHeader>
-                          <AlertDialogTitle>¿Eliminar gasto?</AlertDialogTitle>
-                          <AlertDialogDescription>
-                            Esta acción eliminará permanentemente el registro de este gasto ({g.descripcion}).
-                          </AlertDialogDescription>
-                        </AlertDialogHeader>
-                        <AlertDialogFooter>
-                          <AlertDialogCancel className="rounded-xl">Cancelar</AlertDialogCancel>
-                          <AlertDialogAction 
-                            onClick={async () => { 
-                              try {
-                                await deleteGasto(g.id); 
-                                setRefresh((r) => r + 1); 
-                                toast.success("Gasto eliminado 🗑️"); 
-                              } catch (err) {
-                                toast.error("Error al eliminar");
-                              }
-                            }} 
-                            className="bg-destructive text-white rounded-xl"
-                          >
-                            Eliminar
-                          </AlertDialogAction>
-                        </AlertDialogFooter>
-                      </AlertDialogContent>
-                    </AlertDialog>
-                  </td>
-                </tr>
-              ))}
-              {gastos.length === 0 && <tr><td colSpan={7} className="py-12 text-center text-muted-foreground">Sin gastos</td></tr>}
-            </tbody>
-          </table>
-        </div>
-      </Card>
+        <TabsContent value="manual">
+          <div className="mb-4 grid gap-3 md:grid-cols-3">
+            {Object.entries(porCategoria).slice(0, 3).map(([k, v]) => (
+              <Card key={k} className="p-4 rounded-2xl border-none shadow-sm"><div className="text-[10px] font-black uppercase tracking-widest text-muted-foreground/60">{k}</div><div className="font-display text-xl font-bold">{formatRD(v)}</div></Card>
+            ))}
+          </div>
+
+          <Card className="overflow-hidden rounded-2xl border border-border/50">
+            <div className="overflow-x-auto">
+              <table className="w-full text-sm">
+                <thead className="border-b border-border bg-surface-elevated text-[10px] font-black uppercase tracking-widest text-muted-foreground">
+                  <tr>
+                    <th className="px-4 py-3 text-left">Fecha</th>
+                    <th className="px-4 py-3 text-left">Categoría</th>
+                    <th className="px-4 py-3 text-left">Descripción</th>
+                    <th className="px-4 py-3 text-left">Proveedor</th>
+                    <th className="px-4 py-3 text-left">Pago</th>
+                    <th className="px-4 py-3 text-right">Monto</th>
+                    <th className="px-4 py-3"></th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {gastos.map((g) => (
+                    <tr key={g.id} className="border-b border-border/50 hover:bg-accent/10 transition-colors">
+                      <td className="px-4 py-3 text-xs text-muted-foreground">{formatDateRD(g.fecha)}</td>
+                      <td className="px-4 py-3"><span className="inline-flex items-center rounded-full bg-accent px-2 py-0.5 text-[10px] font-bold">{g.categoria}</span></td>
+                      <td className="px-4 py-3 font-medium">{g.descripcion}</td>
+                      <td className="px-4 py-3 text-xs text-muted-foreground">{g.proveedor || "—"}</td>
+                      <td className="px-4 py-3 text-xs">{g.metodo_pago}</td>
+                      <td className="px-4 py-3 text-right font-bold text-destructive">{formatRD(g.monto)}</td>
+                      <td className="px-4 py-3 text-right">
+                        <AlertDialog>
+                          <AlertDialogTrigger asChild>
+                            <Button size="icon" variant="ghost" className="rounded-full hover:bg-destructive/10"><Trash2 className="h-4 w-4 text-destructive" /></Button>
+                          </AlertDialogTrigger>
+                          <AlertDialogContent className="rounded-2xl border-none shadow-card">
+                            <AlertDialogHeader>
+                              <AlertDialogTitle>¿Eliminar gasto?</AlertDialogTitle>
+                              <AlertDialogDescription>
+                                Esta acción eliminará permanentemente el registro de este gasto.
+                              </AlertDialogDescription>
+                            </AlertDialogHeader>
+                            <AlertDialogFooter>
+                              <AlertDialogCancel className="rounded-xl">Cancelar</AlertDialogCancel>
+                              <AlertDialogAction 
+                                onClick={async () => { 
+                                  try {
+                                    await deleteGasto(g.id); 
+                                    setRefresh((r) => r + 1); 
+                                    toast.success("Gasto eliminado 🗑️"); 
+                                  } catch (err) {
+                                    toast.error("Error al eliminar");
+                                  }
+                                }} 
+                                className="bg-destructive text-white rounded-xl"
+                              >
+                                Eliminar
+                              </AlertDialogAction>
+                            </AlertDialogFooter>
+                          </AlertDialogContent>
+                        </AlertDialog>
+                      </td>
+                    </tr>
+                  ))}
+                  {gastos.length === 0 && <tr><td colSpan={7} className="py-20 text-center text-muted-foreground">Sin gastos registrados</td></tr>}
+                </tbody>
+              </table>
+            </div>
+          </Card>
+        </TabsContent>
+
+        <TabsContent value="fiscal">
+          <Card className="overflow-hidden rounded-2xl border border-border/50">
+            <div className="overflow-x-auto">
+              <table className="w-full text-sm">
+                <thead className="border-b border-border bg-surface-elevated text-[10px] font-black uppercase tracking-widest text-muted-foreground">
+                  <tr>
+                    <th className="px-4 py-3 text-left">Recepción</th>
+                    <th className="px-4 py-3 text-left">Emisor (Proveedor)</th>
+                    <th className="px-4 py-3 text-left">e-NCF</th>
+                    <th className="px-4 py-3 text-right">Monto</th>
+                    <th className="px-4 py-3 text-center">Estado Comercial</th>
+                    <th className="px-4 py-3 text-center">Acciones</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {recibidos.map((doc) => (
+                    <tr key={doc.id} className="border-b border-border/50 hover:bg-accent/10 transition-colors">
+                      <td className="px-4 py-3">
+                        <div className="text-xs font-medium">{formatDateRD(doc.creado_en)}</div>
+                        <div className="text-[10px] text-muted-foreground uppercase">{doc.tipo_ecf}</div>
+                      </td>
+                      <td className="px-4 py-3">
+                        <div className="font-bold">{doc.nombre_emisor || "Proveedor Electrónico"}</div>
+                        <div className="text-xs text-muted-foreground">{doc.rnc_emisor}</div>
+                      </td>
+                      <td className="px-4 py-3 font-mono text-xs font-bold text-primary">{doc.encf}</td>
+                      <td className="px-4 py-3 text-right font-bold">{formatRD(doc.monto_total)}</td>
+                      <td className="px-4 py-3 text-center">
+                        <span className={`inline-flex items-center rounded-full px-3 py-1 text-[10px] font-black uppercase border ${
+                          doc.estado_comercial === 'APROBADO' ? 'bg-emerald-500/10 text-emerald-600 border-emerald-500/20' :
+                          doc.estado_comercial === 'RECHAZADO' ? 'bg-destructive/10 text-destructive border-destructive/20' :
+                          'bg-amber-500/10 text-amber-600 border-amber-500/20'
+                        }`}>
+                          {doc.estado_comercial}
+                        </span>
+                      </td>
+                      <td className="px-4 py-3">
+                        <div className="flex items-center justify-center gap-2">
+                          {doc.pdf_url && (
+                            <Button size="icon" variant="outline" className="h-8 w-8 rounded-full border-primary/20 text-primary hover:bg-primary/10" asChild>
+                              <a href={doc.pdf_url} target="_blank" rel="noopener noreferrer"><FileText className="h-4 w-4" /></a>
+                            </Button>
+                          )}
+                          {doc.estado_comercial === 'PENDIENTE' && (
+                            <>
+                              <Button 
+                                size="icon" 
+                                variant="outline" 
+                                className="h-8 w-8 rounded-full border-emerald-500/20 text-emerald-600 hover:bg-emerald-500/10"
+                                onClick={async () => {
+                                  try {
+                                    await updateEstadoComercialECF(doc.id, 'APROBADO');
+                                    setRefresh(r => r + 1);
+                                    toast.success("Factura aprobada comercialmente ✅");
+                                  } catch (e) { toast.error("Error al aprobar"); }
+                                }}
+                              >
+                                <Check className="h-4 w-4" />
+                              </Button>
+                              <Button 
+                                size="icon" 
+                                variant="outline" 
+                                className="h-8 w-8 rounded-full border-destructive/20 text-destructive hover:bg-destructive/10"
+                                onClick={async () => {
+                                  try {
+                                    await updateEstadoComercialECF(doc.id, 'RECHAZADO');
+                                    setRefresh(r => r + 1);
+                                    toast.success("Factura rechazada comercialmente ❌");
+                                  } catch (e) { toast.error("Error al rechazar"); }
+                                }}
+                              >
+                                <XIcon className="h-4 w-4" />
+                              </Button>
+                            </>
+                          )}
+                        </div>
+                      </td>
+                    </tr>
+                  ))}
+                  {recibidos.length === 0 && (
+                    <tr>
+                      <td colSpan={6} className="py-20 text-center">
+                        <div className="flex flex-col items-center gap-3">
+                          <ShieldCheck className="h-12 w-12 text-muted-foreground/20" />
+                          <div className="text-muted-foreground font-medium">No has recibido facturas fiscales electrónicas aún.</div>
+                          <p className="max-w-xs text-xs text-muted-foreground/60 text-center">Las facturas que emitan tus proveedores a tu RNC aparecerán aquí automáticamente.</p>
+                        </div>
+                      </td>
+                    </tr>
+                  )}
+                </tbody>
+              </table>
+            </div>
+          </Card>
+        </TabsContent>
+      </Tabs>
 
       <NewGasto open={show} onOpenChange={setShow} tenantId={user.tenant.id} empleadoId={user.empleado.id} onDone={() => { setRefresh((r) => r + 1); setShow(false); }} />
     </div>

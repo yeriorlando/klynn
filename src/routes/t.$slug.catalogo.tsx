@@ -150,9 +150,21 @@ function CatalogoPage() {
       />
 
       <Tabs defaultValue="prendas" className="mt-2">
-        <TabsList className="mb-6">
-          <TabsTrigger value="prendas"><Shirt className="mr-1.5 h-4 w-4" /> Prendas</TabsTrigger>
-          <TabsTrigger value="servicios"><Sparkles className="mr-1.5 h-4 w-4" /> Servicios</TabsTrigger>
+        <TabsList className="mb-6 bg-muted/30 p-1 rounded-2xl border border-primary/5 shadow-sm inline-flex h-auto">
+          <TabsTrigger 
+            value="prendas" 
+            className="rounded-xl px-6 py-1.5 transition-all data-[state=active]:bg-primary data-[state=active]:text-white data-[state=active]:shadow-md"
+          >
+            <Shirt className="mr-2 h-4 w-4" /> 
+            <span className="font-display font-bold">Prendas</span>
+          </TabsTrigger>
+          <TabsTrigger 
+            value="servicios" 
+            className="rounded-xl px-6 py-1.5 transition-all data-[state=active]:bg-primary data-[state=active]:text-white data-[state=active]:shadow-md"
+          >
+            <Sparkles className="mr-2 h-4 w-4" /> 
+            <span className="font-display font-bold">Servicios</span>
+          </TabsTrigger>
         </TabsList>
 
         {/* PRENDAS */}
@@ -376,7 +388,7 @@ function ItemDialog({ open, onOpenChange, tenantId, initial, onSaved }: {
   
   useEffect(() => { 
     if (open) {
-      setF(initial ? { ...initial } : { categoria: "", nombre: "", precio: 0, activo: true, icono: "👕" });
+      setF(initial ? { ...initial } : { categoria: "", nombre: "", precio: 0, activo: true, icono: "👕", is_exento: false });
       setMode(initial?.imagen_url ? "image" : "emoji");
       setImgError(false);
       setIconSearch("");
@@ -432,6 +444,7 @@ function ItemDialog({ open, onOpenChange, tenantId, initial, onSaved }: {
       precio: Number(f.precio) || 0,
       por_libra: !!f.por_libra,
       activo: f.activo ?? true,
+      is_exento: !!f.is_exento,
       icono: mode === "emoji" ? f.icono : undefined,
       imagen_url: mode === "image" ? f.imagen_url : undefined,
     };
@@ -476,12 +489,19 @@ function ItemDialog({ open, onOpenChange, tenantId, initial, onSaved }: {
                 </div>
               </div>
 
-              <div className="pt-4 border-t">
+              <div className="grid grid-cols-2 gap-4">
+                <div className="flex items-center gap-3 p-4 rounded-xl bg-primary/5 border border-primary/10 shadow-sm">
+                  <Switch checked={!!f.is_exento} onCheckedChange={(v) => setF({ ...f, is_exento: v })} />
+                  <div className="space-y-0.5">
+                    <Label className="text-sm font-bold text-primary">Exento de ITBIS</Label>
+                    <p className="text-[10px] text-muted-foreground leading-none">No aplica impuesto (DGII Ind: 3)</p>
+                  </div>
+                </div>
                 <div className="flex items-center gap-3 p-4 rounded-xl bg-white border border-border/60 shadow-sm">
                   <Switch checked={f.activo ?? true} onCheckedChange={(v) => setF({ ...f, activo: v })} />
                   <div className="space-y-0.5">
                     <Label className="text-sm font-bold">Estado Activo</Label>
-                    <p className="text-[11px] text-muted-foreground leading-none">Visible al crear nuevas órdenes.</p>
+                    <p className="text-[11px] text-muted-foreground leading-none">Visible al crear órdenes.</p>
                   </div>
                 </div>
               </div>
@@ -624,7 +644,7 @@ function ServDialog({ open, onOpenChange, tenantId, initial, onSaved }: {
 
   useEffect(() => { 
     if (open) {
-      setF(initial ? { ...initial } : { nombre: "", descripcion: "", icono: "🧺", activo: true, precio: 0 });
+      setF(initial ? { ...initial } : { nombre: "", descripcion: "", icono: "🧺", activo: true, precio: 0, is_exento: false });
       setMode(initial?.imagen_url ? "image" : "emoji");
       setImgError(false);
       setIconSearch("");
@@ -681,6 +701,7 @@ function ServDialog({ open, onOpenChange, tenantId, initial, onSaved }: {
       imagen_url: mode === "image" ? f.imagen_url : undefined,
       activo: f.activo ?? true,
       precio: Number(f.precio) || 0,
+      is_exento: !!f.is_exento,
     };
     await saveServicio(s);
     toast.success(initial ? "Servicio actualizado" : "Servicio creado");
@@ -714,12 +735,19 @@ function ServDialog({ open, onOpenChange, tenantId, initial, onSaved }: {
                 <Input type="number" value={f.precio ?? 0} onChange={(e) => setF({ ...f, precio: Number(e.target.value) })} className="h-11 rounded-xl bg-white border-border/60 focus-visible:ring-primary/30 shadow-sm font-bold" />
               </div>
 
-              <div className="pt-2 border-t">
+              <div className="grid grid-cols-2 gap-4 pt-2 border-t">
+                <div className="flex items-center gap-3 p-3 rounded-xl bg-primary/5 border border-primary/10 shadow-sm">
+                  <Switch checked={!!f.is_exento} onCheckedChange={(v) => setF({ ...f, is_exento: v })} />
+                  <div className="space-y-0">
+                    <Label className="text-xs font-bold text-primary">Exento ITBIS</Label>
+                    <p className="text-[9px] text-muted-foreground leading-none">Ind: 3</p>
+                  </div>
+                </div>
                 <div className="flex items-center gap-3 p-3 rounded-xl bg-white border border-border/60 shadow-sm">
                   <Switch checked={f.activo ?? true} onCheckedChange={(v) => setF({ ...f, activo: v })} />
                   <div className="space-y-0">
                     <Label className="text-xs font-bold text-primary">Servicio Activo</Label>
-                    <p className="text-[10px] text-muted-foreground leading-none">Disponible en órdenes.</p>
+                    <p className="text-[10px] text-muted-foreground leading-none">Disponible.</p>
                   </div>
                 </div>
               </div>

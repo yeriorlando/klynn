@@ -1,4 +1,5 @@
 import { createFileRoute, useNavigate } from "@tanstack/react-router";
+import { supabase } from "@/lib/supabase";
 import { useMemo, useState, useEffect } from "react";
 import { motion } from "framer-motion";
 import { 
@@ -29,8 +30,7 @@ import {
   type Cliente, type OrdenItem, type MetodoPago, type Orden, type CatalogoItem, type Servicio, type Caja,
   type ECFConfig, type ECFSequence, type ECFDocument
 } from "@/lib/storage";
-import { generateECFXML } from "@/lib/fiscal/dgii-xml-generator";
-import { signXML } from "@/lib/fiscal/dgii-signer";
+import { emitirECF } from "@/lib/fiscal";
 import { PlanLimitModal } from "@/components/klynn/PlanLimitModal";
 import { ClienteDialog } from "@/components/klynn/ClienteDialog";
 import { toast } from "sonner";
@@ -222,32 +222,47 @@ function NuevaOrdenPage() {
     c.nombre.toLowerCase().includes(clienteSearch.toLowerCase()) ||
     c.telefono.includes(clienteSearch),
   );
-
-  const subtotalBase = items.reduce((s, it) => s + it.cantidad * it.precio_unitario, 0);
-  const costoServicios = servicios.filter(s => serviciosSel.includes(s.nombre)).reduce((acc, s) => acc + s.precio, 0);
-  const recargo = esUrgente ? subtotalBase * (cfg.recargo_urgencia / 100) : 0;
   
-  // El "subtotalBruto" es la suma base antes de impuestos.
-  const subtotalBruto = subtotalBase + recargo + costoServicios;
+  // Cálculo detallado de ITBIS
+  const itbisRate = (cfg.itbis_porcentaje || 0) / 100;
+  
+  // Separar montos gravables y exentos
+  const itemsGravables = items.filter(it => !it.is_exento);
+  const itemsExentos = items.filter(it => it.is_exento);
+  
+  const subtotalGravableBase = itemsGravables.reduce((s, it) => s + it.cantidad * it.precio_unitario, 0);
+  const subtotalExentoBase = itemsExentos.reduce((s, it) => s + it.cantidad * it.precio_unitario, 0);
+  
+  const costoServicios = servicios.filter(s => serviciosSel.includes(s.nombre)).reduce((acc, s) => acc + s.precio, 0);
+  
+  // El recargo de urgencia se aplica al subtotal base total
+  const recargoTotal = esUrgente ? (subtotalGravableBase + subtotalExentoBase) * (cfg.recargo_urgencia / 100) : 0;
+  
+  // Proporción del recargo que es gravable (si hay items exentos, el recargo suele ser gravable igual por ser un servicio, 
+  // pero para ser conservadores en este flujo lo sumamos a la base gravable total)
+  const baseParaItbis = subtotalGravableBase + costoServicios + recargoTotal;
   
   let itbis = 0;
-  let subtotal = subtotalBruto;
-  let total = subtotalBruto;
+  let total = 0;
+  let subtotal = subtotalGravableBase + subtotalExentoBase + costoServicios + recargoTotal;
 
-  if (cfg.ncf_facturacion_activa && aplicarItbis) {
+  if (cfg.ncf_facturacion_activa && aplicarItbis && itbisRate > 0) {
     if (cfg.itbis_incluido) {
-      // Precio ya tiene ITBIS: Extraerlo
-      // ITBIS = Total - (Total / 1.18)
-      subtotal = +(subtotalBruto / (1 + cfg.itbis_porcentaje / 100)).toFixed(2);
-      itbis = +(subtotalBruto - subtotal).toFixed(2);
-      total = subtotalBruto - descuento;
+      // ITBIS ya está en los precios. 
+      // Calculamos cuánto de la base gravable es ITBIS
+      const baseSinItbis = +(baseParaItbis / (1 + itbisRate)).toFixed(2);
+      itbis = +(baseParaItbis - baseSinItbis).toFixed(2);
+      subtotal = +(baseSinItbis + subtotalExentoBase).toFixed(2);
+      total = subtotal + itbis - descuento;
     } else {
-      // Precio no tiene ITBIS: Sumarlo
-      itbis = +(subtotalBruto * (cfg.itbis_porcentaje / 100)).toFixed(2);
-      total = subtotalBruto + itbis - descuento;
+      // ITBIS se suma a la base gravable
+      itbis = +(baseParaItbis * itbisRate).toFixed(2);
+      subtotal = +(baseParaItbis + subtotalExentoBase).toFixed(2);
+      total = subtotal + itbis - descuento;
     }
   } else {
-    total = subtotalBruto - descuento;
+    // Sin facturación fiscal o ITBIS desactivado
+    total = subtotal - descuento;
   }
 
   const vuelto = metodo === "EFECTIVO" && recibido > total ? recibido - total : 0;
@@ -326,42 +341,51 @@ function NuevaOrdenPage() {
         es_urgente: esUrgente,
         notas: notas || undefined,
         creado_en: new Date().toISOString(),
-        ncf: cfg.ncf_facturacion_activa && cfg.ncf_secuencia ? `${cfg.ncf_secuencia}${String(cfg.ncf_proximo || 1).padStart(8, "0")}` : undefined,
+        ncf: (cfg.ncf_facturacion_activa && cfg.ncf_secuencia && !fiscalConfig?.is_active) ? `${cfg.ncf_secuencia}${String(cfg.ncf_proximo || 1).padStart(8, "0")}` : undefined,
       };
 
       await saveOrden(orden);
 
-      // --- LOGICA FISCAL ELECTRONICA ---
+      // --- LOGICA FISCAL ELECTRONICA (Pronesoft) ---
       let ordenActualizada = { ...orden };
       if (fiscalConfig?.is_active && tipoECF) {
         try {
-          const encf = await nextECFNumero(tenant.id, tipoECF);
-          const xml = generateECFXML(orden, tenant, cliente);
-          const signedXml = await signXML(xml, fiscalConfig.certificate_data || "", fiscalConfig.certificate_password || "");
-          
-          const ecfDoc: ECFDocument = {
-            id: uid("ecf"),
-            tenant_id: tenant.id,
-            order_id: orden.id,
-            encf,
-            tipo_ecf: tipoECF,
-            rnc_receptor: cliente.cedula || cliente.telefono.replace(/[^0-9]/g, ''),
-            status: "pending",
-            xml_content: signedXml,
-            monto_total: total,
-            monto_itbis: itbis,
-            fecha_emision: new Date().toISOString()
+          const result = await emitirECF(
+            orden,
+            cliente,
+            fiscalConfig.pronesoft_tenant_id,
+            cfg,
+            tenant,
+            tipoECF
+          );
+          const fiscalFields = {
+            ncf: result.encf, 
+            tipo_ecf: tipoECF, 
+            ecf_id: result.document.id,
+            ecf_qr: result.stamp_url || result.document.qr_content || '',
+            ecf_security_code: result.security_code || '',
+            ecf_signature_date: result.document.signature_date || new Date().toISOString(),
           };
-
-          await saveECFDocument(ecfDoc);
+          console.log("[FISCAL] Guardando metadatos para orden:", orden.id, fiscalFields);
           
-          // Actualizar orden con el NCF electrónico en base de datos y memoria
-          ordenActualizada = { ...orden, ncf: encf, tipo_ecf: tipoECF, ecf_id: ecfDoc.id };
-          await saveOrden(ordenActualizada);
-          toast.success(`Factura Electrónica ${encf} generada`);
+          // UPDATE directo — más confiable que upsert de todo el objeto
+          const { error: updateErr } = await supabase
+            .from('ordenes')
+            .update(fiscalFields)
+            .eq('id', orden.id);
+          
+          if (updateErr) {
+            console.error("[FISCAL] ERROR al guardar metadatos:", updateErr);
+            toast.error("⚠️ Comprobante emitido pero no se guardaron los metadatos: " + updateErr.message);
+          } else {
+            console.log("[FISCAL] ✅ Metadatos guardados correctamente");
+          }
+          
+          ordenActualizada = { ...orden, ...fiscalFields };
+          toast.success(`✅ Comprobante ${result.encf} emitido`);
         } catch (fErr: any) {
           console.error("Error Fiscal:", fErr);
-          toast.error("Error al generar comprobante electrónico: " + fErr.message);
+          toast.error("Error al generar comprobante: " + fErr.message);
         }
       }
 
@@ -764,7 +788,13 @@ function NuevaOrdenPage() {
                           {itemsInCat.map(item => (
                             <button
                               key={item.id}
-                              onClick={() => addItem({ descripcion: item.nombre, cantidad: 1, precio_unitario: item.precio, es_libra: item.por_libra })}
+                              onClick={() => addItem({ 
+                                descripcion: item.nombre, 
+                                cantidad: 1, 
+                                precio_unitario: item.precio, 
+                                es_libra: item.por_libra,
+                                is_exento: item.is_exento
+                              })}
                               className="group relative flex flex-col items-center justify-center gap-3 p-4 rounded-2xl border-2 border-border bg-card hover:border-primary/40 hover:bg-primary/5 hover:shadow-elegant transition-all active:scale-95 text-center"
                             >
                               {item.imagen_url ? (

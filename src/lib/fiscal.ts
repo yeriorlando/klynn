@@ -1,155 +1,224 @@
-import forge from 'node-forge';
-import { SignedXml } from 'xml-crypto';
-import { type ECFConfig, type ECFDocument } from './storage';
-
 /**
- * Utilidad para el manejo de Facturación Electrónica (e-CF)
- * según especificaciones de la DGII.
+ * fiscal.ts — Punto de entrada unificado para Facturación Electrónica
+ *
+ * Usa la API de Pronesoft para emitir eCF sin necesidad de manejar
+ * certificados .p12, firmas XML ni conexión directa con la DGII.
+ *
+ * Pronesoft maneja: firma XML, cola de envío, modo de contingencia.
  */
 
-interface DGIIAuthResponse {
-  token: string;
-  expira: string;
+export { getProneSoftClient } from './fiscal/pronesoft-client';
+export type {
+  ECFPayload,
+  ECFSubmitResponse,
+  ECFStatusResponse,
+  ECFItem,
+  ECFBuyer,
+  ECFTotals,
+  PaymentForm,
+  AssociatedCompany,
+} from './fiscal/pronesoft-client';
+
+export { ordenToECFPayload } from './fiscal/orden-to-ecf';
+export { getECFConfig, getECFDocuments } from './storage';
+
+import { getProneSoftClient, type ECFSubmitResponse } from './fiscal/pronesoft-client';
+import { ordenToECFPayload } from './fiscal/orden-to-ecf';
+import { getECFConfig, getECFDocuments, saveECFDocument, updateECFConfig } from './storage';
+import { supabase } from '@/lib/supabase';
+import type { Orden, Cliente, TenantConfig, Tenant, ECFDocument } from './storage';
+
+// ─── Función principal: Emitir un eCF para una orden ─────────────────────────
+
+export interface EmitirECFResult {
+  document:         ECFDocument;
+  encf:             string;
+  pdf_url:          string;
+  stamp_url:        string;
+  security_code:    string;
+  contingency_mode: boolean;
+  legal_status?:    string;
 }
 
 /**
- * Obtiene la semilla (seed) de la DGII para iniciar el proceso de autenticación.
+ * Emite un Comprobante Fiscal Electrónico para una orden de Klynn.
+ *
+ * @param orden       - La orden a facturar
+ * @param cliente     - El cliente (opcional para consumidor final)
+ * @param ecfTenantId - El x-tenant-id de Pronesoft para este negocio (empresa asociada)
+ * @param config      - Configuración del tenant (ITBIS, etc.)
+ * @param tenant      - Datos del tenant (RNC, nombre)
+ * @param tipoECF     - Tipo forzado (E31, E32...) — si no, usa config.ncf_secuencia
  */
-export async function getSeed(ambiente: 'pruebas' | 'produccion'): Promise<string> {
-  const url = ambiente === 'pruebas' 
-    ? 'https://testapi.dgii.gov.do/estatus/api/Estatus/Semilla'
-    : 'https://api.dgii.gov.do/estatus/api/Estatus/Semilla';
+export async function emitirECF(
+  orden:       Orden,
+  cliente:     Cliente | null,
+  ecfTenantId: string | undefined,
+  config:      TenantConfig,
+  tenant:      Tenant,
+  tipoECF?:    string,
+  reference?:  { ncf: string; date: string; code: string }
+): Promise<EmitirECFResult> {
 
-  const res = await fetch(url);
-  if (!res.ok) throw new Error("No se pudo obtener la semilla de la DGII");
-  const xml = await res.text();
-  
-  // Extraer el valor de la semilla del XML
-  const match = xml.match(/<value>(.*)<\/value>/);
-  if (!match) throw new Error("Formato de semilla inválido");
-  return match[1];
-}
+  // 1. Construir payload
+  const payload = ordenToECFPayload(orden, cliente, config, tipoECF, reference);
 
-/**
- * Firma la semilla con el certificado digital y obtiene el Token de la DGII.
- */
-export async function authenticateDGII(config: ECFConfig): Promise<DGIIAuthResponse> {
-  if (!config.certificate_data || !config.certificate_password) {
-    throw new Error("Certificado no configurado");
+  // 2. Obtener cliente Pronesoft (con el tenant ID de este negocio y el ambiente configurado)
+  const client = getProneSoftClient(
+    ecfTenantId, 
+    config.ambiente === 'pruebas' ? 'sandbox' : 'production'
+  );
+
+  // 3. Enviar a Pronesoft → DGII
+  let response: ECFSubmitResponse;
+  try {
+    response = await client.submitDocument(payload);
+  } catch (err: any) {
+    throw new Error(`Error al emitir eCF: ${err.message}`);
   }
 
-  const seed = await getSeed(config.ambiente);
-  const signedSeed = await signXML(seed, config);
+  // 4. Guardar en Supabase (ecf_documents)
+  const ecfDoc: ECFDocument = {
+    id:                    crypto.randomUUID(),
+    tenant_id:             tenant.id,
+    order_id:              orden.id,
+    encf:                  response.encf,
+    tipo_ecf:              payload.invoiceType === '31' ? 'E31'
+                         : payload.invoiceType === '32' ? 'E32'
+                         : payload.invoiceType === '34' ? 'E34'
+                         : `E${payload.invoiceType}`,
+    rnc_receptor:          cliente?.cedula ?? undefined,
+    track_id:              response.id,           // UUID de Pronesoft
+    status:                mapStatus(response.status, response.legalStatus),
+    dgii_response:         response,
+    xml_content:           response.xmlUrl ?? '',
+    qr_content:            response.documentStampUrl,
+    monto_total:           orden.total,
+    monto_itbis:           orden.itbis,
+    fecha_emision:         response.stampDate || new Date().toISOString(),
+    // Campos extendidos de Pronesoft
+    pronesoft_id:          response.id,
+    legal_status:          response.legalStatus,
+    pdf_url:               response.pdf,
+    xml_url:               response.xmlUrl,
+    document_stamp_url:    response.documentStampUrl,
+    security_code:         response.securityCode,
+    contingency_mode:      response.contingencyMode,
+    stamp_date:            response.stampDate,
+    signature_date:        response.signatureDate,
+  } as ECFDocument;
 
-  const url = config.ambiente === 'pruebas'
-    ? 'https://testapi.dgii.gov.do/autenticacion/api/Oauth/Token'
-    : 'https://api.dgii.gov.do/autenticacion/api/Oauth/Token';
-
-  const res = await fetch(url, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/xml' },
-    body: signedSeed
-  });
-
-  if (!res.ok) {
-    const errorText = await res.text();
-    throw new Error(`Error de autenticación DGII: ${errorText}`);
+  try {
+    await saveECFDocument(ecfDoc);
+  } catch (saveErr) {
+    // No bloqueamos si falla el guardado — el documento ya fue emitido
+    console.error('Advertencia: no se pudo guardar ECFDocument en Supabase:', saveErr);
   }
 
-  const data = await res.json();
   return {
-    token: data.token,
-    expira: data.expira
+    document:         ecfDoc,
+    encf:             response.encf,
+    pdf_url:          response.pdf,
+    stamp_url:        response.documentStampUrl,
+    security_code:    response.securityCode,
+    contingency_mode: response.contingencyMode,
+    legal_status:     response.legalStatus,
   };
 }
 
-/**
- * Firma un documento XML utilizando el estándar XMLDSig (C14N).
- */
-export async function signXML(xml: string, config: ECFConfig): Promise<string> {
-  const p12Der = forge.util.decode64(config.certificate_data!);
-  const p12Asn1 = forge.asn1.fromDer(p12Der);
-  const p12 = forge.pkcs12.pkcs12FromAsn1(p12Asn1, config.certificate_password!);
+// ─── Helpers ─────────────────────────────────────────────────────────────────
 
-  // Buscar la llave privada y el certificado
-  const bags = p12.getBags({ bagType: forge.pki.oids.pkcs8ShroudedKeyBag });
-  const keyBag = bags[forge.pki.oids.pkcs8ShroudedKeyBag]?.[0];
-  if (!keyBag?.key) throw new Error("No se encontró la llave privada en el certificado");
-
-  const certBags = p12.getBags({ bagType: forge.pki.oids.certBag });
-  const certBag = certBags[forge.pki.oids.certBag]?.[0];
-  if (!certBag?.cert) throw new Error("No se encontró el certificado en el archivo .p12");
-
-  const privateKeyPem = forge.pki.privateKeyToPem(keyBag.key);
-  const certPem = forge.pki.certificateToPem(certBag.cert);
-
-  const sig = new SignedXml();
-  sig.addReference("//*[local-name(.)='Semilla' or local-name(.)='ECF']");
-  sig.signingKey = privateKeyPem;
-  sig.keyInfoProvider = {
-    getKeyInfo: () => `<X509Data><X509Certificate>${certPem.replace(/-----(BEGIN|END) CERTIFICATE-----|\n/g, '')}</X509Certificate></X509Data>`,
-    getKey: () => Buffer.from(privateKeyPem)
-  };
-  
-  sig.computeSignature(xml);
-  return sig.getSignedXml();
+function mapStatus(
+  status:      ECFSubmitResponse['status'],
+  legalStatus?: ECFSubmitResponse['legalStatus']
+): ECFDocument['status'] {
+  if (legalStatus === 'ACCEPTED')                  return 'accepted';
+  if (legalStatus === 'ACCEPTED_WITH_OBSERVATIONS') return 'accepted_with_reservations';
+  if (legalStatus === 'REJECTED')                  return 'rejected';
+  if (status === 'ERROR')                          return 'rejected';
+  return 'pending'; // REGISTERED, TO_SEND, WAITING_RESPONSE
 }
 
 /**
- * Genera el XML de un e-CF (E31, E32, etc.)
+ * Registra automáticamente un negocio de Klynn en Pronesoft.
+ * 
+ * 1. Crea la 'Associated Company' en Pronesoft.
+ * 2. Guarda el x-tenant-id resultante en la configuración local.
  */
-export function generateECFXml(doc: Partial<ECFDocument>, tenant: any): string {
-  const fecha = new Date(doc.fecha_emision!).toISOString().split('T')[0];
-  
-  // Estructura simplificada para cumplimiento DGII
-  return `<?xml version="1.0" encoding="utf-8"?>
-<ECF xmlns="http://dgii.gov.do/core/ecf" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance">
-  <Encabezado>
-    <IdDoc>
-      <TipoeCF>${doc.tipo_ecf}</TipoeCF>
-      <eNCF>${doc.encf}</eNCF>
-      <FechaEmision>${fecha}</FechaEmision>
-    </IdDoc>
-    <Emisor>
-      <RNCEmisor>${tenant.rnc}</RNCEmisor>
-      <RazonSocial>${tenant.nombre}</RazonSocial>
-      <DireccionEmisor>${tenant.direccion}</DireccionEmisor>
-    </Emisor>
-    <Totales>
-      <MontoTotal>${doc.monto_total}</MontoTotal>
-      <MontoITBIS>${doc.monto_itbis}</MontoITBIS>
-    </Totales>
-  </Encabezado>
-</ECF>`;
+export async function registerTenantInPronesoft(tenantId: string): Promise<string> {
+  // 1. Obtener datos del negocio y config actual
+  const config = await getECFConfig(tenantId);
+  if (!config) throw new Error("Configuración fiscal no inicializada");
+
+  // Buscamos el nombre del tenant para tener un fallback si razon_social está vacío
+  const { data: tenantData } = await supabase.from('tenants').select('nombre').eq('id', tenantId).single();
+
+  const client = getProneSoftClient(
+    undefined, 
+    config.ambiente === 'pruebas' ? 'sandbox' : 'production'
+  ); // Cliente global con ambiente dinámico
+
+  const companyName = config.razon_social || tenantData?.nombre || "Lavanderia Klynn";
+
+  // 2. Registrar en Pronesoft
+  try {
+    const res = await client.createAssociatedCompany({
+      rnc: config.rnc_emisor,
+      name: companyName,
+      environment: config.ambiente === 'pruebas' ? 'sandbox' : 'production'
+    });
+
+    if (!res.id) throw new Error("Pronesoft no devolvió un ID de empresa");
+
+    // 3. Actualizar configuración en Supabase
+    await updateECFConfig(tenantId, {
+      pronesoft_tenant_id: res.id,
+      is_active: true
+    });
+
+    return res.id;
+  } catch (err: any) {
+    console.error("Error en registro Pronesoft:", err);
+    throw new Error(err.message || "Error al conectar con el servidor de certificación");
+  }
 }
 
 /**
- * Envía un e-CF a la DGII.
+ * Sincroniza el certificado P12 local con Pronesoft.
  */
-export async function sendToDGII(signedXml: string, config: ECFConfig): Promise<string> {
-  if (!config.api_auth_token) {
-    const auth = await authenticateDGII(config);
-    config.api_auth_token = auth.token;
+export async function uploadCertificateToPronesoft(
+  tenantId: string, 
+  base64: string, 
+  password: string
+): Promise<boolean> {
+  const config = await getECFConfig(tenantId);
+  if (!config?.pronesoft_tenant_id) {
+    throw new Error("Primero debes activar el módulo fiscal");
   }
 
-  const url = config.ambiente === 'pruebas'
-    ? 'https://testapi.dgii.gov.do/recepcion/api/Recepcion/Enviar'
-    : 'https://api.dgii.gov.do/recepcion/api/Recepcion/Enviar';
-
-  const res = await fetch(url, {
-    method: 'POST',
-    headers: {
-      'Authorization': `Bearer ${config.api_auth_token}`,
-      'Content-Type': 'application/xml'
-    },
-    body: signedXml
+  const client = getProneSoftClient(
+    config.pronesoft_tenant_id,
+    config.ambiente === 'pruebas' ? 'sandbox' : 'production'
+  );
+  const res = await client.uploadCertificate({
+    certificate: base64,
+    password: password,
+    rnc: config.rnc_emisor
   });
 
-  if (!res.ok) {
-    const errorText = await res.text();
-    throw new Error(`Error enviando a DGII: ${errorText}`);
-  }
-
-  const data = await res.json();
-  return data.trackId;
+  return res.ok;
 }
+
+export async function importSequencesToPronesoft(
+  tenantId: string,
+  fileBase64: string
+): Promise<boolean> {
+  const config = await getECFConfig(tenantId);
+  const client = getProneSoftClient(
+    config?.pronesoft_tenant_id,
+    config?.ambiente === 'pruebas' ? 'sandbox' : 'production'
+  );
+  const res = await client.importSequences(fileBase64);
+  return res.ok;
+}
+

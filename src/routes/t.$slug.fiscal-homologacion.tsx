@@ -8,13 +8,13 @@ import { Badge } from "@/components/ui/badge";
 import { toast } from "sonner";
 import { 
   Play, CheckCircle2, XCircle, AlertCircle, Loader2, FileText, 
-  ChevronRight, ArrowLeft, ShieldCheck, Zap
+  ChevronRight, ArrowLeft, ShieldCheck, Zap, ExternalLink
 } from "lucide-react";
 import { 
   getECFConfig, getECFSequences, saveECFConfig,
   type ECFConfig, type ECFSequence, type Tenant
 } from "@/lib/storage";
-import { authenticateDGII, generateECFXml, signXML, sendToDGII } from "@/lib/fiscal";
+import { getProneSoftClient } from "@/lib/fiscal";
 
 export const Route = createFileRoute("/t/$slug/fiscal-homologacion")({ component: HomologacionPage });
 
@@ -25,16 +25,19 @@ interface CasoPrueba {
   tipo_ecf: string;
   status: 'pending' | 'success' | 'error' | 'running';
   trackId?: string;
+  pdfUrl?: string;
   error?: string;
 }
 
 const CASOS_INICIALES: CasoPrueba[] = [
   { id: '1', nombre: 'E31 - Crédito Fiscal Estándar', descripcion: 'Emisión exitosa de factura de crédito fiscal.', tipo_ecf: 'E31', status: 'pending' },
   { id: '2', nombre: 'E32 - Consumo Estándar', descripcion: 'Emisión exitosa de factura de consumo final.', tipo_ecf: 'E32', status: 'pending' },
-  { id: '3', nombre: 'E34 - Nota de Crédito (E31)', descripcion: 'Emisión de nota de crédito que afecta una E31 previa.', tipo_ecf: 'E34', status: 'pending' },
-  { id: '4', nombre: 'E32 - Con Descuento', descripcion: 'Factura de consumo con descuento a nivel de ítem.', tipo_ecf: 'E32', status: 'pending' },
-  { id: '5', nombre: 'E31 - Con ITBIS 0%', descripcion: 'Factura de crédito fiscal con productos exentos.', tipo_ecf: 'E31', status: 'pending' },
-  // ... añadir más según necesidad de certificación
+  { id: '3', nombre: 'E34 - Nota de Crédito (E31)', descripcion: 'Anulación de una factura E31 emitida anteriormente.', tipo_ecf: 'E34', status: 'pending' },
+  { id: '4', nombre: 'E33 - Nota de Débito (E31)', descripcion: 'Aumento de valor de una factura E31 emitida anteriormente.', tipo_ecf: 'E33', status: 'pending' },
+  { id: '5', nombre: 'E32 - Con Descuento', descripcion: 'Factura de consumo con descuento aplicado.', tipo_ecf: 'E32', status: 'pending' },
+  { id: '6', nombre: 'E31 - Con ITBIS 0%', descripcion: 'Factura de crédito fiscal con productos exentos (Tasa 0).', tipo_ecf: 'E31', status: 'pending' },
+  { id: '7', nombre: 'E43 - Gastos Menores', descripcion: 'Comprobante para gastos de caja chica o informales.', tipo_ecf: 'E43', status: 'pending' },
+  { id: '8', nombre: 'E45 - Gubernamental', descripcion: 'Factura para venta a instituciones del Estado.', tipo_ecf: 'E45', status: 'pending' },
 ];
 
 function HomologacionPage() {
@@ -58,40 +61,84 @@ function HomologacionPage() {
     
     try {
       const caso = casos.find(c => c.id === casoId)!;
+      const client = getProneSoftClient(config.pronesoft_tenant_id);
+
+      const invoiceType = caso.tipo_ecf.replace('E', '') as any;
       
-      // 1. Generar XML Mock para el caso
-      const doc = {
-        tipo_ecf: caso.tipo_ecf,
-        encf: 'E' + caso.tipo_ecf.slice(1) + '0000000001', // Mock NCF
-        fecha_emision: new Date().toISOString(),
-        monto_total: 1000,
-        monto_itbis: 180
+      // Determinar si es exento o gravado
+      const esExento = caso.id === '6' || caso.id === '7';
+      const itbis = esExento ? 0 : 180;
+      const total = 1000 + itbis;
+
+      // Construir payload según el caso específico
+      let payload: any = {
+        version:      '1.0',
+        invoiceType,
+        issueDate:    new Date().toISOString(),
+        incomeType:   '01',
+        paymentForms: [{ method: '1', amount: total }],
+        items: [{
+          lineNumber:       1,
+          name:             `Prueba Homologación — ${caso.nombre}`,
+          type:             '2',
+          billingIndicator: caso.id === '7' ? '4' : (caso.id === '6' ? '2' : '1'), 
+          quantity:         1,
+          unitPrice:        1000,
+          amount:           1000,
+        }],
+        totals: {
+          taxableAmount: esExento ? 0 : 1000,
+          exemptAmount:  esExento ? 1000 : 0,
+          totalITBIS:    itbis,
+          totalAmount:   total,
+        },
       };
-      
-      const xml = generateECFXml(doc as any, tenant);
-      
-      // 2. Firmar
-      const signedXml = await signXML(xml, config);
-      
-      // 3. Enviar a DGII
-      const trackId = await sendToDGII(signedXml, config);
+
+      // Datos del Comprador (Requerido para E31, E33, E34, E45)
+      if (['31', '33', '34', '45'].includes(invoiceType)) {
+        payload.buyer = { 
+          name: 'Cliente Prueba Homologación S.A.',
+          taxId: '101234567'
+        };
+      }
+
+      // Información de Referencia para Notas de Crédito/Débito
+      if (invoiceType === '34' || invoiceType === '33') {
+        payload.referenceInfo = {
+          modifiedInvoiceNumber: 'E310000000001',
+          modifiedInvoiceDate:   new Date().toISOString().split('T')[0],
+          modificationCode:      (invoiceType === '34' ? '1' : '3').replace(/^0/, '')
+        };
+        if (invoiceType === '34') payload.creditNoteIndicator = '0'; // Anulación
+      }
+
+      // Caso E43: Gastos Menores no requiere buyer ni incomeType
+      if (invoiceType === '43') {
+        delete payload.incomeType;
+        delete payload.paymentForms;
+        payload.items[0].billingIndicator = '4'; // Exento para Gastos Menores
+      }
+
+      const response = await client.submitDocument(payload);
       
       setCasos(prev => prev.map(c => c.id === casoId ? { 
         ...c, 
-        status: 'success', 
-        trackId 
+        status:  'success', 
+        trackId: response.encf,
+        pdfUrl:  response.pdf,
       } : c));
       
-      toast.success(`Caso ${caso.id} completado con éxito`);
+      toast.success(`Caso ${caso.id} completado — eNCF: ${response.encf}`);
     } catch (err: any) {
       setCasos(prev => prev.map(c => c.id === casoId ? { 
         ...c, 
         status: 'error', 
-        error: err.message 
+        error:  err.message 
       } : c));
       toast.error(`Error en caso ${casoId}: ` + err.message);
     }
   }
+
 
   if (!auth || !tenant) return null;
 

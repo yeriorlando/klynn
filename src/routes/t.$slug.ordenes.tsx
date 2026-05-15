@@ -1,4 +1,5 @@
 import { createFileRoute } from "@tanstack/react-router";
+import { QRCodeSVG } from "qrcode.react";
 import { useMemo, useState, useEffect } from "react";
 import { createPortal } from "react-dom";
 import { Search, Printer, Eye, XCircle, MessageCircle, DownloadCloud, MoreVertical, ArrowUpCircle } from "lucide-react";
@@ -19,6 +20,7 @@ import {
   type Orden, type EstadoOrden,
   checkPlanLimits, getCajaAbierta, saveMovimiento, uid, nextECFNumero, saveECFDocument
 } from "@/lib/storage";
+import { emitirECF, getECFConfig } from "@/lib/fiscal";
 import { toast } from "sonner";
 import { AlertTriangle, Rocket } from "lucide-react";
 import { 
@@ -119,26 +121,45 @@ function OrdenesPage() {
       // 1. Generar Nota de Crédito (E34) si la orden tenía NCF electrónico
       if (anular.tipo_ecf && anular.ncf) {
         try {
-          notaCreditoNCF = await nextECFNumero(tenant.id, "E34");
-          
-          await saveECFDocument({
-            id: uid("ecf"),
-            tenant_id: tenant.id,
-            order_id: anular.id,
-            encf: notaCreditoNCF,
-            tipo_ecf: "E34",
-            rnc_receptor: clientes.find(c => c.id === anular.cliente_id)?.cedula,
-            status: "accepted",
-            monto_total: anular.total,
-            monto_itbis: anular.itbis,
-            fecha_emision: new Date().toISOString(),
-            xml_content: "ANULACION_FISCAL",
-          });
-
-          toast.info(`Nota de Crédito generada: ${notaCreditoNCF} 📄`);
+          const cfg = await getECFConfig(tenant.id);
+          if (cfg?.is_active && cfg.pronesoft_tenant_id) {
+            const cliente = clientes.find(c => c.id === anular.cliente_id) || null;
+            const res = await emitirECF(
+              anular,
+              cliente,
+              cfg.pronesoft_tenant_id,
+              cfg,
+              tenant,
+              "E34", // Tipo: Nota de Crédito
+              {
+                ncf: anular.ncf,
+                date: anular.creado_en,
+                code: codigoAnular // 01=Anulación total, etc.
+              }
+            );
+            notaCreditoNCF = res.encf;
+            toast.info(`Nota de Crédito emitida: ${notaCreditoNCF} 📄`);
+          } else {
+            // Modo offline/local
+            notaCreditoNCF = await nextECFNumero(tenant.id, "E34");
+            await saveECFDocument({
+              id: uid("ecf"),
+              tenant_id: tenant.id,
+              order_id: anular.id,
+              encf: notaCreditoNCF,
+              tipo_ecf: "E34",
+              rnc_receptor: clientes.find(c => c.id === anular.cliente_id)?.cedula,
+              status: "accepted",
+              monto_total: anular.total,
+              monto_itbis: anular.itbis,
+              fecha_emision: new Date().toISOString(),
+              xml_content: "ANULACION_LOCAL",
+            });
+            toast.info(`Nota de Crédito local: ${notaCreditoNCF} 📄`);
+          }
         } catch (e: any) {
           console.error("Error fiscal:", e);
-          toast.warning("No se pudo generar el documento fiscal E34. Revise sus secuencias.");
+          toast.warning("No se pudo emitir la Nota de Crédito. Se anulará localmente.");
         }
       }
 
@@ -192,21 +213,49 @@ function OrdenesPage() {
       let notaDebitoID = "";
 
       if (isECF) {
-        const next = await nextECFNumero(tenant.id, "33"); // E33
-        if (next) {
-          notaDebitoNCF = next.ncf;
-          notaDebitoID = uid("ecf");
-          await saveECFDocument({
-            id: notaDebitoID,
-            tenant_id: tenant.id,
-            tipo: "33",
-            ncf: notaDebitoNCF,
-            monto_total: montoDebito,
-            rnc_receptor: clientes.find(c => c.id === debito.cliente_id)?.cedula || "",
-            fecha_emision: new Date().toISOString(),
-            estado: "ACEPTADO",
-            ncf_modificado: debito.ncf
-          });
+        try {
+          const cfg = await getECFConfig(tenant.id);
+          if (cfg?.is_active && cfg.pronesoft_tenant_id) {
+            const cliente = clientes.find(c => c.id === debito.cliente_id) || null;
+            // Clonamos la orden para ajustar el total de la ND
+            const ordenND = { ...debito, total: montoDebito, subtotal: montoDebito, itbis: 0 };
+            const res = await emitirECF(
+              ordenND,
+              cliente,
+              cfg.pronesoft_tenant_id,
+              cfg,
+              tenant,
+              "E33", // Nota de Débito
+              {
+                ncf: debito.ncf!,
+                date: debito.creado_en,
+                code: "03" // 03 = Ajuste de precio
+              }
+            );
+            notaDebitoNCF = res.encf;
+            notaDebitoID = res.document.id;
+          } else {
+            const next = await nextECFNumero(tenant.id, "33"); // E33
+            if (next) {
+              notaDebitoNCF = next.ncf;
+              notaDebitoID = uid("ecf");
+              await saveECFDocument({
+                id: notaDebitoID,
+                tenant_id: tenant.id,
+                tipo: "33",
+                ncf: notaDebitoNCF,
+                monto_total: montoDebito,
+                rnc_receptor: clientes.find(c => c.id === debito.cliente_id)?.cedula || "",
+                fecha_emision: new Date().toISOString(),
+                estado: "ACEPTADO",
+                ncf_modificado: debito.ncf
+              });
+            }
+          }
+        } catch (e: any) {
+          console.error("Error ND Fiscal:", e);
+          toast.error("Error al emitir Nota de Débito fiscal.");
+          return;
         }
       }
 
@@ -384,7 +433,7 @@ function OrdenesPage() {
       {/* Vista detalle */}
       {/* Vista detalle */}
       <Dialog open={!!view} onOpenChange={(o) => !o && setView(null)}>
-        <DialogContent className="max-w-4xl">
+      <DialogContent className="max-w-4xl max-h-[90vh] overflow-y-auto">
           {view && (
             <OrderDetail 
               view={view} 
@@ -509,7 +558,7 @@ function OrderDetail({ view, tenant, clientes, cambiarEstado, setView, onPrint }
       <DialogHeader>
         <DialogTitle>Orden {view.numero}</DialogTitle>
       </DialogHeader>
-      <div className="grid gap-4 md:grid-cols-2">
+      <div className="grid gap-6 md:grid-cols-2 items-start">
         <div className="space-y-2 text-sm">
           <div><strong>Cliente:</strong> {c.nombre}</div>
           <div><strong>Tel:</strong> {c.telefono}</div>
@@ -520,7 +569,30 @@ function OrderDetail({ view, tenant, clientes, cambiarEstado, setView, onPrint }
           <div><strong>Atendido por:</strong> {empleadoView.nombre}</div>
           {view.motivo_anulacion && <div className="rounded-md bg-destructive/10 p-2 text-destructive"><strong>Motivo anulación:</strong> {view.motivo_anulacion}</div>}
 
-          <div className="pt-3">
+          {/* Datos Fiscales */}
+          {view.ncf && (
+            <div className="mt-2 rounded-xl border border-primary/20 bg-primary/5 p-3 flex justify-between items-center gap-4">
+              <div className="space-y-1.5">
+                <div className="text-xs font-bold uppercase tracking-wider text-primary mb-1">Datos Fiscales</div>
+                <div className="text-sm"><strong>{view.ncf.startsWith("E") ? "e-NCF:" : "NCF:"}</strong> <span className="font-mono">{view.ncf}</span></div>
+                {view.ecf_security_code && <div className="text-sm"><strong>Cod. Seguridad:</strong> <span className="font-mono">{view.ecf_security_code}</span></div>}
+                {view.ecf_signature_date && (
+                  <div className="text-xs"><strong>Fecha Firma:</strong> {new Date(view.ecf_signature_date).toLocaleString("es-DO", { day: "2-digit", month: "2-digit", year: "numeric", hour: "2-digit", minute: "2-digit", hour12: true })}</div>
+                )}
+              </div>
+              {view.ncf.startsWith("E") && (
+                <div className="bg-white p-1.5 rounded-lg shadow-sm border border-primary/10">
+                  <QRCodeSVG 
+                    value={view.ecf_qr || `https://dgii.gov.do/consulta_ecf?RNC_EMISOR=${tenant.rnc}&E_NCF=${view.ncf}&MONTO_TOTAL=${view.total}&FECHA_EMISION=${new Date(view.creado_en).toLocaleDateString('en-GB').replace(/\//g, '')}`} 
+                    size={70} 
+                    level="M" 
+                  />
+                </div>
+              )}
+            </div>
+          )}
+
+          <div className="pt-2">
             <div className="mb-2 text-xs uppercase text-muted-foreground">Cambiar estado</div>
             <div className="flex flex-wrap gap-1.5">
               {(["RECIBIDA", "EN_PROCESO", "LISTA", "ENTREGADA"] as EstadoOrden[]).map((s) => (
@@ -529,7 +601,7 @@ function OrderDetail({ view, tenant, clientes, cambiarEstado, setView, onPrint }
             </div>
           </div>
 
-          <div className="flex gap-2 pt-6">
+          <div className="flex gap-2 pt-4">
             <Button className="flex-1 bg-emerald-600 hover:bg-emerald-700 text-white shadow-sm" onClick={() => {
               if (!c.telefono) { toast.error("El cliente no tiene teléfono"); return; }
               const promise = notificarWhatsApp(tenant, c, view, "creada", view.pagado);
@@ -669,7 +741,8 @@ function FacturaA4PrintPortal({ orden, tenant, onClose }: { orden: Orden; tenant
 
   const isCréditoFiscal = orden.ncf?.startsWith("E31") || orden.ncf?.startsWith("B01");
   const isECF = orden.ncf?.startsWith("E");
-  const qrUrl = isECF ? `https://dgii.gov.do/consulta_ecf?RNC_EMISOR=${tenant.rnc}&E_NCF=${orden.ncf}&MONTO_TOTAL=${orden.total}&FECHA_EMISION=${new Date(orden.creado_en).toLocaleDateString('en-GB').replace(/\//g, '')}` : "";
+  const qrData = orden.ecf_qr || (isECF ? `https://dgii.gov.do/consulta_ecf?RNC_EMISOR=${tenant.rnc}&E_NCF=${orden.ncf}&MONTO_TOTAL=${orden.total}&FECHA_EMISION=${new Date(orden.creado_en).toLocaleDateString('en-GB').replace(/\//g, '')}` : "");
+  const cfg = tenant.config;
 
   return createPortal(
     <div className="fixed inset-0 bg-white z-[99999] overflow-y-auto pointer-events-auto atomic-print-target">
@@ -702,31 +775,26 @@ function FacturaA4PrintPortal({ orden, tenant, onClose }: { orden: Orden; tenant
               <h2 className="text-2xl font-display font-black uppercase text-slate-900 mb-1">
                 {orden.nota_credito_ncf ? (isECF ? "Nota de Crédito Electrónica" : "Nota de Crédito") : (isCréditoFiscal ? "Factura de Crédito Fiscal" : (isECF ? "Factura de Consumo Electrónica" : "Factura de Consumo"))}
               </h2>
-              <div className="text-sm font-bold text-muted-foreground uppercase tracking-wider mb-4">
+              <div className="text-sm font-bold text-muted-foreground uppercase tracking-wider mb-2">
                 ORDEN #{orden.numero}
               </div>
               
-              <div className="grid grid-cols-2 gap-x-4 gap-y-1 text-xs text-slate-600 text-right">
-                <div className="font-bold">Fecha:</div>
-                <div>{new Date(orden.creado_en).toLocaleString("es-DO", { day: "2-digit", month: "2-digit", year: "numeric", hour: "2-digit", minute: "2-digit", hour12: true })}</div>
+              <table className="text-xs text-slate-600 ml-auto" style={{ borderSpacing: 0, borderCollapse: 'collapse' }}>
+                <tbody>
+                  <tr><td className="font-bold pr-1.5 text-right whitespace-nowrap">Fecha:</td><td className="text-left">{new Date(orden.creado_en).toLocaleString("es-DO", { day: "2-digit", month: "2-digit", year: "numeric", hour: "2-digit", minute: "2-digit", hour12: true })}</td></tr>
                 {orden.nota_credito_ncf ? (
                   <>
-                    <div className="font-bold text-destructive">{isECF ? "e-NCF:" : "NCF:"}</div>
-                    <div className="font-mono font-bold text-destructive">{orden.nota_credito_ncf}</div>
-                    <div className="font-bold">Doc. Modificado:</div>
-                    <div className="font-mono">{orden.ncf}</div>
+                    <tr><td className="font-bold pr-1.5 text-right text-destructive whitespace-nowrap">{isECF ? "e-NCF:" : "NCF:"}</td><td className="font-mono font-bold text-destructive text-left">{orden.nota_credito_ncf}</td></tr>
+                    <tr><td className="font-bold pr-1.5 text-right whitespace-nowrap">Doc. Modificado:</td><td className="font-mono text-left">{orden.ncf}</td></tr>
                   </>
                 ) : (
-                  orden.ncf && (
-                    <>
-                      <div className="font-bold">{isECF ? "e-NCF:" : "NCF:"}</div>
-                      <div className="font-mono">{orden.ncf}</div>
-                    </>
-                  )
+                  orden.ncf && <tr><td className="font-bold pr-1.5 text-right whitespace-nowrap">{isECF ? "e-NCF:" : "NCF:"}</td><td className="font-mono text-left">{orden.ncf}</td></tr>
                 )}
-                <div className="font-bold">Atendido por:</div>
-                <div>{emp.nombre}</div>
-              </div>
+                {orden.ecf_security_code && <tr><td className="font-bold pr-1.5 text-right whitespace-nowrap">Cod. Seguridad:</td><td className="font-mono text-left">{orden.ecf_security_code}</td></tr>}
+                {orden.ecf_signature_date && <tr><td className="font-bold pr-1.5 text-right whitespace-nowrap">Fecha Firma:</td><td className="text-left">{new Date(orden.ecf_signature_date).toLocaleString("es-DO", { day: "2-digit", month: "2-digit", year: "numeric", hour: "2-digit", minute: "2-digit", hour12: true })}</td></tr>}
+                <tr><td className="font-bold pr-1.5 text-right whitespace-nowrap">Atendido por:</td><td className="text-left">{emp.nombre}</td></tr>
+                </tbody>
+              </table>
             </div>
           </div>
 
@@ -750,30 +818,68 @@ function FacturaA4PrintPortal({ orden, tenant, onClose }: { orden: Orden; tenant
                 <th className="py-4 px-2 w-16">Cant.</th>
                 <th className="py-4 px-2">Descripción</th>
                 <th className="py-4 px-2 text-right">Precio Unit.</th>
+                <th className="py-4 px-2 text-right">ITBIS</th>
                 <th className="py-4 px-2 text-right">Subtotal</th>
               </tr>
             </thead>
             <tbody className="text-sm">
-              {orden.items.map((it, i) => (
-                <tr key={i} className="border-b border-slate-100">
-                  <td className="py-4 px-2 font-bold text-slate-500">{it.cantidad}</td>
-                  <td className="py-4 px-2 font-medium">{it.descripcion}</td>
-                  <td className="py-4 px-2 text-right text-slate-500">{formatRD(it.precio_unitario)}</td>
-                  <td className="py-4 px-2 text-right font-bold text-slate-900">{formatRD(it.precio_unitario * it.cantidad)}</td>
-                </tr>
-              ))}
-              {orden.servicios?.map((sName, i) => {
-                const srv = srvList.find(s => s.nombre === sName);
-                const p = srv ? srv.precio : 0;
+              {(() => {
+                const subtotalBruto = orden.items.reduce((acc, it) => acc + (it.cantidad * it.precio_unitario), 0) + 
+                  (orden.servicios?.map(s => srvList.find(x => x.nombre === s)?.precio || 0).reduce((a,b) => a+b, 0) || 0);
+                const isItbisIncluidoEnEstaOrden = cfg?.ncf_facturacion_activa && orden.itbis > 0 
+                  ? (subtotalBruto - orden.subtotal > 1) 
+                  : !!cfg?.itbis_incluido;
                 return (
-                  <tr key={'s'+i} className="border-b border-slate-100">
-                    <td className="py-4 px-2 font-bold text-slate-500">1</td>
-                    <td className="py-4 px-2 font-medium">Servicio: {sName}</td>
-                    <td className="py-4 px-2 text-right text-slate-500">{formatRD(p)}</td>
-                    <td className="py-4 px-2 text-right font-bold text-slate-900">{formatRD(p)}</td>
-                  </tr>
-                )
-              })}
+                  <>
+                    {orden.items.map((it, i) => {
+                      let baseTotal = it.cantidad * it.precio_unitario;
+                      let itemItbis = 0;
+                      let valor = baseTotal;
+                      if (cfg?.ncf_facturacion_activa && orden.itbis > 0) {
+                        if (isItbisIncluidoEnEstaOrden) {
+                          itemItbis = baseTotal - (baseTotal / (1 + (cfg.itbis_porcentaje || 18) / 100));
+                        } else {
+                          itemItbis = baseTotal * ((cfg.itbis_porcentaje || 18) / 100);
+                          valor = baseTotal + itemItbis;
+                        }
+                      }
+                      return (
+                        <tr key={i} className="border-b border-slate-100">
+                          <td className="py-4 px-2 font-bold text-slate-500">{it.cantidad}</td>
+                          <td className="py-4 px-2 font-medium">{it.descripcion}</td>
+                          <td className="py-4 px-2 text-right text-slate-500">{formatRD(it.precio_unitario)}</td>
+                          <td className="py-4 px-2 text-right text-slate-500">{itemItbis > 0 ? formatRD(itemItbis) : "—"}</td>
+                          <td className="py-4 px-2 text-right font-bold text-slate-900">{formatRD(valor)}</td>
+                        </tr>
+                      );
+                    })}
+                    {orden.servicios?.map((sName, i) => {
+                      const srv = srvList.find(s => s.nombre === sName);
+                      const p = srv ? srv.precio : 0;
+                      let baseTotal = p;
+                      let itemItbis = 0;
+                      let valor = baseTotal;
+                      if (cfg?.ncf_facturacion_activa && orden.itbis > 0) {
+                        if (isItbisIncluidoEnEstaOrden) {
+                          itemItbis = baseTotal - (baseTotal / (1 + (cfg.itbis_porcentaje || 18) / 100));
+                        } else {
+                          itemItbis = baseTotal * ((cfg.itbis_porcentaje || 18) / 100);
+                          valor = baseTotal + itemItbis;
+                        }
+                      }
+                      return (
+                        <tr key={'s'+i} className="border-b border-slate-100">
+                          <td className="py-4 px-2 font-bold text-slate-500">1</td>
+                          <td className="py-4 px-2 font-medium">Servicio: {sName}</td>
+                          <td className="py-4 px-2 text-right text-slate-500">{formatRD(p)}</td>
+                          <td className="py-4 px-2 text-right text-slate-500">{p > 0 && itemItbis > 0 ? formatRD(itemItbis) : "—"}</td>
+                          <td className="py-4 px-2 text-right font-bold text-slate-900">{formatRD(p > 0 ? valor : 0)}</td>
+                        </tr>
+                      );
+                    })}
+                  </>
+                );
+              })()}
             </tbody>
           </table>
 
@@ -820,9 +926,9 @@ function FacturaA4PrintPortal({ orden, tenant, onClose }: { orden: Orden; tenant
               Documento generado por Klynn POS
             </div>
             
-            {isECF && qrUrl && (
+            {isECF && qrData && (
               <div className="flex flex-col items-center gap-2">
-                <img src={`https://api.qrserver.com/v1/create-qr-code/?size=100x100&data=${encodeURIComponent(qrUrl)}`} alt="QR DGII" className="w-24 h-24" />
+                <QRCodeSVG value={qrData} size={100} level="M" />
                 <div className="text-[10px] text-center font-bold text-slate-500">
                   Consulte su factura en:<br/>dgii.gov.do
                 </div>
