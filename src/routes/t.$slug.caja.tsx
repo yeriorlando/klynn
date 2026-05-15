@@ -275,8 +275,29 @@ function CajaPage() {
         </div>
       </Card>
 
-      <AperturaDialog open={showApertura} onOpenChange={setShowApertura} tenantId={tenant.id} empleadoId={empleado.id} onDone={() => setRefresh((r) => r + 1)} />
-      <MovDialog tipo={showMov} onClose={() => setShowMov(null)} caja={caja} empleadoId={empleado.id} tenantId={tenant.id} tenant={tenant} onDone={() => setRefresh((r) => r + 1)} />
+      <AperturaDialog 
+        open={showApertura} 
+        onOpenChange={setShowApertura} 
+        tenantId={tenant.id} 
+        empleadoId={empleado.id} 
+        onDone={() => {
+          queryClient.invalidateQueries({ queryKey: ['caja-abierta', tenantId] });
+          queryClient.invalidateQueries({ queryKey: ['cajas', tenantId] });
+          setRefresh((r) => r + 1);
+        }} 
+      />
+      <MovDialog 
+        tipo={showMov} 
+        onClose={() => setShowMov(null)} 
+        caja={caja} 
+        empleadoId={empleado.id} 
+        tenantId={tenant.id} 
+        tenant={tenant} 
+        onDone={() => {
+          queryClient.invalidateQueries({ queryKey: ['movimientos', tenantId, caja?.id] });
+          setRefresh((r) => r + 1);
+        }} 
+      />
       <CierreDialog
         open={showCierre}
         onOpenChange={setShowCierre}
@@ -289,7 +310,11 @@ function CajaPage() {
         umbral={tenant.config?.umbral_diferencia_caja || 100}
         empleadoPin={empleado.pin}
         empleadoRol={empleado.rol}
-        onDone={() => setRefresh((r) => r + 1)}
+        onDone={() => {
+          queryClient.invalidateQueries({ queryKey: ['caja-abierta', tenantId] });
+          queryClient.invalidateQueries({ queryKey: ['cajas', tenantId] });
+          setRefresh((r) => r + 1);
+        }}
       />
       <HistoricoCierresDialog
         open={showHistorico}

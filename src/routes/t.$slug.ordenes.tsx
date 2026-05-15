@@ -370,7 +370,11 @@ function OrdenesPage() {
                 return (
                   <tr key={o.id} className="border-b border-border/50 hover:bg-accent/30">
                     <td className="px-4 py-3 font-mono text-xs font-semibold">{o.numero}</td>
-                    <td className="px-4 py-3">{c?.nombre || "—"}</td>
+                    <td className="px-4 py-3">
+                      <div className="max-w-[200px] truncate" title={c?.nombre || ""}>
+                        {c?.nombre || "—"}
+                      </div>
+                    </td>
                     <td className="px-4 py-3 text-center"><EstadoBadge estado={o.estado} /></td>
                     <td className="px-4 py-3 text-center font-medium">{formatRD(o.total)}</td>
                     <td className="px-4 py-3 text-center">

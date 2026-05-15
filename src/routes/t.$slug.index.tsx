@@ -188,7 +188,11 @@ function DashboardPage() {
                 return (
                   <tr key={o.id} className="border-b border-border/50 transition hover:bg-accent/40">
                     <td className="py-3 font-mono text-xs font-medium">{o.numero}</td>
-                    <td className="py-3">{c?.nombre || "—"}</td>
+                    <td className="py-3">
+                      <div className="max-w-[250px] truncate" title={c?.nombre || ""}>
+                        {c?.nombre || "—"}
+                      </div>
+                    </td>
                     <td className="py-3"><EstadoBadge estado={o.estado} /></td>
                     <td className="py-3 text-right font-medium">{formatRD(o.total)}</td>
                     <td className="py-3 text-right text-xs text-muted-foreground">{formatDateTimeRD(o.creado_en)}</td>

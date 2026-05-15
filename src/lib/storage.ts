@@ -302,7 +302,8 @@ export interface CatalogoItem {
   activo: boolean;
   is_exento?: boolean;
   imagen_url?: string;
-  icono?: string; // emoji o nombre lucide
+  icono?: string;
+  es_muestra?: boolean;
 }
 
 export interface Servicio {
@@ -315,6 +316,7 @@ export interface Servicio {
   activo: boolean;
   precio: number;
   is_exento?: boolean;
+  es_muestra?: boolean;
 }
 
 const KEY = {
@@ -1040,11 +1042,15 @@ export async function getHistoricoCierres(filters: { tenant_id: string; empleado
   return data || [];
 }
 
-export async function getCajaAbierta(tenant_id: string): Promise<Caja | undefined> {
-  if (!tenant_id || tenant_id === 'admin') return undefined;
-  const { data, error } = await supabase.from('cajas').select('*').eq('tenant_id', tenant_id).eq('estado', 'ABIERTA').single();
-  if (error) return undefined;
-  return data;
+export async function getCajaAbierta(tenant_id: string): Promise<Caja | null> {
+  if (!tenant_id || tenant_id === 'admin') return null;
+  try {
+    const { data, error } = await supabase.from('cajas').select('*').eq('tenant_id', tenant_id).eq('estado', 'ABIERTA').single();
+    if (error) return null;
+    return data;
+  } catch (e) {
+    return null;
+  }
 }
 
 export async function saveCaja(c: Caja) {

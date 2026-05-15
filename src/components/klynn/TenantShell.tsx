@@ -22,6 +22,7 @@ import { CloudSync } from "@/components/klynn/CloudSync";
 import { TourManager, resetTours } from "@/components/klynn/onboarding/TourManager";
 import { HelpCircle } from "lucide-react";
 import { queryClient } from "@/router";
+import { useCajaAbierta } from "@/hooks/use-queries";
 
 interface NavItem {
   to: string;
@@ -52,15 +53,8 @@ export function TenantShell() {
   const pathname = useRouterState({ select: (s) => s.location.pathname });
   const [mobileOpen, setMobileOpen] = useState(false);
 
-  const [cajaAbierta, setCajaAbierta] = useState<boolean>(false);
-
-  useEffect(() => {
-    if (!user || user.tenant.id === '__loading__' || user.tenant.id === 'admin') {
-      if (user?.tenant?.id === 'admin') setCajaAbierta(false);
-      return;
-    }
-    getCajaAbierta(user.tenant.id).then(caja => setCajaAbierta(!!caja));
-  }, [user, pathname]);
+  const { data: cajaData } = useCajaAbierta(user?.tenant?.id || '');
+  const cajaAbierta = !!cajaData;
 
   // Protección de rutas — DEBE estar antes del return condicional
   useEffect(() => {

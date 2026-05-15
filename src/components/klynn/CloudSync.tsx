@@ -65,28 +65,15 @@ export function CloudSync({ tenantId }: { tenantId: string }) {
   useEffect(() => {
     checkLocalData();
     
-    // Auto-sync al montar si estamos online y hay datos
-    // Usamos un pequeño delay para evitar colisiones con la carga inicial
-    const timeout = setTimeout(() => {
-      const hasData = checkLocalData();
-      if (hasData && navigator.onLine && status !== "syncing") {
-        sync();
-      }
-    }, 1000);
-
     const handleOnline = () => {
-      if (checkLocalData()) sync();
+      checkLocalData(); // Solo actualizar estado
     };
 
     const handleOffline = () => setStatus("offline");
     const handleLocalSave = () => {
       setHasLocalData(true);
-      // Solo intentamos sync si estamos online y no estamos ya sincronizando
-      if (navigator.onLine && status !== "syncing") {
-        sync();
-      } else {
-        setStatus("offline");
-      }
+      // Solo avisar, NO sincronizar automáticamente
+      if (!navigator.onLine) setStatus("offline");
     };
 
     window.addEventListener("online", handleOnline);
@@ -94,7 +81,6 @@ export function CloudSync({ tenantId }: { tenantId: string }) {
     window.addEventListener("klynn-offline-save", handleLocalSave);
 
     return () => {
-      clearTimeout(timeout);
       window.removeEventListener("online", handleOnline);
       window.removeEventListener("offline", handleOffline);
       window.removeEventListener("klynn-offline-save", handleLocalSave);

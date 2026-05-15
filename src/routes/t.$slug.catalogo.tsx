@@ -92,23 +92,8 @@ function CatalogoPage() {
   const [editServ, setEditServ] = useState<Servicio | null>(null);
   const [openServ, setOpenServ] = useState(false);
 
-  useEffect(() => {
-    async function checkSeed() {
-      if (!tenantId || tenantId === '__loading__') return;
-      if (seeding) return;
-      
-      // Si el catálogo está vacío, sincronizar
-      if (!loadingItems && !loadingServicios && items.length === 0 && servicios.length === 0) {
-        setSeeding(true);
-        console.log("Sincronizando catálogo con muestras...");
-        await seedSamplePrendas(tenantId);
-        await seedSampleServicios(tenantId);
-        queryClient.invalidateQueries({ queryKey: ['catalogo', tenantId] });
-        queryClient.invalidateQueries({ queryKey: ['servicios', tenantId] });
-      }
-    }
-    checkSeed();
-  }, [tenantId, loadingItems, loadingServicios, items.length, servicios.length]);
+    // Sincronización automática desactivada, manejada por DB Triggers
+
 
   const loading = loadingItems || loadingServicios;
 
@@ -204,7 +189,7 @@ function CatalogoPage() {
                             <div className="font-display font-bold text-white text-lg leading-tight drop-shadow-md">
                               {it.nombre}
                             </div>
-                            {it.tenant_id === 'admin' && (
+                            {it.es_muestra && (
                               <Badge className="w-fit bg-primary/80 backdrop-blur-md text-[9px] h-4 px-1.5 border-none text-white uppercase font-black tracking-wider">Muestra</Badge>
                             )}
                           </div>
@@ -307,7 +292,7 @@ function CatalogoPage() {
                           <div className="font-display font-bold text-white text-lg leading-tight drop-shadow-md">
                             {s.nombre}
                           </div>
-                          {s.tenant_id === 'admin' && (
+                          {s.es_muestra && (
                             <Badge className="w-fit bg-primary/80 backdrop-blur-md text-[9px] h-4 px-1.5 border-none text-white uppercase font-black tracking-wider">Muestra</Badge>
                           )}
                         </div>
@@ -390,7 +375,7 @@ function ItemDialog({ open, onOpenChange, tenantId, initial, onSaved }: {
   
   useEffect(() => { 
     if (open) {
-      setF(initial ? { ...initial } : { categoria: "", nombre: "", precio: 0, activo: true, icono: "👕", is_exento: false });
+      setF(initial ? { ...initial } : { categoria: "", nombre: "", precio: 0, activo: true, icono: "👕", is_exento: false, es_muestra: false });
       setMode(initial?.imagen_url ? "image" : "emoji");
       setImgError(false);
       setIconSearch("");
@@ -438,9 +423,8 @@ function ItemDialog({ open, onOpenChange, tenantId, initial, onSaved }: {
 
   async function submit() {
     if (!f.nombre?.trim() || !f.categoria?.trim()) { toast.error("Nombre y categoría requeridos"); return; }
-    const isCloning = initial?.tenant_id === 'admin';
     const item: CatalogoItem = {
-      id: isCloning ? uid("cat") : (initial?.id ?? uid("cat")),
+      id: initial?.id ?? uid("cat"),
       tenant_id: tenantId,
       categoria: f.categoria!.trim(),
       nombre: f.nombre!.trim(),
@@ -448,11 +432,12 @@ function ItemDialog({ open, onOpenChange, tenantId, initial, onSaved }: {
       por_libra: !!f.por_libra,
       activo: f.activo ?? true,
       is_exento: !!f.is_exento,
+      es_muestra: !!f.es_muestra,
       icono: mode === "emoji" ? f.icono : undefined,
       imagen_url: mode === "image" ? f.imagen_url : undefined,
     };
     await saveCatalogoItem(item);
-    toast.success(isCloning ? "Prenda personalizada para tu catálogo" : (initial ? "Prenda actualizada" : "Prenda creada"));
+    toast.success(initial ? "Prenda actualizada" : "Prenda creada");
     onSaved();
   }
 
@@ -505,6 +490,13 @@ function ItemDialog({ open, onOpenChange, tenantId, initial, onSaved }: {
                   <div className="space-y-0.5">
                     <Label className="text-sm font-bold">Estado Activo</Label>
                     <p className="text-[11px] text-muted-foreground leading-none">Visible al crear órdenes.</p>
+                  </div>
+                </div>
+                <div className="flex items-center gap-3 p-4 rounded-xl bg-white border border-border/60 shadow-sm col-span-2">
+                  <Switch checked={!!f.es_muestra} onCheckedChange={(v) => setF({ ...f, es_muestra: v })} />
+                  <div className="space-y-0.5">
+                    <Label className="text-sm font-bold">Es Muestra</Label>
+                    <p className="text-[11px] text-muted-foreground leading-none">Marcar como producto de muestra o ejemplo.</p>
                   </div>
                 </div>
               </div>
@@ -647,7 +639,7 @@ function ServDialog({ open, onOpenChange, tenantId, initial, onSaved }: {
 
   useEffect(() => { 
     if (open) {
-      setF(initial ? { ...initial } : { nombre: "", descripcion: "", icono: "🧺", activo: true, precio: 0, is_exento: false });
+      setF(initial ? { ...initial } : { nombre: "", descripcion: "", icono: "🧺", activo: true, precio: 0, is_exento: false, es_muestra: false });
       setMode(initial?.imagen_url ? "image" : "emoji");
       setImgError(false);
       setIconSearch("");
