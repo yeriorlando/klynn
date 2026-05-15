@@ -1,5 +1,8 @@
 import { Outlet, Link, createRootRoute, HeadContent, Scripts } from "@tanstack/react-router";
 import { Toaster } from "@/components/ui/sonner";
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+
+import { queryClient } from "../router";
 
 import appCss from "../styles.css?url";
 
@@ -29,6 +32,9 @@ function NotFoundComponent() {
 }
 
 export const Route = createRootRoute({
+  context: () => ({
+    queryClient,
+  }),
   head: () => ({
     meta: [
       { charSet: "utf-8" },
@@ -106,5 +112,9 @@ function RootShell({ children }: { children: React.ReactNode }) {
 }
 
 function RootComponent() {
-  return <Outlet />;
+  return (
+    <QueryClientProvider client={queryClient}>
+      <Outlet />
+    </QueryClientProvider>
+  );
 }

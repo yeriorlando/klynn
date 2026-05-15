@@ -63,11 +63,8 @@ export async function emitirECF(
   // 1. Construir payload
   const payload = ordenToECFPayload(orden, cliente, config, tipoECF, reference);
 
-  // 2. Obtener cliente Pronesoft (con el tenant ID de este negocio y el ambiente configurado)
-  const client = getProneSoftClient(
-    ecfTenantId, 
-    config.ambiente === 'pruebas' ? 'sandbox' : 'production'
-  );
+  // 2. Obtener cliente Pronesoft (usa VITE_PRONESOFT_ENV del .env para determinar sandbox/production)
+  const client = getProneSoftClient(ecfTenantId);
 
   // 3. Enviar a Pronesoft → DGII
   let response: ECFSubmitResponse;
@@ -153,10 +150,8 @@ export async function registerTenantInPronesoft(tenantId: string): Promise<strin
   // Buscamos el nombre del tenant para tener un fallback si razon_social está vacío
   const { data: tenantData } = await supabase.from('tenants').select('nombre').eq('id', tenantId).single();
 
-  const client = getProneSoftClient(
-    undefined, 
-    config.ambiente === 'pruebas' ? 'sandbox' : 'production'
-  ); // Cliente global con ambiente dinámico
+  const proneSoftEnv = config.ambiente === 'pruebas' ? 'sandbox' : config.ambiente === 'produccion' ? 'production' : undefined;
+  const client = getProneSoftClient(undefined, proneSoftEnv);
 
   const companyName = config.razon_social || tenantData?.nombre || "Lavanderia Klynn";
 
@@ -165,7 +160,7 @@ export async function registerTenantInPronesoft(tenantId: string): Promise<strin
     const res = await client.createAssociatedCompany({
       rnc: config.rnc_emisor,
       name: companyName,
-      environment: config.ambiente === 'pruebas' ? 'sandbox' : 'production'
+      environment: config.ambiente === 'pruebas' ? 'sandbox' : config.ambiente === 'produccion' ? 'production' : 'sandbox'
     });
 
     if (!res.id) throw new Error("Pronesoft no devolvió un ID de empresa");
@@ -196,10 +191,8 @@ export async function uploadCertificateToPronesoft(
     throw new Error("Primero debes activar el módulo fiscal");
   }
 
-  const client = getProneSoftClient(
-    config.pronesoft_tenant_id,
-    config.ambiente === 'pruebas' ? 'sandbox' : 'production'
-  );
+  const proneSoftEnv2 = config.ambiente === 'pruebas' ? 'sandbox' : config.ambiente === 'produccion' ? 'production' : undefined;
+  const client = getProneSoftClient(config.pronesoft_tenant_id, proneSoftEnv2);
   const res = await client.uploadCertificate({
     certificate: base64,
     password: password,

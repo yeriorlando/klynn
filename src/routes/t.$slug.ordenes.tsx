@@ -31,6 +31,8 @@ import {
   DropdownMenuSeparator,
   DropdownMenuLabel
 } from "@/components/ui/dropdown-menu";
+import { useOrdenes, useClientes, useCajaAbierta, useEmpleados, useServicios } from "@/hooks/use-queries";
+import { useQueryClient } from "@tanstack/react-query";
 import { useNavigate } from "@tanstack/react-router";
 
 export const Route = createFileRoute("/t/$slug/ordenes")({
@@ -39,6 +41,7 @@ export const Route = createFileRoute("/t/$slug/ordenes")({
 
 function OrdenesPage() {
   const user = useRequireAuth();
+  const queryClient = useQueryClient();
   const [q, setQ] = useState("");
   const [filtroEstado, setFiltroEstado] = useState<EstadoOrden | "todos">("todos");
   const [view, setView] = useState<Orden | null>(null);
@@ -48,38 +51,32 @@ function OrdenesPage() {
   const [debito, setDebito] = useState<Orden | null>(null);
   const [montoDebito, setMontoDebito] = useState(0);
   const [motivoDebito, setMotivoDebito] = useState("");
-  const [refresh, setRefresh] = useState(0);
   const [showPrint, setShowPrint] = useState<Orden | null>(null);
   const [showDownloadA4, setShowDownloadA4] = useState<Orden | null>(null);
   const navigate = useNavigate();
 
-  const [ordenes, setOrdenes] = useState<Orden[]>([]);
-  const [clientes, setClientes] = useState<Cliente[]>([]);
-  const [cajaAbierta, setCajaAbierta] = useState<Caja | undefined>(undefined);
-  const [limits, setLimits] = useState<any>({ orderLimit: null, orderCount: 0, ordersReached: false });
-  const [loading, setLoading] = useState(true);
-
   const tenant = user?.tenant;
   const tenantId = tenant?.id || '';
 
+  const { data: ordenes = [], isLoading: loadingOrdenes } = useOrdenes(tenantId);
+  const { data: clientes = [], isLoading: loadingClientes } = useClientes(tenantId);
+  const { data: cajaAbierta, isLoading: loadingCaja } = useCajaAbierta(tenantId);
+  const { data: empleados = [] } = useEmpleados(tenantId);
+  const { data: servicios = [] } = useServicios(tenantId);
+
+  const [limits, setLimits] = useState<any>({ orderLimit: null, orderCount: 0, ordersReached: false });
+  const [loadingLimits, setLoadingLimits] = useState(false);
+
   useEffect(() => {
-    async function load() {
-      if (!tenantId || tenantId === '__loading__') return;
-      setLoading(true);
-      const [oList, cList, activeCaja] = await Promise.all([
-        getOrdenes(tenantId),
-        getClientes(tenantId),
-        getCajaAbierta(tenantId)
-      ]);
-      const lim = await checkPlanLimits(tenant);
-      setOrdenes(oList);
-      setClientes(cList);
-      setCajaAbierta(activeCaja);
+    if (!tenantId || tenantId === '__loading__') return;
+    setLoadingLimits(true);
+    checkPlanLimits(tenant).then(lim => {
       setLimits(lim);
-      setLoading(false);
-    }
-    load();
-  }, [tenantId, refresh]);
+      setLoadingLimits(false);
+    });
+  }, [tenantId, ordenes.length]);
+
+  const loading = loadingOrdenes || loadingClientes || loadingCaja;
 
   const filt = useMemo(() => {
     return ordenes.filter((o) => {
@@ -95,7 +92,7 @@ function OrdenesPage() {
   async function cambiarEstado(o: Orden, estado: EstadoOrden) {
     try {
       await saveOrden({ ...o, estado });
-      setRefresh((r) => r + 1);
+      queryClient.invalidateQueries({ queryKey: ['ordenes', tenantId] });
       toast.success(`Estado actualizado: ${estado} ✨`);
       if (estado === "LISTA" || estado === "ENTREGADA") {
         const cli = clientes.find((c) => c.id === o.cliente_id);
@@ -193,7 +190,8 @@ function OrdenesPage() {
 
       setAnular(null); 
       setMotivoAnular(""); 
-      setRefresh((r) => r + 1);
+      queryClient.invalidateQueries({ queryKey: ['ordenes', tenantId] });
+      queryClient.invalidateQueries({ queryKey: ['movimientos', tenantId] });
       
       // ACTIVAR MODAL DE IMPRESIÓN AUTOMÁTICAMENTE
       setShowPrint(ordenAnulada);
@@ -273,7 +271,7 @@ function OrdenesPage() {
       setDebito(null);
       setMontoDebito(0);
       setMotivoDebito("");
-      setRefresh(r => r + 1);
+      queryClient.invalidateQueries({ queryKey: ['ordenes', tenantId] });
       setShowPrint(ordenActualizada);
       
       toast.success("Nota de Débito generada correctamente ✓");
@@ -575,9 +573,9 @@ function OrderDetail({ view, tenant, clientes, cambiarEstado, setView, onPrint }
               <div className="space-y-1.5">
                 <div className="text-xs font-bold uppercase tracking-wider text-primary mb-1">Datos Fiscales</div>
                 <div className="text-sm"><strong>{view.ncf.startsWith("E") ? "e-NCF:" : "NCF:"}</strong> <span className="font-mono">{view.ncf}</span></div>
-                {view.ecf_security_code && <div className="text-sm"><strong>Cod. Seguridad:</strong> <span className="font-mono">{view.ecf_security_code}</span></div>}
-                {view.ecf_signature_date && (
-                  <div className="text-xs"><strong>Fecha Firma:</strong> {new Date(view.ecf_signature_date).toLocaleString("es-DO", { day: "2-digit", month: "2-digit", year: "numeric", hour: "2-digit", minute: "2-digit", hour12: true })}</div>
+                {view.ecf_security_code && view.ecf_security_code !== "null" && <div className="text-sm"><strong>Cod. Seguridad:</strong> <span className="font-mono">{view.ecf_security_code}</span></div>}
+                {view.ecf_signature_date && view.ecf_signature_date !== "null" && (
+                  <div className="text-xs"><strong>Fecha Firma:</strong> {formatDateTimeRD(view.ecf_signature_date)}</div>
                 )}
               </div>
               {view.ncf.startsWith("E") && (
@@ -790,27 +788,29 @@ function FacturaA4PrintPortal({ orden, tenant, onClose }: { orden: Orden; tenant
                 ) : (
                   orden.ncf && <tr><td className="font-bold pr-1.5 text-right whitespace-nowrap">{isECF ? "e-NCF:" : "NCF:"}</td><td className="font-mono text-left">{orden.ncf}</td></tr>
                 )}
-                {orden.ecf_security_code && <tr><td className="font-bold pr-1.5 text-right whitespace-nowrap">Cod. Seguridad:</td><td className="font-mono text-left">{orden.ecf_security_code}</td></tr>}
-                {orden.ecf_signature_date && <tr><td className="font-bold pr-1.5 text-right whitespace-nowrap">Fecha Firma:</td><td className="text-left">{new Date(orden.ecf_signature_date).toLocaleString("es-DO", { day: "2-digit", month: "2-digit", year: "numeric", hour: "2-digit", minute: "2-digit", hour12: true })}</td></tr>}
+                {orden.ecf_security_code && orden.ecf_security_code !== "null" && <tr><td className="font-bold pr-1.5 text-right whitespace-nowrap">Cod. Seguridad:</td><td className="font-mono text-left">{orden.ecf_security_code}</td></tr>}
+                {orden.ecf_signature_date && orden.ecf_signature_date !== "null" && <tr><td className="font-bold pr-1.5 text-right whitespace-nowrap">Fecha Firma:</td><td className="text-left">{formatDateTimeRD(orden.ecf_signature_date)}</td></tr>}
                 <tr><td className="font-bold pr-1.5 text-right whitespace-nowrap">Atendido por:</td><td className="text-left">{emp.nombre}</td></tr>
                 </tbody>
               </table>
             </div>
           </div>
 
-          <div className="bg-slate-50 p-4 rounded-xl border border-slate-100 print:bg-white mb-8 flex justify-between items-center">
-            <div>
-              <div className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-1">Facturado a</div>
-              <div className="text-lg font-bold text-slate-900">{cli.nombre}</div>
-              {cli.cedula && (
-                <div className="text-sm text-slate-600">
-                  <span className="font-bold">{cli.tipo === 'Empresa' ? "RNC:" : "Cédula:"}</span> {cli.cedula}
-                </div>
-              )}
-              {cli.direccion && <div className="text-sm text-slate-600">{cli.direccion}</div>}
-              {cli.telefono && <div className="text-sm text-slate-600">Tel: {cli.telefono}</div>}
+          {!(cli.nombre === "Consumidor" && cli.apellido === "Final") && (
+            <div className="bg-slate-50 p-4 rounded-xl border border-slate-100 print:bg-white mb-8 flex justify-between items-center">
+              <div>
+                <div className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-1">Facturado a</div>
+                <div className="text-lg font-bold text-slate-900">{cli.nombre} {cli.apellido || ""}</div>
+                {cli.cedula && (
+                  <div className="text-sm text-slate-600">
+                    <span className="font-bold">{cli.tipo === 'Empresa' ? "RNC:" : "Cédula:"}</span> {cli.cedula}
+                  </div>
+                )}
+                {cli.direccion && <div className="text-sm text-slate-600">{cli.direccion}</div>}
+                {cli.telefono && cli.telefono !== "---" && <div className="text-sm text-slate-600">Tel: {cli.telefono}</div>}
+              </div>
             </div>
-          </div>
+          )}
 
           <table className="w-full text-left border-collapse mb-8">
             <thead>

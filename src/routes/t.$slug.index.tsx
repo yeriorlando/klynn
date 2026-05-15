@@ -12,6 +12,7 @@ import {
 import {
   Receipt, Package, Wallet, AlertCircle, ArrowUpRight, FilePlus2, Truck, TrendingUp,
 } from "lucide-react";
+import { useOrdenes, useCajaAbierta, useGastos, useClientes, useMovimientos } from "@/hooks/use-queries";
 import { TenantShell } from "@/components/klynn/TenantShell";
 
 export const Route = createFileRoute("/t/$slug/")({
@@ -20,40 +21,17 @@ export const Route = createFileRoute("/t/$slug/")({
 
 function DashboardPage() {
   const user = useRequireAuth();
-  const [ordenes, setOrdenes] = useState<Orden[]>([]);
-  const [caja, setCaja] = useState<CajaSesion | null>(null);
-  const [movs, setMovs] = useState<CajaMovimiento[]>([]);
-  const [gastos, setGastos] = useState<Gasto[]>([]);
-  const [clientes, setClientes] = useState<Cliente[]>([]);
-  const [loading, setLoading] = useState(true);
+  const tenantId = user?.tenant?.id || '';
+
+  const { data: ordenes = [], isLoading: loadingOrdenes } = useOrdenes(tenantId);
+  const { data: caja, isLoading: loadingCaja } = useCajaAbierta(tenantId);
+  const { data: gastos = [], isLoading: loadingGastos } = useGastos(tenantId);
+  const { data: clientes = [], isLoading: loadingClientes } = useClientes(tenantId);
+  const { data: movs = [], isLoading: loadingMovs } = useMovimientos(tenantId, caja?.id);
+
+  const loading = loadingOrdenes || loadingCaja || loadingGastos || loadingClientes;
 
   const tenant = user?.tenant;
-
-  useEffect(() => {
-    async function load() {
-      if (!tenant || tenant.id === '__loading__') return;
-      setLoading(true);
-      const [oList, cSesion, gList, cList] = await Promise.all([
-        getOrdenes(tenant.id),
-        getCajaAbierta(tenant.id),
-        getGastos(tenant.id),
-        getClientes(tenant.id)
-      ]);
-      
-      let mList: CajaMovimiento[] = [];
-      if (cSesion) {
-        mList = await getMovimientos(tenant.id, cSesion.id);
-      }
-
-      setOrdenes(oList);
-      setCaja(cSesion);
-      setMovs(mList);
-      setGastos(gList);
-      setClientes(cList);
-      setLoading(false);
-    }
-    load();
-  }, [tenant?.id]);
 
   const stats = useMemo(() => {
     const hoy = new Date(); hoy.setHours(0, 0, 0, 0);

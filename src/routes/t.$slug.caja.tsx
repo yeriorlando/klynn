@@ -21,6 +21,8 @@ import {
   type Caja, type TipoMovimiento, type MetodoPago, type Empleado, type Orden, type Tenant, type MovimientoCaja, type ECFConfig, type ECFDocument
 } from "@/lib/storage";
 import { getECFConfig, getECFDocuments, registerTenantInPronesoft } from "@/lib/fiscal";
+import { useCajaAbierta, useCajas, useMovimientos, useECFConfig, useECFDocuments } from "@/hooks/use-queries";
+import { useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
 import { BarChart3, Rocket, Activity, CheckCircle } from "lucide-react";
 import { Progress } from "@/components/ui/progress";
@@ -31,50 +33,25 @@ export const Route = createFileRoute("/t/$slug/caja")({
 
 function CajaPage() {
   const user = useRequireAuth();
-  const [refresh, setRefresh] = useState(0);
+  const queryClient = useQueryClient();
+  const tenant = user?.tenant;
+  const empleado = user?.empleado;
+  const tenantId = tenant?.id || '';
+
   const [showApertura, setShowApertura] = useState(false);
   const [showMov, setShowMov] = useState<TipoMovimiento | null>(null);
   const [showCierre, setShowCierre] = useState(false);
   const [showHistorico, setShowHistorico] = useState(false);
   const [showCuadre, setShowCuadre] = useState(false);
 
-  const [caja, setCaja] = useState<Caja | undefined>(undefined);
-  const [todas, setTodas] = useState<Caja[]>([]);
-  const [movs, setMovs] = useState<MovimientoCaja[]>([]);
-  const [loading, setLoading] = useState(true);
-  
-  // Fiscal Data
-  const [fiscalConfig, setFiscalConfig] = useState<ECFConfig | null>(null);
-  const [fiscalDocs, setFiscalDocs] = useState<ECFDocument[]>([]);
+  const { data: caja, isLoading: loadingCaja } = useCajaAbierta(tenantId);
+  const { data: todas = [], isLoading: loadingTodas } = useCajas(tenantId);
+  const { data: movs = [], isLoading: loadingMovs } = useMovimientos(tenantId, caja?.id);
+  const { data: fiscalConfigData } = useECFConfig(tenantId);
+  const { data: fiscalDocs = [] } = useECFDocuments(tenantId);
 
-  const tenant = user?.tenant;
-  const empleado = user?.empleado;
-  const tenantId = tenant?.id || '';
-
-  useEffect(() => {
-    async function load() {
-      if (!tenantId || tenantId === '__loading__') return;
-      setLoading(true);
-      try {
-        const [activeCaja, list, mList, config, docs] = await Promise.all([
-          getCajaAbierta(tenantId),
-          getCajas(tenantId),
-          getCajaAbierta(tenantId).then(c => c ? getMovimientos(tenantId, c.id) : []),
-          getECFConfig(tenantId),
-          getECFDocuments(tenantId)
-        ]);
-        setCaja(activeCaja);
-        setTodas(list);
-        setMovs(mList);
-        setFiscalConfig(config);
-        setFiscalDocs(docs);
-      } catch (err) {
-        console.error("Error cargando caja/fiscal:", err);
-      }
-      setLoading(false);
-    }
-    load();
-  }, [tenantId, refresh]);
+  const fiscalConfig = fiscalConfigData || null;
+  const loading = loadingCaja || loadingTodas || (!!caja && loadingMovs);
 
   const ventasEf = movs.filter((m) => m.tipo === "VENTA" && m.metodo === "EFECTIVO").reduce((s, m) => s + m.monto, 0);
   const ventasTar = movs.filter((m) => m.tipo === "VENTA" && m.metodo === "TARJETA").reduce((s, m) => s + m.monto, 0);
@@ -89,7 +66,7 @@ function CajaPage() {
     <div>
       <PageHeader title="Caja" description="Apertura, movimientos del turno y cierre con cuadre.">
         <div className="flex items-center gap-2">
-          <FiscalSummary config={fiscalConfig} docs={fiscalDocs} onRefresh={() => setRefresh(r => r + 1)} />
+          <FiscalSummary config={fiscalConfig} docs={fiscalDocs} onRefresh={() => queryClient.invalidateQueries({ queryKey: ['ecf-config', tenantId] })} />
           {!caja ? (
             <Button onClick={() => setShowApertura(true)} className="bg-gradient-primary text-white"><Wallet className="mr-1.5 h-4 w-4" /> Abrir caja</Button>
           ) : (

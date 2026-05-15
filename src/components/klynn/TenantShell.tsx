@@ -9,13 +9,19 @@ import { BrandStyle } from "@/components/klynn/BrandStyle";
 import { Logo } from "@/components/klynn/Logo";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
-import { logout, getCajaAbierta, formatRD, can, getTenantsForUser, setActiveTenant, setSession, switchSession, getPlans } from "@/lib/storage";
+import { 
+  logout, getCajaAbierta, formatRD, can, getTenantsForUser, 
+  setActiveTenant, setSession, switchSession, getPlans,
+  getOrdenes, getClientes, getCatalogo, getServicios, 
+  getCajas, getMovimientos, getGastos, getGlobalConfig, getECFConfig 
+} from "@/lib/storage";
 import { Toaster, toast } from "sonner";
 import { useEffect } from "react";
 import { motion } from "framer-motion";
 import { CloudSync } from "@/components/klynn/CloudSync";
 import { TourManager, resetTours } from "@/components/klynn/onboarding/TourManager";
 import { HelpCircle } from "lucide-react";
+import { queryClient } from "@/router";
 
 interface NavItem {
   to: string;
@@ -262,6 +268,40 @@ function SidebarContent({
     }
   };
 
+  const prefetch = (permission: string) => {
+    if (!tenant.id || tenant.id === '__loading__') return;
+    
+    const tid = tenant.id;
+    switch(permission) {
+      case 'ordenes':
+        queryClient.prefetchQuery({ queryKey: ['ordenes', tid], queryFn: () => getOrdenes(tid) });
+        break;
+      case 'clientes':
+        queryClient.prefetchQuery({ queryKey: ['clientes', tid], queryFn: () => getClientes(tid) });
+        break;
+      case 'catalogo':
+        queryClient.prefetchQuery({ queryKey: ['catalogo', tid], queryFn: () => getCatalogo(tid) });
+        queryClient.prefetchQuery({ queryKey: ['servicios', tid], queryFn: () => getServicios(tid) });
+        break;
+      case 'caja':
+        queryClient.prefetchQuery({ queryKey: ['caja-abierta', tid], queryFn: () => getCajaAbierta(tid) });
+        queryClient.prefetchQuery({ queryKey: ['cajas', tid], queryFn: () => getCajas(tid) });
+        break;
+      case 'gastos':
+        queryClient.prefetchQuery({ queryKey: ['gastos', tid], queryFn: () => getGastos(tid) });
+        break;
+      case 'configuracion':
+        queryClient.prefetchQuery({ queryKey: ['plans'], queryFn: () => getPlans() });
+        queryClient.prefetchQuery({ queryKey: ['global-config'], queryFn: () => getGlobalConfig() });
+        queryClient.prefetchQuery({ queryKey: ['ecf-config', tid], queryFn: () => getECFConfig(tid) });
+        break;
+      case 'nueva-orden':
+        queryClient.prefetchQuery({ queryKey: ['catalogo', tid], queryFn: () => getCatalogo(tid) });
+        queryClient.prefetchQuery({ queryKey: ['clientes', tid], queryFn: () => getClientes(tid) });
+        break;
+    }
+  };
+
   return (
     <>
       <div className="relative flex h-24 flex-col items-center justify-center border-b border-border px-5">
@@ -335,6 +375,7 @@ function SidebarContent({
               to={item.to}
               id={`tour-nav-${item.permission}`}
               onClick={onNavigate}
+              onMouseEnter={() => item.permission && prefetch(item.permission)}
               className={`mb-0.5 flex items-center gap-3 rounded-lg px-3 py-2.5 text-sm font-medium transition ${
                 active
                   ? "bg-gradient-primary text-white shadow-card"

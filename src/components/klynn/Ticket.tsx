@@ -46,7 +46,8 @@ export function Ticket({ orden, tenant, empleado, cliente, formato = "80mm", pag
 
   // Generar URL para el QR de la DGII (e-CF)
   const isECF = orden.ncf?.startsWith("E");
-  const qrData = orden.ecf_qr || (isECF ? `https://dgii.gov.do/consulta_ecf?RNC_EMISOR=${tenant.rnc}&E_NCF=${orden.ncf}&MONTO_TOTAL=${orden.total}&FECHA_EMISION=${new Date(orden.creado_en).toLocaleDateString('en-GB').replace(/\//g, '')}` : "");
+  const actualQR = orden.ecf_qr === "null" ? "" : orden.ecf_qr;
+  const qrData = actualQR || (isECF ? `https://fc.dgii.gov.do/testecf/consultatimbrefc?rncemisor=${tenant.rnc}&encf=${orden.ncf}&montototal=${orden.total}&codigoseguridad=${encodeURIComponent(orden.ecf_security_code && orden.ecf_security_code !== "null" ? orden.ecf_security_code : '')}` : "");
 
   let tipoDocumento = "RECIBO";
   if (orden.nota_credito_ncf) {
@@ -95,11 +96,11 @@ export function Ticket({ orden, tenant, empleado, cliente, formato = "80mm", pag
           )
         )}
         <div><b>Fecha Emisión:</b> {formatDateTimeRD(orden.creado_en)}</div>
-        {isECF && orden.ecf_signature_date && (
+        {isECF && orden.ecf_signature_date && orden.ecf_signature_date !== "null" && (
           <div><b>Fecha Firma:</b> {formatDateTimeRD(orden.ecf_signature_date)}</div>
         )}
       </div>
-      {cliente.id.includes("generic-consumidor") ? (
+      {cliente.nombre === "Consumidor" && cliente.apellido === "Final" ? (
         <Sep />
       ) : (
         <>
@@ -240,7 +241,9 @@ export function Ticket({ orden, tenant, empleado, cliente, formato = "80mm", pag
 
       {isECF && qrData && (
         <div className="mt-4 flex flex-col items-center gap-2 border-t border-dashed border-black pt-4">
-          <div className="text-[9px] font-bold uppercase">Factura de Consumo Electrónica</div>
+          <div className="text-[9px] font-bold uppercase text-center">
+            {orden.ncf?.startsWith("E31") ? "Factura de Crédito Fiscal Electrónica" : "Factura de Consumo Electrónica"}
+          </div>
           <div className="p-1 bg-white">
             <QRCodeSVG value={qrData} size={100} level="M" />
           </div>

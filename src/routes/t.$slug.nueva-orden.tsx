@@ -33,6 +33,8 @@ import {
 import { emitirECF } from "@/lib/fiscal";
 import { PlanLimitModal } from "@/components/klynn/PlanLimitModal";
 import { ClienteDialog } from "@/components/klynn/ClienteDialog";
+import { useCatalogo, useServicios, useClientes, useCajaAbierta, useECFConfig } from "@/hooks/use-queries";
+import { useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
 
 export const Route = createFileRoute("/t/$slug/nueva-orden")({
@@ -42,6 +44,9 @@ export const Route = createFileRoute("/t/$slug/nueva-orden")({
 function NuevaOrdenPage() {
   const user = useRequireAuth();
   const navigate = useNavigate();
+  const queryClient = useQueryClient();
+  const tenantId = user?.tenant.id ?? "";
+
   const [step, setStep] = useState(1);
   const [isPosMode, setIsPosMode] = useState(false);
   const [activeCategory, setActiveCategory] = useState<string>("TODOS");
@@ -60,7 +65,6 @@ function NuevaOrdenPage() {
   const [descuento, setDescuento] = useState(0);
   const [fechaEntrega, setFechaEntrega] = useState<Date | undefined>(new Date());
 
-  const tenantId = user?.tenant.id ?? "";
   const [notas, setNotas] = useState("");
   const [showDeliveryPOS, setShowDeliveryPOS] = useState(false);
   const [showDiscountPOS, setShowDiscountPOS] = useState(false);
@@ -68,7 +72,16 @@ function NuevaOrdenPage() {
   const [direccionDomicilio, setDireccionDomicilio] = useState("");
 
   const [tipoECF, setTipoECF] = useState<string>("E32");
-  const [fiscalConfig, setFiscalConfig] = useState<ECFConfig | null>(null);
+
+  const { data: catalogoData = [], isLoading: loadingCatalog } = useCatalogo(tenantId);
+  const { data: serviciosData = [], isLoading: loadingServicios } = useServicios(tenantId);
+  const { data: clientes = [], isLoading: loadingClientes } = useClientes(tenantId);
+  const { data: caja, isLoading: loadingCaja } = useCajaAbierta(tenantId);
+  const { data: fiscalConfigData } = useECFConfig(tenantId);
+
+  const catalogo = useMemo(() => catalogoData.filter(i => i.activo), [catalogoData]);
+  const servicios = useMemo(() => serviciosData.filter(s => s.activo), [serviciosData]);
+  const fiscalConfig = fiscalConfigData || null;
 
   useEffect(() => {
     if (isPosMode) {
@@ -92,13 +105,8 @@ function NuevaOrdenPage() {
   const [creada, setCreada] = useState<Orden | null>(null);
   const [showTicket, setShowTicket] = useState(false);
 
-  const [catalogo, setCatalogo] = useState<CatalogoItem[]>([]);
-  const [servicios, setServicios] = useState<Servicio[]>([]);
-  const [loadingCatalog, setLoadingCatalog] = useState(true);
-
   async function handleSelectGeneric(tipo: "Persona" | "Empresa") {
     const isPersona = tipo === "Persona";
-    // Generar un UUID válido (36 chars) determinista basado en el tenantId
     const gid = tenantId.substring(0, 24) + (isPersona ? "f000" : "e000") + tenantId.substring(28);
     const c: Cliente = {
       id: gid,
@@ -114,9 +122,9 @@ function NuevaOrdenPage() {
       creado_en: new Date().toISOString()
     };
     
-    // Asegurar que existe en la DB para que la orden sea válida (Foreign Key)
     try {
       await saveCliente(c);
+      queryClient.invalidateQueries({ queryKey: ['clientes', tenantId] });
     } catch (e) {
       console.warn("Cliente genérico ya existe");
     }
@@ -125,40 +133,6 @@ function NuevaOrdenPage() {
     setTipoECF(isPersona ? "E32" : "E31");
     setStep(2);
   }
-
-  useEffect(() => {
-    async function load() {
-      if (!tenantId || tenantId === '__loading__') return;
-      setLoadingCatalog(true);
-      const [c, s] = await Promise.all([
-        getCatalogo(tenantId),
-        getServicios(tenantId)
-      ]);
-      setCatalogo(c.filter(i => i.activo));
-      setServicios(s.filter(srv => srv.activo));
-      setLoadingCatalog(false);
-    }
-    load();
-  }, [tenantId]);
-
-  const [clientes, setClientes] = useState<Cliente[]>([]);
-  const [caja, setCaja] = useState<Caja | undefined>(undefined);
-
-  useEffect(() => {
-    async function load() {
-      if (!tenantId || tenantId === '__loading__') return;
-      const [list, activeCaja] = await Promise.all([
-        getClientes(tenantId),
-        getCajaAbierta(tenantId)
-      ]);
-      setClientes(list);
-      setCaja(activeCaja);
-      
-      // Cargar config fiscal
-      getECFConfig(tenantId).then(setFiscalConfig);
-    }
-    load();
-  }, [tenantId]);
 
   const [limits, setLimits] = useState<any>(null);
 
@@ -367,23 +341,19 @@ function NuevaOrdenPage() {
             ncf: result.encf, 
             tipo_ecf: tipoECF, 
             ecf_id: result.document.id,
-            ecf_qr: result.stamp_url || result.document.qr_content || '',
+            ecf_qr: result.stamp_url || result.document.document_stamp_url || '',
             ecf_security_code: result.security_code || '',
             ecf_signature_date: result.document.signature_date || new Date().toISOString(),
           };
-          console.log("[FISCAL] Guardando metadatos para orden:", orden.id, fiscalFields);
+          console.log("[FISCAL] Metadatos recibidos:", fiscalFields);
           
-          // UPDATE directo — más confiable que upsert de todo el objeto
           const { error: updateErr } = await supabase
             .from('ordenes')
             .update(fiscalFields)
             .eq('id', orden.id);
           
           if (updateErr) {
-            console.error("[FISCAL] ERROR al guardar metadatos:", updateErr);
-            toast.error("⚠️ Comprobante emitido pero no se guardaron los metadatos: " + updateErr.message);
-          } else {
-            console.log("[FISCAL] ✅ Metadatos guardados correctamente");
+            console.error("[FISCAL] ERROR al guardar:", updateErr);
           }
           
           ordenActualizada = { ...orden, ...fiscalFields };
@@ -394,7 +364,7 @@ function NuevaOrdenPage() {
         }
       }
 
-      setCreada(ordenActualizada);
+      setCreada({ ...ordenActualizada }); // Clonar para asegurar re-render
       setShowTicket(true);
       toast.success(`Orden ${ordenActualizada.numero} creada ✅`);
 
@@ -404,6 +374,8 @@ function NuevaOrdenPage() {
       }
 
       if (cliente) {
+        queryClient.invalidateQueries({ queryKey: ['ordenes', tenantId] });
+        queryClient.invalidateQueries({ queryKey: ['movimientos', tenantId] });
         import("@/lib/whatsapp").then(({ notificarWhatsApp }) =>
           notificarWhatsApp(tenant, cliente, orden, "creada", recibido).then((r) => {
             if (r.ok) toast.success("WhatsApp enviado al cliente ✅");

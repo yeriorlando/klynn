@@ -32,6 +32,8 @@ import {
   AlertDialogTrigger
 } from "@/components/ui/alert-dialog";
 import { supabase } from "@/lib/supabase";
+import { useCatalogo, useServicios } from "@/hooks/use-queries";
+import { useQueryClient } from "@tanstack/react-query";
 
 const LAUNDRY_ICONS = [
   { char: "👕", label: "Camisa" },
@@ -76,57 +78,39 @@ export const Route = createFileRoute("/t/$slug/catalogo")({
 
 function CatalogoPage() {
   const user = useRequireAuth();
-  const [tick, setTick] = useState(0);
+  const queryClient = useQueryClient();
   const tenantId = user?.tenant.id ?? "";
 
-  const [items, setItems] = useState<CatalogoItem[]>([]);
-  const [servicios, setServicios] = useState<Servicio[]>([]);
-  const [loading, setLoading] = useState(true);
+  const { data: items = [], isLoading: loadingItems } = useCatalogo(tenantId);
+  const { data: servicios = [], isLoading: loadingServicios } = useServicios(tenantId);
+
+  const [seeding, setSeeding] = useState(false);
+  const [searchQuery, setSearchQuery] = useState("");
 
   const [editItem, setEditItem] = useState<CatalogoItem | null>(null);
   const [openItem, setOpenItem] = useState(false);
   const [editServ, setEditServ] = useState<Servicio | null>(null);
   const [openServ, setOpenServ] = useState(false);
-  const [seeding, setSeeding] = useState(false);
-  const [searchQuery, setSearchQuery] = useState("");
 
   useEffect(() => {
-    async function load() {
+    async function checkSeed() {
       if (!tenantId || tenantId === '__loading__') return;
-      setLoading(true);
-      try {
-        const [i, s] = await Promise.all([
-          getCatalogo(tenantId),
-          getServicios(tenantId)
-        ]);
-        
-        // Auto-sincronizar siempre para reparar rutas rotas o actualizar a webp
-        if (!seeding) {
-          setSeeding(true);
-          console.log("Sincronizando catálogo con muestras...");
-          await seedSamplePrendas(tenantId);
-          await seedSampleServicios(tenantId);
-          
-          // Re-fetch para asegurar que tenemos la versión más reciente
-          const [updatedI, updatedS] = await Promise.all([
-            getCatalogo(tenantId),
-            getServicios(tenantId)
-          ]);
-          setItems(updatedI);
-          setServicios(updatedS);
-          return;
-        }
-
-        setItems(i);
-        setServicios(s);
-      } catch (err) {
-        console.error("Error loading catalog:", err);
-      } finally {
-        setLoading(false);
+      if (seeding) return;
+      
+      // Si el catálogo está vacío, sincronizar
+      if (!loadingItems && !loadingServicios && items.length === 0 && servicios.length === 0) {
+        setSeeding(true);
+        console.log("Sincronizando catálogo con muestras...");
+        await seedSamplePrendas(tenantId);
+        await seedSampleServicios(tenantId);
+        queryClient.invalidateQueries({ queryKey: ['catalogo', tenantId] });
+        queryClient.invalidateQueries({ queryKey: ['servicios', tenantId] });
       }
     }
-    load();
-  }, [tenantId, tick, seeding]);
+    checkSeed();
+  }, [tenantId, loadingItems, loadingServicios, items.length, servicios.length]);
+
+  const loading = loadingItems || loadingServicios;
 
   if (!user || user.tenant.id === '__loading__') return null;
 
@@ -249,7 +233,7 @@ function CatalogoPage() {
                               <AlertDialogAction 
                                 onClick={async () => { 
                                   await deleteCatalogoItem(it.id); 
-                                  setTick((t) => t + 1); 
+                                  queryClient.invalidateQueries({ queryKey: ['catalogo', tenantId] });
                                   toast.success("Eliminada 🗑️"); 
                                 }} 
                                 className="bg-destructive text-white rounded-xl"
@@ -343,7 +327,7 @@ function CatalogoPage() {
                             <AlertDialogAction 
                               onClick={async () => { 
                                 await deleteServicio(s.id); 
-                                setTick((t) => t + 1); 
+                                queryClient.invalidateQueries({ queryKey: ['servicios', tenantId] });
                                 toast.success("Servicio eliminado 🗑️"); 
                               }} 
                               className="bg-destructive text-white rounded-xl"
@@ -366,11 +350,11 @@ function CatalogoPage() {
 
       <ItemDialog
         open={openItem} onOpenChange={setOpenItem} tenantId={tenantId} initial={editItem}
-        onSaved={() => { setTick((t) => t + 1); setOpenItem(false); }}
+        onSaved={() => { queryClient.invalidateQueries({ queryKey: ['catalogo', tenantId] }); setOpenItem(false); }}
       />
       <ServDialog
         open={openServ} onOpenChange={setOpenServ} tenantId={tenantId} initial={editServ}
-        onSaved={() => { setTick((t) => t + 1); setOpenServ(false); }}
+        onSaved={() => { queryClient.invalidateQueries({ queryKey: ['servicios', tenantId] }); setOpenServ(false); }}
       />
     </div>
   );

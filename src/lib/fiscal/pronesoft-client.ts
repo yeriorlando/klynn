@@ -44,8 +44,6 @@ export interface ECFItem {
 export interface ECFBuyer {
   name:   string;
   taxId?: string; // eNCF requirement
-  rnc?:   string; // Alias for taxId
-  type?:  '1' | '2' | '3';
   email?: string;
 }
 

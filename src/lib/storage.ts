@@ -1432,7 +1432,9 @@ export function formatDateRD(iso: string): string {
   return d.toLocaleDateString("es-DO", { day: "2-digit", month: "2-digit", year: "numeric" });
 }
 export function formatDateTimeRD(iso: string): string {
+  if (!iso || iso === "null") return "";
   const d = new Date(iso);
+  if (isNaN(d.getTime())) return iso; // Fallback to original string if invalid date format
   return d.toLocaleString("es-DO", { day: "2-digit", month: "2-digit", year: "numeric", hour: "2-digit", minute: "2-digit", hour12: true });
 }
 

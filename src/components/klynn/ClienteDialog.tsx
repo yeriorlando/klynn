@@ -1,4 +1,5 @@
 import { useState, useEffect } from "react";
+import { useQueryClient } from "@tanstack/react-query";
 import { UserPlus, Phone, Mail, MapPin, Trash2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -30,6 +31,7 @@ interface ClienteDialogProps {
 }
 
 export function ClienteDialog({ open, onOpenChange, cliente, tenant, onDone }: ClienteDialogProps) {
+  const queryClient = useQueryClient();
   const empty = { 
     nombre: "", 
     apellido: "", 
@@ -78,6 +80,7 @@ export function ClienteDialog({ open, onOpenChange, cliente, tenant, onDone }: C
         creado_en: cliente?.creado_en || new Date().toISOString(),
       };
       await saveCliente(c); 
+      queryClient.invalidateQueries({ queryKey: ['clientes', tenant.id] });
       toast.success(cliente ? "Actualizado ✨" : "Cliente creado ✅"); 
       onDone(c);
     } catch (err: any) {
@@ -89,10 +92,15 @@ export function ClienteDialog({ open, onOpenChange, cliente, tenant, onDone }: C
     if (cliente) { 
       try {
         await deleteCliente(cliente.id); 
+        queryClient.invalidateQueries({ queryKey: ['clientes', tenant.id] });
         toast.success("Eliminado 🗑️"); 
         onDone(); 
-      } catch (err) {
-        toast.error("Error al eliminar");
+      } catch (err: any) {
+        if (err?.code === '23503') {
+          toast.error("No se puede eliminar: el cliente tiene órdenes registradas.");
+        } else {
+          toast.error(`Error al eliminar: ${err?.message || "Desconocido"}`);
+        }
       }
     }
   }

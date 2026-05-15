@@ -30,37 +30,24 @@ import {
 } from "@/components/ui/alert-dialog";
 
 import { ClienteDialog } from "@/components/klynn/ClienteDialog";
+import { useClientes, useOrdenes } from "@/hooks/use-queries";
 
 export const Route = createFileRoute("/t/$slug/clientes")({ component: ClientesPage });
 
 function ClientesPage() {
   const user = useRequireAuth();
+  const tenantId = user?.tenant?.id || '';
+
   const [q, setQ] = useState("");
   const [edit, setEdit] = useState<Cliente | null>(null);
   const [showNew, setShowNew] = useState(false);
-  const [refresh, setRefresh] = useState(0);
 
-  const [clientes, setClientes] = useState<Cliente[]>([]);
-  const [ordenes, setOrdenes] = useState<any[]>([]); // Usar any si Orden no está importado aquí
-  const [loading, setLoading] = useState(true);
+  const { data: clientes = [], isLoading: loadingClientes } = useClientes(tenantId);
+  const { data: ordenes = [], isLoading: loadingOrdenes } = useOrdenes(tenantId);
 
   const tenant = user?.tenant;
-  const tenantId = tenant?.id || '';
 
-  useEffect(() => {
-    async function load() {
-      if (!tenantId || tenantId === '__loading__') return;
-      setLoading(true);
-      const [cList, oList] = await Promise.all([
-        getClientes(tenantId),
-        getOrdenes(tenantId)
-      ]);
-      setClientes(cList);
-      setOrdenes(oList);
-      setLoading(false);
-    }
-    load();
-  }, [tenantId, refresh]);
+  const loading = loadingClientes || loadingOrdenes;
 
   const filt = clientes.filter((c) => c.nombre.toLowerCase().includes(q.toLowerCase()) || c.telefono.includes(q));
 
@@ -134,7 +121,7 @@ function ClientesPage() {
         onOpenChange={(o) => { if (!o) { setShowNew(false); setEdit(null); } }} 
         cliente={edit} 
         tenant={tenant} 
-        onDone={() => { setRefresh((r) => r + 1); setEdit(null); setShowNew(false); }} 
+        onDone={() => { setEdit(null); setShowNew(false); }} 
       />
     </div>
   );

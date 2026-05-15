@@ -32,6 +32,8 @@ import {
 } from "@/lib/storage";
 import { getProneSoftClient, registerTenantInPronesoft, uploadCertificateToPronesoft, importSequencesToPronesoft } from "@/lib/fiscal";
 import { notificarWhatsApp } from "@/lib/whatsapp";
+import { useECFConfig, usePlans, useGlobalConfig, useECFSequences } from "@/hooks/use-queries";
+import { useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
 import { 
   Building2, Shield, TrendingUp, Users, Trash2, ExternalLink, Plus, Pencil, 
@@ -59,47 +61,37 @@ function Field({ label, children, hint, span }: { label: string; children: React
 
 function ConfigPage() {
   const auth = useRequireAuth();
+  const queryClient = useQueryClient();
+  const tenantId = auth?.tenant?.id ?? "";
+
   const [tenant, setTenant] = useState<Tenant | null>(null);
   const [activeTab, setActiveTab] = useState("perfil");
   const [billingPeriod, setBillingPeriod] = useState<"monthly" | "yearly">("monthly");
-  const [plans, setPlans] = useState<Plan[]>([]);
-  const [globalConfig, setGlobalConfig] = useState<GlobalConfig | null>(null);
+  
+  const { data: plans = [] } = usePlans();
+  const { data: globalConfigData } = useGlobalConfig();
+  const { data: ecfConfig, isLoading: loadingECF } = useECFConfig(tenantId);
+  const { data: ecfSequences = [] } = useECFSequences(tenantId);
+
+  const globalConfig = globalConfigData || null;
+
   const [selectedPlan, setSelectedPlan] = useState<Plan | null>(null);
   const [showCheckout, setShowCheckout] = useState(false);
   const [showSuccess, setShowSuccess] = useState(false);
 
-  // ECF State
-  const [ecfConfig, setEcfConfig] = useState<ECFConfig | null>(null);
-  const [ecfSequences, setEcfSequences] = useState<ECFSequence[]>([]);
-  const [loadingECF, setLoadingECF] = useState(false);
-
   useEffect(() => {
     if (auth?.tenant && auth.tenant.id !== '__loading__' && !tenant) {
       setTenant(auth.tenant);
-      loadECF(auth.tenant.id);
-    }
-    getPlans().then(setPlans);
-    getGlobalConfig().then(setGlobalConfig);
-
-    // Detectar retorno de pago exitoso
-    const params = new URLSearchParams(window.location.search);
-    if (params.get('polar_success') === 'true') {
-      setShowSuccess(true);
-      // Limpiar el parámetro de la URL
-      window.history.replaceState({}, '', window.location.pathname);
     }
   }, [auth, tenant]);
 
-  async function loadECF(tid: string) {
-    setLoadingECF(true);
-    const [config, seqs] = await Promise.all([
-      getECFConfig(tid),
-      getECFSequences(tid)
-    ]);
-    setEcfConfig(config);
-    setEcfSequences(seqs);
-    setLoadingECF(false);
-  }
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    if (params.get('polar_success') === 'true') {
+      setShowSuccess(true);
+      window.history.replaceState({}, '', window.location.pathname);
+    }
+  }, []);
 
   if (!auth || auth.tenant.id === '__loading__' || !tenant) return null;
 
@@ -355,8 +347,8 @@ function ConfigPage() {
           <FiscalTab 
             tenant={tenant} 
             config={ecfConfig} 
-            sequences={ecfSequences} 
-            onRefresh={() => loadECF(tenant.id)}
+            sequences={ecfSequences}
+            onRefresh={() => { queryClient.invalidateQueries({ queryKey: ['ecf-config', tenantId] }); queryClient.invalidateQueries({ queryKey: ['ecf-sequences', tenantId] }); }}
             enabled={!!hasFiscal}
           />
         </TabsContent>

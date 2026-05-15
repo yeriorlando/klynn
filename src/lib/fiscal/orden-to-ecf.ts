@@ -70,8 +70,7 @@ export function ordenToECFPayload(
     buyer = { name: cliente.nombre + (cliente.apellido ? ` ${cliente.apellido}` : '') };
     // Si es crédito fiscal (E31), el RNC/Cédula es requerido
     if ((invoiceType === '31' || invoiceType === '33' || invoiceType === '34') && (cliente.cedula || cliente.email)) {
-      buyer.taxId = cliente.cedula ?? undefined;
-      buyer.type  = cliente.tipo === 'Empresa' ? '1' : '2'; // 1=RNC, 2=Cédula
+      buyer.taxId = cliente.cedula ? cliente.cedula.replace(/[^0-9]/g, '') : undefined;
     }
   }
 
