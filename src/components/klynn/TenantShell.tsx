@@ -213,7 +213,7 @@ export function TenantShell() {
             <Bell className="h-5 w-5" />
           </button>
 
-          <UserMenu nombre={empleado.nombre} rol={empleado.rol} onLogout={onLogout} />
+          <UserMenu nombre={empleado.nombre} rol={empleado.rol} empleadoId={empleado.id} onLogout={onLogout} />
         </header>
 
         <main className="min-h-[calc(100vh-4rem)] p-4 md:p-6 lg:p-8">
@@ -365,7 +365,7 @@ function SidebarContent({
   );
 }
 
-function UserMenu({ nombre, rol, onLogout }: { nombre: string; rol: string; onLogout: () => void }) {
+function UserMenu({ nombre, rol, empleadoId, onLogout }: { nombre: string; rol: string; empleadoId: string; onLogout: () => void }) {
   const [open, setOpen] = useState(false);
   const initials = nombre.split(" ").map((n) => n[0]).slice(0, 2).join("").toUpperCase();
   return (
@@ -390,7 +390,7 @@ function UserMenu({ nombre, rol, onLogout }: { nombre: string; rol: string; onLo
               <div className="text-xs text-muted-foreground">{rol}</div>
             </div>
             <button 
-              onClick={() => { resetTours(empleado.id); setOpen(false); }} 
+              onClick={() => { resetTours(empleadoId); setOpen(false); }} 
               className="flex w-full items-center gap-2 px-3 py-2.5 text-sm text-foreground hover:bg-accent border-b border-border"
             >
               <HelpCircle className="h-4 w-4" /> Ver Tour de nuevo

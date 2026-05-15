@@ -49,6 +49,7 @@ function ClientesPage() {
 
   useEffect(() => {
     async function load() {
+      if (!tenantId || tenantId === '__loading__') return;
       setLoading(true);
       const [cList, oList] = await Promise.all([
         getClientes(tenantId),

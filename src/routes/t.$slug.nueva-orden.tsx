@@ -17,7 +17,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { Card } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Switch } from "@/components/ui/switch";
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter, DialogDescription } from "@/components/ui/dialog";
 import {
   Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
 } from "@/components/ui/select";
@@ -128,7 +128,7 @@ function NuevaOrdenPage() {
 
   useEffect(() => {
     async function load() {
-      if (!tenantId) return;
+      if (!tenantId || tenantId === '__loading__') return;
       setLoadingCatalog(true);
       const [c, s] = await Promise.all([
         getCatalogo(tenantId),
@@ -245,6 +245,11 @@ function NuevaOrdenPage() {
   let itbis = 0;
   let total = 0;
   let subtotal = subtotalGravableBase + subtotalExentoBase + costoServicios + recargoTotal;
+
+  // Aliases for missing variables in UI
+  const subtotalBase = subtotalGravableBase + subtotalExentoBase;
+  const subtotalBruto = subtotal;
+  const recargo = recargoTotal;
 
   if (cfg.ncf_facturacion_activa && aplicarItbis && itbisRate > 0) {
     if (cfg.itbis_incluido) {
@@ -1379,6 +1384,9 @@ function NuevaOrdenPage() {
         <DialogContent className="max-w-md">
           <DialogHeader>
             <DialogTitle>✓ Orden creada — {creada?.numero}</DialogTitle>
+            <DialogDescription>
+              La orden ha sido registrada correctamente. Puedes imprimir el ticket a continuación.
+            </DialogDescription>
           </DialogHeader>
           {creada && cliente && (
             <div className="max-h-[60vh] overflow-auto rounded-lg bg-zinc-100 p-4 dark:bg-zinc-800">
@@ -1487,6 +1495,9 @@ function AddItemDialog({
         <DialogHeader className="p-6 pb-2 border-b border-border/50">
           <div className="flex items-center justify-between gap-4">
             <DialogTitle className="text-2xl font-display font-bold">Seleccionar Prendas</DialogTitle>
+            <DialogDescription className="sr-only">
+              Selecciona las prendas que deseas agregar a la orden.
+            </DialogDescription>
             <div className="relative flex-1 max-w-sm">
               <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
               <Input 
@@ -1584,6 +1595,9 @@ function DeliveryPOSDialog({
             <Truck className="h-6 w-6 text-primary" />
             Envío a Domicilio
           </DialogTitle>
+          <DialogDescription className="sr-only">
+            Configura la dirección de entrega para esta orden.
+          </DialogDescription>
         </DialogHeader>
         <div className="space-y-6 py-4">
           <div className="flex items-center justify-between p-4 rounded-2xl bg-accent/5 border border-primary/10">
@@ -1638,6 +1652,9 @@ function DiscountPOSDialog({
             <Plus className="h-6 w-6 text-amber-500" />
             Aplicar Descuento
           </DialogTitle>
+          <DialogDescription className="sr-only">
+            Ingresa el monto del descuento que deseas aplicar.
+          </DialogDescription>
         </DialogHeader>
         <div className="space-y-4 py-4">
           <div className="relative h-24">
