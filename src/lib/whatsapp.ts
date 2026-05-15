@@ -87,7 +87,7 @@ export async function notificarWhatsApp(
     return sName;
   }).join("\n\n") || "Ninguno";
 
-  let tipoDoc = "RECIBO";
+  let tipoDoc = "RECIBO DE SERVICIO";
   if (orden.ncf) {
     if (orden.ncf.startsWith('E31') || orden.ncf.startsWith('B01')) tipoDoc = "FACTURA PARA CRÉDITO FISCAL";
     else if (orden.ncf.startsWith('E32') || orden.ncf.startsWith('B02')) tipoDoc = "FACTURA PARA CONSUMIDOR FINAL";
@@ -108,6 +108,7 @@ export async function notificarWhatsApp(
     cliente_cedula: cliente.cedula || "",
     cliente_tipo_doc: cliente.tipo === "Empresa" ? "RNC" : "Cédula",
     ncf: orden.ncf || "",
+    ncf_vencimiento: orden.ncf_vencimiento ? new Date(orden.ncf_vencimiento).toLocaleDateString("es-DO") : "",
     rnc: tenant.rnc || "",
     tipo_documento: tipoDoc,
     servicios: serviciosStr,

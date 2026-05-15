@@ -85,9 +85,32 @@ serve(async (req) => {
     const { action, payload, config } = await req.json()
 
     console.log("[pronesoft-proxy] action:", action);
-    console.log("[pronesoft-proxy] tenantId:", config.tenantId);
+    
+    // Acciones que NO requieren token de e-CF
+    if (action === 'get-rnc') {
+      const rncRes = await fetch(`https://dgii-rnc.pronesoft.com/get/${payload.rnc}`, {
+        headers: { "Content-Type": "application/json" }
+      });
+      if (!rncRes.ok) {
+        const errText = await rncRes.text();
+        throw new Error(`Error al buscar RNC (${rncRes.status}): ${errText}`);
+      }
+      const data = await rncRes.json();
+      return new Response(JSON.stringify(data), {
+        headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+        status: 200
+      });
+    }
 
-    // 1. Obtener token
+    if (action === 'test-connection') {
+      return new Response(JSON.stringify({ ok: true, message: "Conexión exitosa con el Proxy" }), {
+        headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+        status: 200
+      });
+    }
+
+    // Acciones que SI requieren token
+    console.log("[pronesoft-proxy] tenantId:", config.tenantId);
     const token = await getAccessToken(config.baseUrl, config.clientId, config.clientSecret);
 
     let result;
@@ -205,8 +228,6 @@ serve(async (req) => {
       result = JSON.parse(importText);
       result.ok = true;
 
-    } else if (action === 'test-connection') {
-      result = { ok: true, message: "Conexión exitosa con Pronesoft" };
     }
 
     return new Response(JSON.stringify(result), {

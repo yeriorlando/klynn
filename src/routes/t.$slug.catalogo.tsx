@@ -422,7 +422,7 @@ function ItemDialog({ open, onOpenChange, tenantId, initial, onSaved }: {
     if (!f.nombre?.trim() || !f.categoria?.trim()) { toast.error("Nombre y categoría requeridos"); return; }
     const item: CatalogoItem = {
       id: initial?.id ?? uid("cat"),
-      tenant_id: tenantId,
+      tenant_id: initial?.tenant_id ?? tenantId,
       categoria: f.categoria!.trim(),
       nombre: f.nombre!.trim(),
       precio: Number(f.precio) || 0,
@@ -678,7 +678,7 @@ function ServDialog({ open, onOpenChange, tenantId, initial, onSaved }: {
     if (!f.nombre?.trim()) { toast.error("Nombre requerido"); return; }
     const s: Servicio = {
       id: initial?.id ?? uid("srv"),
-      tenant_id: tenantId,
+      tenant_id: initial?.tenant_id ?? tenantId,
       nombre: f.nombre!.trim(),
       descripcion: f.descripcion?.trim() || undefined,
       icono: mode === "emoji" ? f.icono : undefined,

@@ -1,5 +1,5 @@
 import type { Orden, Tenant, Empleado, Cliente, Servicio } from "@/lib/storage";
-import { formatRD, formatDateTimeRD } from "@/lib/storage";
+import { formatRD, formatDateTimeRD, formatDateRD } from "@/lib/storage";
 import { QRCodeSVG } from "qrcode.react";
 
 interface Props {
@@ -86,18 +86,17 @@ export function Ticket({ orden, tenant, empleado, cliente, formato = "80mm", pag
             <div><b>Doc. Modificado:</b> {orden.ncf}</div>
           </>
         ) : (
-          orden.ncf && (
-            <div className="flex flex-col">
-              <div><b>{isECF ? 'e-NCF' : 'NCF'}:</b> {orden.ncf}</div>
-              {isECF && orden.ecf_security_code && (
-                <div className="text-[9px]"><b>Cod. Seguridad:</b> {orden.ecf_security_code}</div>
-              )}
-            </div>
-          )
-        )}
-        <div><b>Fecha Emisión:</b> {formatDateTimeRD(orden.creado_en)}</div>
-        {isECF && orden.ecf_signature_date && orden.ecf_signature_date !== "null" && (
-          <div><b>Fecha Firma:</b> {formatDateTimeRD(orden.ecf_signature_date)}</div>
+          <>
+            {orden.ncf && (
+              <div>
+                <b>{isECF ? 'e-NCF' : 'NCF'}:</b> {orden.ncf}
+                {orden.ncf_vencimiento && (
+                  <div className="font-bold">Fecha Vencimiento: {formatDateRD(orden.ncf_vencimiento)}</div>
+                )}
+              </div>
+            )}
+            <div><b>Fecha Emisión:</b> {formatDateTimeRD(orden.creado_en)}</div>
+          </>
         )}
       </div>
       {cliente.nombre === "Consumidor" && cliente.apellido === "Final" ? (
@@ -122,7 +121,7 @@ export function Ticket({ orden, tenant, empleado, cliente, formato = "80mm", pag
         </>
       )}
       <div className="flex justify-between font-bold uppercase text-[10px] mb-1">
-        <div className="w-[44%]">DESCRIPCION</div>
+        <div className="w-[44%] DESCRIPCION">DESCRIPCION</div>
         <div className="w-[26%] text-right">ITBIS</div>
         <div className="w-[30%] text-right">VALOR</div>
       </div>
@@ -240,7 +239,7 @@ export function Ticket({ orden, tenant, empleado, cliente, formato = "80mm", pag
       </div>
 
       {isECF && qrData && (
-        <div className="mt-4 flex flex-col items-center gap-2 border-t border-dashed border-black pt-4">
+        <div className="mt-4 flex flex-col items-center gap-1 border-t border-dashed border-black pt-4">
           <div className="text-[9px] font-bold uppercase text-center">
             {orden.ncf?.startsWith("E31") ? "Factura de Crédito Fiscal Electrónica" : "Factura de Consumo Electrónica"}
           </div>
@@ -248,6 +247,14 @@ export function Ticket({ orden, tenant, empleado, cliente, formato = "80mm", pag
             <QRCodeSVG value={qrData} size={100} level="M" />
           </div>
           <div className="text-[8px] text-center leading-tight">
+            {orden.ecf_security_code && orden.ecf_security_code !== "null" && (
+              <div>Código de Seguridad: {orden.ecf_security_code}</div>
+            )}
+            {orden.ecf_signature_date && orden.ecf_signature_date !== "null" && (
+              <div>Fecha Firma: {formatDateTimeRD(orden.ecf_signature_date)}</div>
+            )}
+          </div>
+          <div className="text-[8px] text-center leading-tight mt-1">
             Consulte su factura en:<br/>
             dgii.gov.do
           </div>

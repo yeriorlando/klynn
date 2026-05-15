@@ -4,7 +4,7 @@ import { useRequireAuth } from "@/lib/useRequireAuth";
 import { PageHeader } from "@/components/klynn/PageHeader";
 import { ExportAndPrintButtons } from "@/components/klynn/ExportAndPrintButtons";
 import { Card } from "@/components/ui/card";
-import { getOrdenes, getGastos, getEmpleados, formatRD, type Orden, type Gasto, type Empleado } from "@/lib/storage";
+import { getOrdenes, getGastos, getEmpleados, getMovimientos, formatRD, type Orden, type Gasto, type Empleado, type MovimientoCaja } from "@/lib/storage";
 
 export const Route = createFileRoute("/t/$slug/reportes")({ component: ReportesPage });
 
@@ -13,6 +13,7 @@ function ReportesPage() {
   const [ordenes, setOrdenes] = useState<Orden[]>([]);
   const [gastos, setGastos] = useState<Gasto[]>([]);
   const [emps, setEmps] = useState<Empleado[]>([]);
+  const [movs, setMovs] = useState<MovimientoCaja[]>([]);
   const [loading, setLoading] = useState(true);
 
   const tenant = user?.tenant;
@@ -21,14 +22,16 @@ function ReportesPage() {
     async function load() {
       if (!tenant || tenant.id === '__loading__') return;
       setLoading(true);
-      const [oList, gList, eList] = await Promise.all([
+      const [oList, gList, eList, mList] = await Promise.all([
         getOrdenes(tenant.id),
         getGastos(tenant.id),
-        getEmpleados(tenant.id)
+        getEmpleados(tenant.id),
+        getMovimientos(tenant.id)
       ]);
       setOrdenes(oList.filter((o) => o.estado !== "ANULADA"));
       setGastos(gList);
       setEmps(eList);
+      setMovs(mList);
       setLoading(false);
     }
     load();
@@ -37,7 +40,12 @@ function ReportesPage() {
   const stats = useMemo(() => {
     const ventas = ordenes.reduce((s, o) => s + o.total, 0);
     const itbis = ordenes.reduce((s, o) => s + o.itbis, 0);
-    const totalGastos = gastos.reduce((s, g) => s + g.monto, 0);
+    
+    // Sumar gastos manuales + gastos de caja chica desde movimientos
+    const gastosManuales = gastos.filter(g => !g.is_caja_chica).reduce((s, g) => s + g.monto, 0);
+    const gastosCajaChica = movs.filter(m => m.tipo === "GASTO_CAJA_CHICA").reduce((s, m) => s + m.monto, 0);
+    
+    const totalGastos = gastosManuales + gastosCajaChica;
     const rentabilidad = ventas - totalGastos;
 
     const porMetodo = ordenes.reduce((m, o) => { 

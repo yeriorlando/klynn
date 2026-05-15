@@ -5,7 +5,7 @@ import { motion } from "framer-motion";
 import { 
   ArrowLeft, ArrowRight, Plus, Trash2, Search, UserPlus, Check, AlertTriangle, 
   Printer, Phone, Shirt, Truck, Maximize2, Minimize2, LayoutGrid, List,
-  ShoppingCart, User as UserIcon, X, Minus, CheckCircle2
+  ShoppingCart, User as UserIcon, X, Minus, CheckCircle2, Loader2
 } from "lucide-react";
 import { useRequireAuth } from "@/lib/useRequireAuth";
 import { PageHeader } from "@/components/klynn/PageHeader";
@@ -25,15 +25,16 @@ import { DatePicker } from "@/components/ui/date-picker";
 import {
   getClientes, saveCliente, getCatalogo, getServicios, getCajaAbierta, saveOrden, saveMovimiento,
   nextOrdenNumero, formatRD, formatPhoneRD, uid, DEFAULT_CONFIG,
-  formatAmountInput, parseAmount, saveTenant,
+  formatAmountInput, parseAmount, saveTenant, getTenantPlan,
   checkPlanLimits, getECFConfig, getECFSequences, nextECFNumero, saveECFDocument,
   type Cliente, type OrdenItem, type MetodoPago, type Orden, type CatalogoItem, type Servicio, type Caja,
   type ECFConfig, type ECFSequence, type ECFDocument
 } from "@/lib/storage";
 import { emitirECF } from "@/lib/fiscal";
+import { getProneSoftClient } from "@/lib/fiscal/pronesoft-client";
 import { PlanLimitModal } from "@/components/klynn/PlanLimitModal";
 import { ClienteDialog } from "@/components/klynn/ClienteDialog";
-import { useCatalogo, useServicios, useClientes, useCajaAbierta, useECFConfig } from "@/hooks/use-queries";
+import { useCatalogo, useServicios, useClientes, useCajaAbierta, useECFConfig, usePlans } from "@/hooks/use-queries";
 import { useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
 
@@ -45,6 +46,8 @@ function NuevaOrdenPage() {
   const user = useRequireAuth();
   const navigate = useNavigate();
   const queryClient = useQueryClient();
+  const { data: plansData } = usePlans();
+  const plans = plansData || [];
   const tenantId = user?.tenant.id ?? "";
 
   const [step, setStep] = useState(1);
@@ -96,6 +99,13 @@ function NuevaOrdenPage() {
     if (cliente) {
       setDireccionDomicilio(cliente.direccion || "");
       if (cliente.direccion) setServicioDomicilio(true);
+      
+      // Auto-seleccionar tipo de comprobante según el cliente
+      if (cliente.tipo === "Empresa" || (cliente.cedula && cliente.cedula.length >= 9)) {
+        setTipoECF("E31");
+      } else {
+        setTipoECF("E32");
+      }
     }
   }, [cliente]);
 
@@ -132,6 +142,79 @@ function NuevaOrdenPage() {
     setCliente(c);
     setTipoECF(isPersona ? "E32" : "E31");
     setStep(2);
+  }
+
+  const [empresaDialogOpen, setEmpresaDialogOpen] = useState(false);
+  const [rncInput, setRncInput] = useState("");
+  const [rncLoading, setRncLoading] = useState(false);
+  const [rncResult, setRncResult] = useState<{ name: string; rnc: string; status: string; regime: string } | null>(null);
+
+  async function handleSearchEmpresaRNC() {
+    if (!rncInput.trim() || rncInput.trim().length < 9) {
+      toast.error("Ingrese un RNC o Cédula válido (mínimo 9 dígitos)");
+      return;
+    }
+    setRncLoading(true);
+    setRncResult(null);
+    try {
+      // Usamos un proxy de CORS público para no depender de desplegar la función de Supabase ahora mismo
+      const targetUrl = `https://dgii-rnc.pronesoft.com/get/${rncInput.trim()}`;
+      const proxyUrl = `https://corsproxy.io/?${encodeURIComponent(targetUrl)}`;
+      
+      const response = await fetch(proxyUrl);
+      if (!response.ok) throw new Error("No se pudo conectar con el servicio de RNC");
+      
+      const data = await response.json();
+      if (!data || !data.name) throw new Error("No se encontró el contribuyente");
+
+      setRncResult({
+        name: data.name,
+        rnc: data.rnc || rncInput.trim(),
+        status: data.status || "DESCONOCIDO",
+        regime: data.regime || "NORMAL"
+      });
+      toast.success("Datos obtenidos. Por favor verifique.");
+    } catch (e: any) {
+      toast.error(e.message || "Error al buscar RNC");
+    } finally {
+      setRncLoading(false);
+    }
+  }
+
+  async function handleConfirmEmpresa() {
+    if (!rncResult) return;
+    
+    setRncLoading(true);
+    try {
+      const c: Cliente = {
+        id: uid("cli"),
+        tenant_id: tenantId,
+        nombre: rncResult.name,
+        apellido: undefined,
+        cedula: rncResult.rnc,
+        telefono: "---",
+        email: "",
+        direccion: "",
+        tipo: "Empresa",
+        limite_credito: 0,
+        creado_en: new Date().toISOString()
+      };
+      
+      await saveCliente(c);
+      queryClient.invalidateQueries({ queryKey: ['clientes', tenantId] });
+      
+      setCliente(c);
+      setTipoECF("E31");
+      setStep(2);
+      setEmpresaDialogOpen(false);
+      setRncInput("");
+      setRncResult(null);
+      toast.success("Empresa guardada y seleccionada");
+    } catch (e: any) {
+      toast.error("Error al guardar cliente");
+    } finally {
+      setRncLoading(false);
+    }
   }
 
   const [limits, setLimits] = useState<any>(null);
@@ -300,6 +383,16 @@ function NuevaOrdenPage() {
       now.setHours(now.getHours() + horasAdd);
       deliveryDate.setHours(now.getHours(), now.getMinutes(), 0, 0);
 
+      let ncfVencimiento: string | undefined = undefined;
+      let finalNCF: string | undefined = undefined;
+
+      if (cfg.ncf_facturacion_activa && cfg.ncf_secuencia && !fiscalConfig?.is_active) {
+        finalNCF = `${cfg.ncf_secuencia}${String(cfg.ncf_proximo || 1).padStart(8, "0")}`;
+        // Para NCF tradicional, podrías tener una fecha global o por tipo. 
+        // Por ahora Klynn no tiene campo específico en config global, 
+        // pero podemos habilitarlo si fuera necesario.
+      }
+
       const orden: Orden = {
         id: uid("ord"),
         tenant_id: tenant.id,
@@ -320,23 +413,26 @@ function NuevaOrdenPage() {
         es_urgente: esUrgente,
         notas: notas || undefined,
         creado_en: new Date().toISOString(),
-        ncf: (cfg.ncf_facturacion_activa && cfg.ncf_secuencia && !fiscalConfig?.is_active) ? `${cfg.ncf_secuencia}${String(cfg.ncf_proximo || 1).padStart(8, "0")}` : undefined,
+        ncf: finalNCF,
       };
-
-      await saveOrden(orden);
 
       // --- LOGICA FISCAL ELECTRONICA (Pronesoft) ---
       let ordenActualizada = { ...orden };
       if (fiscalConfig?.is_active && tipoECF) {
         try {
+          // Obtener el próximo número y la fecha de vencimiento de la secuencia activa
+          const { ncf: nextNCF, expiration_date } = await nextECFNumero(tenant.id, tipoECF);
+          ncfVencimiento = expiration_date;
+          
           const result = await emitirECF(
-            orden,
+            { ...orden, ncf: nextNCF }, // Pasamos el NCF ya generado
             cliente,
             fiscalConfig.pronesoft_tenant_id,
             cfg,
             tenant,
             tipoECF
           );
+
           const fiscalFields = {
             ncf: result.encf, 
             tipo_ecf: tipoECF, 
@@ -344,24 +440,21 @@ function NuevaOrdenPage() {
             ecf_qr: result.stamp_url || result.document.document_stamp_url || '',
             ecf_security_code: result.security_code || '',
             ecf_signature_date: result.document.signature_date || new Date().toISOString(),
+            ncf_vencimiento: ncfVencimiento,
           };
-          console.log("[FISCAL] Metadatos recibidos:", fiscalFields);
-          
-          const { error: updateErr } = await supabase
-            .from('ordenes')
-            .update(fiscalFields)
-            .eq('id', orden.id);
-          
-          if (updateErr) {
-            console.error("[FISCAL] ERROR al guardar:", updateErr);
-          }
           
           ordenActualizada = { ...orden, ...fiscalFields };
+          // Guardamos la orden inicial con los campos fiscales
+          await saveOrden(ordenActualizada);
           toast.success(`✅ Comprobante ${result.encf} emitido`);
         } catch (fErr: any) {
           console.error("Error Fiscal:", fErr);
           toast.error("Error al generar comprobante: " + fErr.message);
+          // Si falla lo fiscal, guardamos la orden sin NCF o con error
+          await saveOrden(orden);
         }
+      } else {
+        await saveOrden(orden);
       }
 
       setCreada({ ...ordenActualizada }); // Clonar para asegurar re-render
@@ -377,7 +470,7 @@ function NuevaOrdenPage() {
         queryClient.invalidateQueries({ queryKey: ['ordenes', tenantId] });
         queryClient.invalidateQueries({ queryKey: ['movimientos', tenantId] });
         import("@/lib/whatsapp").then(({ notificarWhatsApp }) =>
-          notificarWhatsApp(tenant, cliente, orden, "creada", recibido).then((r) => {
+          notificarWhatsApp(tenant, cliente, ordenActualizada, "creada", recibido).then((r) => {
             if (r.ok) toast.success("WhatsApp enviado al cliente ✅");
           }),
         );
@@ -663,8 +756,12 @@ function NuevaOrdenPage() {
                     </button>
 
                     <button 
-                      onClick={() => handleSelectGeneric("Empresa")}
-                      className="flex items-center gap-4 p-5 rounded-[2rem] border-2 border-dashed border-blue-200 bg-blue-50/50 hover:bg-blue-100/50 hover:border-blue-400 transition-all group text-left"
+                      onClick={() => setEmpresaDialogOpen(true)}
+                      className={`flex items-center gap-4 p-5 rounded-[2rem] border-2 transition-all group text-left ${
+                        cliente?.cedula && cliente?.tipo === "Empresa" 
+                          ? "border-blue-600 bg-blue-50/80 ring-1 ring-blue-600 shadow-sm" 
+                          : "border-dashed border-blue-200 bg-blue-50/50 hover:bg-blue-100/50 hover:border-blue-400"
+                      }`}
                     >
                       <div className="h-12 w-12 rounded-full bg-blue-100 flex items-center justify-center group-hover:scale-110 transition-transform">
                         <Truck className="h-6 w-6 text-blue-600" />
@@ -953,20 +1050,22 @@ function NuevaOrdenPage() {
                       </div>
                     </button>
 
-                    <button 
-                      onClick={() => handleSelectGeneric("Empresa")}
-                      className={`flex items-center gap-4 p-4 rounded-2xl border-2 transition-all text-left ${
-                        cliente?.id.includes("generic-empresa") ? "border-blue-600 bg-blue-50 ring-1 ring-blue-600" : "border-dashed border-blue-200 bg-blue-50/50 hover:border-blue-400"
-                      }`}
-                    >
-                      <div className="h-10 w-10 rounded-full bg-blue-100 flex items-center justify-center">
-                        <Truck className="h-5 w-5 text-blue-600" />
-                      </div>
-                      <div>
-                        <div className="font-bold text-sm text-blue-700 leading-tight">Empresa / RNC</div>
-                        <div className="text-[10px] uppercase tracking-widest font-black opacity-60">Crédito Fiscal</div>
-                      </div>
-                    </button>
+                    {(plans.find(p => p.id === user.tenant.plan_id) || getTenantPlan(user.tenant)).modulos.facturacion_fiscal && (
+                      <button 
+                        onClick={() => setEmpresaDialogOpen(true)}
+                        className={`flex items-center gap-4 p-4 rounded-2xl border-2 transition-all text-left ${
+                          cliente?.cedula && cliente?.tipo === "Empresa" ? "border-blue-600 bg-blue-50 ring-1 ring-blue-600" : "border-dashed border-blue-200 bg-blue-50/50 hover:border-blue-400"
+                        }`}
+                      >
+                        <div className="h-10 w-10 rounded-full bg-blue-100 flex items-center justify-center">
+                          <Truck className="h-5 w-5 text-blue-600" />
+                        </div>
+                        <div>
+                          <div className="font-bold text-sm text-blue-700 leading-tight">Empresa / RNC</div>
+                          <div className="text-[10px] uppercase tracking-widest font-black opacity-60">Crédito Fiscal</div>
+                        </div>
+                      </button>
+                    )}
                   </div>
 
                   <div className="mt-8 flex items-center justify-between">
@@ -1378,6 +1477,85 @@ function NuevaOrdenPage() {
         limit={limits?.orderLimit ?? 0} 
         tenant={user.tenant} 
       />
+
+      <Dialog open={empresaDialogOpen} onOpenChange={(o) => {
+        setEmpresaDialogOpen(o);
+        if (!o) { setRncResult(null); setRncInput(""); }
+      }}>
+        <DialogContent className="max-w-lg rounded-2xl p-6">
+          <DialogHeader>
+            <DialogTitle className="text-xl font-display font-bold">Buscar Empresa por RNC</DialogTitle>
+            <DialogDescription>
+              Se conectará automáticamente con la base de datos de Pronesoft/DGII para obtener el nombre del contribuyente.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="py-4 space-y-4">
+            <div className="space-y-2">
+              <Label className="text-sm font-medium">RNC o Cédula (DGII)</Label>
+              <div className="flex gap-2">
+                <Input 
+                  value={rncInput} 
+                  onChange={(e) => setRncInput(e.target.value)} 
+                  placeholder="Ej. 131123456" 
+                  disabled={rncLoading}
+                  className="h-10 rounded-xl border-border bg-background"
+                  onKeyDown={(e) => e.key === "Enter" && handleSearchEmpresaRNC()}
+                  autoFocus
+                />
+                <Button 
+                  onClick={handleSearchEmpresaRNC} 
+                  disabled={rncLoading} 
+                  className="h-10 px-4 rounded-xl bg-primary hover:bg-primary/90 text-white gap-2 font-bold shadow-sm transition-all active:scale-95"
+                >
+                  {rncLoading ? <Loader2 className="h-4 w-4 animate-spin" /> : <Search className="h-4 w-4" />}
+                  <span>Buscar</span>
+                </Button>
+              </div>
+            </div>
+
+            {rncResult && (
+              <motion.div 
+                initial={{ opacity: 0, y: 8 }} 
+                animate={{ opacity: 1, y: 0 }} 
+                className="rounded-xl border border-primary/20 bg-primary/5 p-6 space-y-4 shadow-sm"
+              >
+                <div className="flex justify-between items-start gap-4">
+                  <div className="space-y-1">
+                    <Label className="text-[10px] uppercase tracking-widest text-primary font-black opacity-60">Nombre / Razón Social</Label>
+                    <div className="font-bold text-foreground text-xl leading-tight uppercase">{rncResult.name}</div>
+                  </div>
+                  <Badge className={`${rncResult.status === "ACTIVO" ? "bg-emerald-500 text-white" : "bg-rose-500 text-white"} font-black px-3 py-1 rounded-full border-none shadow-sm`}>
+                    {rncResult.status}
+                  </Badge>
+                </div>
+
+                <div className="h-px bg-primary/10 w-full" />
+
+                <div className="grid grid-cols-2 gap-8">
+                  <div className="space-y-1">
+                    <Label className="text-[10px] uppercase tracking-widest text-primary font-black opacity-60">RNC</Label>
+                    <div className="font-bold text-foreground text-lg tracking-tight">{rncResult.rnc}</div>
+                  </div>
+                  <div className="space-y-1">
+                    <Label className="text-[10px] uppercase tracking-widest text-primary font-black opacity-60">Régimen de Pago</Label>
+                    <div className="font-bold text-foreground/80 uppercase text-sm tracking-tight">{rncResult.regime}</div>
+                  </div>
+                </div>
+              </motion.div>
+            )}
+          </div>
+          <DialogFooter className="gap-2 sm:gap-0">
+            <Button variant="outline" onClick={() => setEmpresaDialogOpen(false)} disabled={rncLoading} className="rounded-xl font-bold border-border hover:bg-accent h-10">
+              Cancelar
+            </Button>
+            {rncResult && (
+              <Button onClick={handleConfirmEmpresa} disabled={rncLoading} className="bg-primary hover:bg-primary/90 text-white gap-2 rounded-xl font-bold shadow-glow transition-all active:scale-95 h-10">
+                <Check className="h-4 w-4" /> Continuar y Seleccionar
+              </Button>
+            )}
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

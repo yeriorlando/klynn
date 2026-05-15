@@ -156,6 +156,10 @@ export class ProneSoftClient {
   async importSequences(fileBase64: string): Promise<{ ok: boolean }> {
     return this.callProxy('import-sequences', { file: fileBase64 });
   }
+
+  async getRNC(rnc: string): Promise<{ name: string; rnc: string; status: string }> {
+    return this.callProxy('get-rnc', { rnc });
+  }
 }
 
 export function getProneSoftClient(tenantId?: string, forceEnv?: 'sandbox' | 'production'): ProneSoftClient {

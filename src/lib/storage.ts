@@ -72,6 +72,8 @@ export interface Tenant {
   config?: TenantConfig;
   whatsapp_sent_month?: number;
   whatsapp_last_reset?: string;
+  monto_caja_chica?: number;
+  monto_actual_caja_chica?: number;
 }
 
 export interface TenantConfig {
@@ -171,6 +173,7 @@ export interface Orden {
   ecf_qr?: string;
   ecf_security_code?: string;
   ecf_signature_date?: string;
+  ncf_vencimiento?: string;
 }
 
 // ============ ECF Types ============
@@ -286,6 +289,7 @@ export interface Gasto {
   comprobante_url?: string;
   fecha: string;
   aprobado: boolean;
+  is_caja_chica?: boolean;
 }
 
 export interface CatalogoItem {
@@ -422,6 +426,7 @@ export const DEFAULT_CONFIG: TenantConfig = {
 -----------------------------------
 📄 *ORDEN:* {numero}
 🧾 *NCF:* {ncf}
+📅 *Vencimiento:* {ncf_vencimiento}
 📅 *Fecha:* {fecha}
 -----------------------------------
 👤 *CLIENTE:* {cliente}
@@ -637,7 +642,7 @@ export async function registerBranch(tenant: Tenant, admin: Empleado, userId: st
   const { password: _pw, ...empData } = admin;
   const { error: empError } = await supabase.from('empleados').insert({
     ...empData,
-    id: crypto.randomUUID(),
+    id: userId,
     tenant_id: tenant.id,
     password: '***'
   });
@@ -1063,8 +1068,20 @@ export async function saveMovimiento(m: MovimientoCaja) {
 // ============ Gastos (Supabase) ============
 export async function getGastos(tenant_id: string): Promise<Gasto[]> {
   const { data, error } = await supabase.from('gastos').select('*').eq('tenant_id', tenant_id).order('fecha', { ascending: false });
-  if (error) return [];
-  return data || [];
+  let results = data || [];
+  
+  if (isBrowser()) {
+    const local = read<Gasto[]>(KEY.gastos, []).filter(g => g.tenant_id === tenant_id);
+    const combined = [...results];
+    local.forEach(lg => {
+      if (!combined.some(cg => cg.id === lg.id)) {
+        combined.push(lg);
+      }
+    });
+    results = combined.sort((a, b) => +new Date(b.fecha) - +new Date(a.fecha));
+  }
+  
+  return results;
 }
 
 export async function saveGasto(g: Gasto) {
@@ -1091,7 +1108,7 @@ export async function getCatalogo(tenant_id: string): Promise<CatalogoItem[]> {
   const { data, error } = await supabase
     .from('catalogo_items')
     .select('*')
-    .eq('tenant_id', tenant_id)
+    .or(`tenant_id.eq.${tenant_id},tenant_id.eq.admin`)
     .order('categoria', { ascending: true })
     .order('nombre', { ascending: true });
     
@@ -1130,7 +1147,7 @@ export async function getServicios(tenant_id: string): Promise<Servicio[]> {
   const { data, error } = await supabase
     .from('servicios')
     .select('*')
-    .eq('tenant_id', tenant_id)
+    .or(`tenant_id.eq.${tenant_id},tenant_id.eq.admin`)
     .order('nombre', { ascending: true });
     
   if (error) {
@@ -1771,12 +1788,13 @@ export async function saveECFDocument(doc: ECFDocument) {
   if (error) throw error;
 }
 
-export async function nextECFNumero(tenantId: string, tipo: string): Promise<string> {
+export async function nextECFNumero(tenantId: string, tipo: string): Promise<{ ncf: string; expiration_date?: string }> {
   const { data: seq, error } = await supabase
     .from('ecf_sequences')
     .select('*')
     .eq('tenant_id', tenantId)
     .eq('tipo_ecf', tipo)
+    .eq('is_active', true)
     .single();
 
   if (error || !seq) throw new Error(`No hay secuencia activa para ${tipo}`);
@@ -1785,10 +1803,10 @@ export async function nextECFNumero(tenantId: string, tipo: string): Promise<str
   const proximo = seq.valor_actual + 1;
   const encf = `${tipo}${String(proximo).padStart(10, '0')}`;
 
-  // Actualizamos el contador inmediatamente (Optimistic locking recomendado en el futuro)
+  // Actualizamos el contador inmediatamente
   await supabase.from('ecf_sequences').update({ valor_actual: proximo }).eq('id', seq.id);
 
-  return encf;
+  return { ncf: encf, expiration_date: seq.expiration_date };
 }
 
 export async function getECFDocumentosRecibidos(tenantId: string): Promise<ECFDocumentRecibido[]> {

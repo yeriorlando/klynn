@@ -1,6 +1,6 @@
 import { useState, useEffect } from "react";
 import { useQueryClient } from "@tanstack/react-query";
-import { UserPlus, Phone, Mail, MapPin, Trash2 } from "lucide-react";
+import { UserPlus, Phone, Mail, MapPin, Trash2, Search, Loader2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -45,6 +45,33 @@ export function ClienteDialog({ open, onOpenChange, cliente, tenant, onDone }: C
   };
   const [f, setF] = useState(cliente ? { ...empty, ...cliente } : empty);
   const [hasDelivery, setHasDelivery] = useState(!!cliente?.direccion);
+  const [loadingRNC, setLoadingRNC] = useState(false);
+
+  async function handleSearchRNC() {
+    const rnc = f.cedula?.replace(/\D/g, "");
+    if (!rnc || rnc.length < 9) {
+      toast.error("RNC/Cédula inválido (min. 9 dígitos)");
+      return;
+    }
+    setLoadingRNC(true);
+    try {
+      const targetUrl = `https://dgii-rnc.pronesoft.com/get/${rnc}`;
+      const proxyUrl = `https://corsproxy.io/?${encodeURIComponent(targetUrl)}`;
+      const res = await fetch(proxyUrl);
+      if (!res.ok) throw new Error();
+      const data = await res.json();
+      if (data?.name) {
+        setF(prev => ({ ...prev, nombre: data.name, cedula: data.rnc || rnc }));
+        toast.success("Datos obtenidos ✅");
+      } else {
+        toast.error("No se encontró el contribuyente");
+      }
+    } catch (e) {
+      toast.error("Error al conectar con el servicio DGII");
+    } finally {
+      setLoadingRNC(false);
+    }
+  }
 
   useEffect(() => {
     if (open) {
@@ -134,7 +161,24 @@ export function ClienteDialog({ open, onOpenChange, cliente, tenant, onDone }: C
               {tenant.config?.ncf_facturacion_activa && (
                 <div className="animate-in fade-in slide-in-from-left-1 duration-200">
                   <Label>RNC de la Empresa</Label>
-                  <Input value={f.cedula} onChange={(e) => setF({ ...f, cedula: e.target.value })} placeholder="131-12345-6" />
+                  <div className="relative">
+                    <Input 
+                      value={f.cedula} 
+                      onChange={(e) => setF({ ...f, cedula: e.target.value })} 
+                      placeholder="131-12345-6"
+                      className="pr-10"
+                    />
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="icon"
+                      className="absolute right-1 top-1/2 -translate-y-1/2 h-8 w-8 text-primary hover:bg-primary/10"
+                      onClick={handleSearchRNC}
+                      disabled={loadingRNC}
+                    >
+                      {loadingRNC ? <Loader2 className="h-4 w-4 animate-spin" /> : <Search className="h-4 w-4" />}
+                    </Button>
+                  </div>
                 </div>
               )}
               <div className={tenant.config?.ncf_facturacion_activa ? "" : "md:col-span-2"}>
@@ -218,8 +262,8 @@ export function ClienteDialog({ open, onOpenChange, cliente, tenant, onDone }: C
               </AlertDialogContent>
             </AlertDialog>
           )}
-          <Button variant="outline" className="rounded-xl h-11" onClick={() => onOpenChange(false)}>Cancelar</Button>
-          <Button onClick={submit} className="bg-gradient-primary text-white rounded-xl h-11 px-8">Guardar Cliente</Button>
+          <Button variant="outline" className="rounded-xl h-9 text-xs" onClick={() => onOpenChange(false)}>Cancelar</Button>
+          <Button onClick={submit} className="bg-gradient-primary text-white rounded-xl h-9 text-xs px-6">Guardar Cliente</Button>
         </DialogFooter>
       </DialogContent>
     </Dialog>

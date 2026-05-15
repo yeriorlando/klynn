@@ -571,10 +571,10 @@ function LandingPage() {
 
                   <ul className="my-6 space-y-2.5 text-sm">
                     <Feature on>{plan.limite_empleados} empleados</Feature>
-                    <Feature on>{plan.limite_ordenes_mes ? `${plan.limite_ordenes_mes.toLocaleString("es-DO")} órdenes/mes` : "Órdenes ilimitadas"}</Feature>
+                    <Feature on>{plan.limite_ordenes_mes ? `${plan.limite_ordenes_mes.toLocaleString("es-DO")} órdenes/facturas/mes` : "Órdenes/facturas ilimitadas"}</Feature>
                     <Feature on>Caja, clientes, gastos, reportes</Feature>
                     <Feature on={plan.modulos.whatsapp}>Notificaciones WhatsApp</Feature>
-                    <Feature on={plan.modulos.facturacion_fiscal}>Facturación Fiscal NCF</Feature>
+                    <Feature on={plan.modulos.facturacion_fiscal}>Facturación Electrónica</Feature>
                     <Feature on={plan.modulos.multisucursal}>Multi-sucursal</Feature>
                     <Feature on={plan.modulos.logistica}>Logística y Repartidores</Feature>
                   </ul>

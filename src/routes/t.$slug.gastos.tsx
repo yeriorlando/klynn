@@ -12,11 +12,13 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { 
   getGastos, saveGasto, deleteGasto, formatRD, formatDateRD, uid, CATEGORIAS_GASTOS, 
-  getECFDocumentosRecibidos, updateEstadoComercialECF, type Gasto, type ECFDocumentRecibido 
+  getECFDocumentosRecibidos, updateEstadoComercialECF, getTenantPlan, getECFConfig, 
+  DEFAULT_CONFIG, type Gasto, type ECFDocumentRecibido 
 } from "@/lib/storage";
 import { toast } from "sonner";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { FileText, Receipt, Check, X as XIcon, ExternalLink, ShieldCheck } from "lucide-react";
+import { FileText, Receipt, Check, X as XIcon, ExternalLink, ShieldCheck, PiggyBank } from "lucide-react";
+import { usePlans } from "@/hooks/use-queries";
 import { 
   AlertDialog, 
   AlertDialogAction, 
@@ -39,6 +41,7 @@ function GastosPage() {
   const [recibidos, setRecibidos] = useState<ECFDocumentRecibido[]>([]);
   const [loading, setLoading] = useState(true);
   const [activeTab, setActiveTab] = useState("manual");
+  const [isElectronic, setIsElectronic] = useState(false);
 
   const tenant = user?.tenant;
   const tenantId = tenant?.id || '';
@@ -48,12 +51,14 @@ function GastosPage() {
       if (!tenantId || tenantId === '__loading__') return;
       setLoading(true);
       try {
-        const [listGastos, listRecibidos] = await Promise.all([
+        const [listGastos, listRecibidos, conf] = await Promise.all([
           getGastos(tenantId),
-          getECFDocumentosRecibidos(tenantId)
+          getECFDocumentosRecibidos(tenantId),
+          getECFConfig(tenantId)
         ]);
         setGastos(listGastos.sort((a, b) => +new Date(b.fecha) - +new Date(a.fecha)));
         setRecibidos(listRecibidos);
+        setIsElectronic(!!conf?.is_active);
       } catch (err) {
         console.error("Error cargando datos:", err);
       }
@@ -62,10 +67,18 @@ function GastosPage() {
     load();
   }, [tenantId, refresh]);
 
+  const { data: plans = [] } = usePlans();
+  const plan = plans.find(p => p.id === user.tenant.plan_id) || getTenantPlan(user.tenant);
+  const canSeeFiscal = plan.modulos.facturacion_fiscal;
+
   if (!user || user.tenant.id === '__loading__') return null;
 
   const total = gastos.reduce((s, g) => s + g.monto, 0);
-  const porCategoria = gastos.reduce((m, g) => { m[g.categoria] = (m[g.categoria] || 0) + g.monto; return m; }, {} as Record<string, number>);
+  
+  const manualGastos = gastos.filter(g => !g.is_caja_chica);
+  const cajaChicaGastos = gastos.filter(g => g.is_caja_chica);
+
+  const porCategoria = manualGastos.reduce((m, g) => { m[g.categoria] = (m[g.categoria] || 0) + g.monto; return m; }, {} as Record<string, number>);
 
   return (
     <div>
@@ -95,11 +108,19 @@ function GastosPage() {
             <Receipt className="mr-2 h-4 w-4" /> Gastos Manuales
           </TabsTrigger>
           <TabsTrigger 
-            value="fiscal" 
+            value="caja-chica" 
             className="rounded-xl px-6 py-1.5 text-xs font-bold transition-all data-[state=active]:bg-primary data-[state=active]:text-white data-[state=active]:shadow-md"
           >
-            <ShieldCheck className="mr-2 h-4 w-4" /> Facturas Fiscales (e-CF)
+            <PiggyBank className="mr-2 h-4 w-4" /> Caja Chica
           </TabsTrigger>
+          {canSeeFiscal && (
+            <TabsTrigger 
+              value="fiscal" 
+              className="rounded-xl px-6 py-1.5 text-xs font-bold transition-all data-[state=active]:bg-primary data-[state=active]:text-white data-[state=active]:shadow-md"
+            >
+              <ShieldCheck className="mr-2 h-4 w-4" /> Facturas Fiscales (e-CF)
+            </TabsTrigger>
+          )}
         </TabsList>
 
         <TabsContent value="manual">
@@ -124,7 +145,7 @@ function GastosPage() {
                   </tr>
                 </thead>
                 <tbody>
-                  {gastos.map((g) => (
+                  {manualGastos.map((g) => (
                     <tr key={g.id} className="border-b border-border/50 hover:bg-accent/10 transition-colors">
                       <td className="px-4 py-3 text-xs text-muted-foreground">{formatDateRD(g.fecha)}</td>
                       <td className="px-4 py-3"><span className="inline-flex items-center rounded-full bg-accent px-2 py-0.5 text-[10px] font-bold">{g.categoria}</span></td>
@@ -166,7 +187,37 @@ function GastosPage() {
                       </td>
                     </tr>
                   ))}
-                  {gastos.length === 0 && <tr><td colSpan={7} className="py-20 text-center text-muted-foreground">Sin gastos registrados</td></tr>}
+                  {manualGastos.length === 0 && <tr><td colSpan={7} className="py-20 text-center text-muted-foreground">Sin gastos registrados</td></tr>}
+                </tbody>
+              </table>
+            </div>
+          </Card>
+        </TabsContent>
+
+        <TabsContent value="caja-chica">
+          <Card className="overflow-hidden rounded-2xl border border-border/50">
+            <div className="overflow-x-auto">
+              <table className="w-full text-sm">
+                <thead className="border-b border-border bg-surface-elevated text-[10px] font-black uppercase tracking-widest text-muted-foreground">
+                  <tr>
+                    <th className="px-4 py-3 text-left">Fecha</th>
+                    <th className="px-4 py-3 text-left">Categoría</th>
+                    <th className="px-4 py-3 text-left">Descripción</th>
+                    <th className="px-4 py-3 text-xs">Método</th>
+                    <th className="px-4 py-3 text-right">Monto</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {cajaChicaGastos.map((g) => (
+                    <tr key={g.id} className="border-b border-border/50 hover:bg-accent/10 transition-colors">
+                      <td className="px-4 py-3 text-xs text-muted-foreground">{formatDateRD(g.fecha)}</td>
+                      <td className="px-4 py-3"><span className="inline-flex items-center rounded-full bg-primary/10 text-primary px-2 py-0.5 text-[10px] font-bold">{g.categoria}</span></td>
+                      <td className="px-4 py-3 font-medium">{g.descripcion}</td>
+                      <td className="px-4 py-3 text-xs">{g.metodo_pago}</td>
+                      <td className="px-4 py-3 text-right font-bold text-destructive">{formatRD(g.monto)}</td>
+                    </tr>
+                  ))}
+                  {cajaChicaGastos.length === 0 && <tr><td colSpan={5} className="py-20 text-center text-muted-foreground">No hay gastos de caja chica registrados</td></tr>}
                 </tbody>
               </table>
             </div>
@@ -174,6 +225,7 @@ function GastosPage() {
         </TabsContent>
 
         <TabsContent value="fiscal">
+
           <Card className="overflow-hidden rounded-2xl border border-border/50">
             <div className="overflow-x-auto">
               <table className="w-full text-sm">

@@ -131,7 +131,7 @@ function ConfigPage() {
   return (
     <div>
       <PageHeader title="Configuración" description="Personaliza tu lavandería." />
-      <Tabs defaultValue="perfil" onValueChange={setActiveTab} className="space-y-6">
+      <Tabs value={activeTab} onValueChange={setActiveTab} className="space-y-6">
         <TabsList className="grid w-full grid-cols-2 md:grid-cols-6 h-auto bg-accent/20 p-1.5 rounded-2xl gap-1.5 border border-border">
           {[
             { id: 'perfil', label: 'Perfil', icon: User },
@@ -350,6 +350,7 @@ function ConfigPage() {
             sequences={ecfSequences}
             onRefresh={() => { queryClient.invalidateQueries({ queryKey: ['ecf-config', tenantId] }); queryClient.invalidateQueries({ queryKey: ['ecf-sequences', tenantId] }); }}
             enabled={!!hasFiscal}
+            onTabChange={setActiveTab}
           />
         </TabsContent>
 
@@ -359,6 +360,7 @@ function ConfigPage() {
             wa={cfg.whatsapp || DEFAULT_CONFIG.whatsapp!} 
             saveWA={(w) => saveCfg({ whatsapp: { ...wa, ...w } })} 
             enabled={!!hasWA}
+            onTabChange={setActiveTab}
           />
         </TabsContent>
 
@@ -428,13 +430,13 @@ function ConfigPage() {
                     
                     <div className="space-y-2 mb-6">
                       <div className="text-xs flex items-center gap-2">✅ {p.limite_empleados} Empleados</div>
-                      <div className="text-xs flex items-center gap-2">✅ {p.limite_ordenes_mes ?? "∞"} Órdenes/mes</div>
+                      <div className="text-xs flex items-center gap-2">✅ {p.limite_ordenes_mes ?? "∞"} Órdenes/facturas/mes</div>
                       <div className="text-xs flex items-center gap-2 font-medium text-blue-600">✅ {(p.limite_whatsapp_mes || 0).toLocaleString()} Mensajes WhatsApp/mes</div>
                       {(["whatsapp", "facturacion_fiscal", "multisucursal", "logistica"] as const).map((k) => {
                         const v = p.modulos?.[k as keyof typeof p.modulos];
                         return (
                           <div key={k} className={`text-xs flex items-center gap-2 ${v ? "text-foreground" : "text-muted-foreground opacity-50"}`}>
-                            {v ? "✅" : "❌"} {k === "logistica" ? "Logística y Repartidores" : k.charAt(0).toUpperCase() + k.slice(1).replace(/_/g, " ")}
+                             {v ? "✅" : "❌"} {k === "logistica" ? "Logística y Repartidores" : k === "facturacion_fiscal" ? "Facturación Electrónica" : k.charAt(0).toUpperCase() + k.slice(1).replace(/_/g, " ")}
                           </div>
                         );
                       })}
@@ -475,8 +477,8 @@ function ConfigPage() {
   );
 }
 
-function WhatsAppTab({ tenant, wa, saveWA, enabled }: { 
-  tenant: Tenant; wa: WhatsAppConfig; saveWA: (w: Partial<WhatsAppConfig>) => void; enabled: boolean;
+function WhatsAppTab({ tenant, wa, saveWA, enabled, onTabChange }: { 
+  tenant: Tenant; wa: WhatsAppConfig; saveWA: (w: Partial<WhatsAppConfig>) => void; enabled: boolean; onTabChange: (t: string) => void;
 }) {
   const [draft, setDraft] = useState<WhatsAppConfig>(() => {
     const baseWa = { ...DEFAULT_CONFIG.whatsapp, ...wa };
@@ -557,10 +559,7 @@ function WhatsAppTab({ tenant, wa, saveWA, enabled }: {
             variant="outline" 
             size="sm" 
             className="h-7 text-[10px] rounded-lg font-bold border-primary/20 hover:bg-primary/5"
-            onClick={() => {
-              const tab = document.querySelector('[data-value="plan"]') as HTMLElement;
-              tab?.click();
-            }}
+            onClick={() => onTabChange("plan")}
           >
             MEJORAR PLAN
           </Button>
@@ -579,10 +578,7 @@ function WhatsAppTab({ tenant, wa, saveWA, enabled }: {
               Envía avisos automáticos y fideliza a tus clientes. 
               Esta función está disponible solo en planes superiores.
             </p>
-            <Button className="w-full rounded-xl font-bold h-11" onClick={() => {
-              const tab = document.querySelector('[data-value="plan"]') as HTMLElement;
-              tab?.click();
-            }}>
+            <Button className="w-full rounded-xl font-bold h-11" onClick={() => onTabChange("plan")}>
               Ver planes disponibles
             </Button>
           </div>
@@ -894,8 +890,8 @@ function SuccessModal({ open, onOpenChange, planName }: { open: boolean; onOpenC
   );
 }
 
-function FiscalTab({ tenant, config, sequences, onRefresh, enabled }: { 
-  tenant: Tenant; config: ECFConfig | null; sequences: ECFSequence[]; onRefresh: () => void; enabled: boolean;
+function FiscalTab({ tenant, config, sequences, onRefresh, enabled, onTabChange }: { 
+  tenant: Tenant; config: ECFConfig | null; sequences: ECFSequence[]; onRefresh: () => void; enabled: boolean; onTabChange: (t: string) => void;
 }) {
   const [loading, setLoading] = useState(false);
   const [showNewSeq, setShowNewSeq] = useState(false);
@@ -985,7 +981,7 @@ function FiscalTab({ tenant, config, sequences, onRefresh, enabled }: {
           <p className="text-sm text-muted-foreground mb-6 max-w-sm mx-auto">
             La gestión de RNC, ITBIS y Comprobantes Fiscales (NCF/e-CF) requiere el plan **Enterprise**.
           </p>
-          <Button onClick={() => (document.querySelector('[data-value="plan"]') as HTMLElement)?.click()}>
+          <Button onClick={() => onTabChange("plan")}>
             Mejorar Plan
           </Button>
         </Card>

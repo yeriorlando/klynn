@@ -371,7 +371,7 @@ function AdminPage() {
                       {Object.entries(p.modulos).map(([k, v]) => (
                         <div key={k} className={`flex items-center gap-2 ${v ? "text-foreground font-medium" : "text-muted-foreground line-through opacity-50"}`}>
                           <span>{v ? "✓" : "✗"}</span>
-                          <span className="capitalize">{k.replace(/_/g, " ")}</span>
+                          <span className="capitalize">{k === "facturacion_fiscal" ? "Facturación Electrónica" : k.replace(/_/g, " ")}</span>
                         </div>
                       ))}
                     </div>
@@ -595,7 +595,7 @@ function PlanDialog({ open, onOpenChange, initial, onSaved }: {
                       className="data-[state=checked]:bg-primary"
                     />
                     <span className="font-semibold capitalize text-foreground group-hover:text-primary transition-colors">
-                      {m === "logistica" ? "Logística y Repartidores" : m.replace(/_/g, " ")}
+                      {m === "logistica" ? "Logística y Repartidores" : m === "facturacion_fiscal" ? "Facturación Electrónica" : m.replace(/_/g, " ")}
                     </span>
                   </label>
                 ))}

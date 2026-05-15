@@ -16,7 +16,7 @@ import { Badge } from "@/components/ui/badge";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
 import {
-  getOrdenes, saveOrden, getClientes, getEmpleadoById, formatRD, formatDateTimeRD, getServicios,
+  getOrdenes, saveOrden, getClientes, getEmpleadoById, formatRD, formatDateRD, formatDateTimeRD, getServicios,
   type Orden, type EstadoOrden,
   checkPlanLimits, getCajaAbierta, saveMovimiento, uid, nextECFNumero, saveECFDocument
 } from "@/lib/storage";
@@ -570,19 +570,26 @@ function OrderDetail({ view, tenant, clientes, cambiarEstado, setView, onPrint }
           {/* Datos Fiscales */}
           {view.ncf && (
             <div className="mt-2 rounded-xl border border-primary/20 bg-primary/5 p-3 flex justify-between items-center gap-4">
-              <div className="space-y-1.5">
+              <div className="space-y-1.5 flex-1">
                 <div className="text-xs font-bold uppercase tracking-wider text-primary mb-1">Datos Fiscales</div>
-                <div className="text-sm"><strong>{view.ncf.startsWith("E") ? "e-NCF:" : "NCF:"}</strong> <span className="font-mono">{view.ncf}</span></div>
-                {view.ecf_security_code && view.ecf_security_code !== "null" && <div className="text-sm"><strong>Cod. Seguridad:</strong> <span className="font-mono">{view.ecf_security_code}</span></div>}
+                <div className="text-sm">
+                  <strong>{view.ncf.startsWith("E") ? "e-NCF:" : "NCF:"}</strong> <span className="font-mono">{view.ncf}</span>
+                  {view.ncf_vencimiento && (
+                    <div className="text-[11px] font-bold mt-0.5">Fecha Vencimiento: {formatDateRD(view.ncf_vencimiento)}</div>
+                  )}
+                </div>
+                {view.ecf_security_code && view.ecf_security_code !== "null" && (
+                  <div className="text-xs"><strong>Cod. Seguridad:</strong> <span className="font-mono">{view.ecf_security_code}</span></div>
+                )}
                 {view.ecf_signature_date && view.ecf_signature_date !== "null" && (
-                  <div className="text-xs"><strong>Fecha Firma:</strong> {formatDateTimeRD(view.ecf_signature_date)}</div>
+                  <div className="text-[11px] text-muted-foreground italic"><strong>Firma:</strong> {formatDateTimeRD(view.ecf_signature_date)}</div>
                 )}
               </div>
               {view.ncf.startsWith("E") && (
-                <div className="bg-white p-1.5 rounded-lg shadow-sm border border-primary/10">
+                <div className="bg-white p-1.5 rounded-lg shadow-sm border border-primary/10 shrink-0">
                   <QRCodeSVG 
                     value={view.ecf_qr || `https://dgii.gov.do/consulta_ecf?RNC_EMISOR=${tenant.rnc}&E_NCF=${view.ncf}&MONTO_TOTAL=${view.total}&FECHA_EMISION=${new Date(view.creado_en).toLocaleDateString('en-GB').replace(/\//g, '')}`} 
-                    size={70} 
+                    size={75} 
                     level="M" 
                   />
                 </div>
@@ -783,10 +790,16 @@ function FacturaA4PrintPortal({ orden, tenant, onClose }: { orden: Orden; tenant
                 {orden.nota_credito_ncf ? (
                   <>
                     <tr><td className="font-bold pr-1.5 text-right text-destructive whitespace-nowrap">{isECF ? "e-NCF:" : "NCF:"}</td><td className="font-mono font-bold text-destructive text-left">{orden.nota_credito_ncf}</td></tr>
+                    {orden.ncf_vencimiento && <tr><td className="font-bold pr-1.5 text-right whitespace-nowrap">Fecha Vencimiento:</td><td className="text-left font-bold">{formatDateRD(orden.ncf_vencimiento)}</td></tr>}
                     <tr><td className="font-bold pr-1.5 text-right whitespace-nowrap">Doc. Modificado:</td><td className="font-mono text-left">{orden.ncf}</td></tr>
                   </>
                 ) : (
-                  orden.ncf && <tr><td className="font-bold pr-1.5 text-right whitespace-nowrap">{isECF ? "e-NCF:" : "NCF:"}</td><td className="font-mono text-left">{orden.ncf}</td></tr>
+                  orden.ncf && (
+                    <>
+                      <tr><td className="font-bold pr-1.5 text-right whitespace-nowrap">{isECF ? "e-NCF:" : "NCF:"}</td><td className="font-mono text-left">{orden.ncf}</td></tr>
+                      {orden.ncf_vencimiento && <tr><td className="font-bold pr-1.5 text-right whitespace-nowrap">Fecha Vencimiento:</td><td className="text-left font-bold">{formatDateRD(orden.ncf_vencimiento)}</td></tr>}
+                    </>
+                  )
                 )}
                 {orden.ecf_security_code && orden.ecf_security_code !== "null" && <tr><td className="font-bold pr-1.5 text-right whitespace-nowrap">Cod. Seguridad:</td><td className="font-mono text-left">{orden.ecf_security_code}</td></tr>}
                 {orden.ecf_signature_date && orden.ecf_signature_date !== "null" && <tr><td className="font-bold pr-1.5 text-right whitespace-nowrap">Fecha Firma:</td><td className="text-left">{formatDateTimeRD(orden.ecf_signature_date)}</td></tr>}

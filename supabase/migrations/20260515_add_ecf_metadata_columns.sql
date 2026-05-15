@@ -7,9 +7,10 @@
 ALTER TABLE ordenes ADD COLUMN IF NOT EXISTS ecf_qr TEXT;
 ALTER TABLE ordenes ADD COLUMN IF NOT EXISTS ecf_security_code TEXT;
 ALTER TABLE ordenes ADD COLUMN IF NOT EXISTS ecf_signature_date TEXT;
+ALTER TABLE ordenes ADD COLUMN IF NOT EXISTS ncf_vencimiento TEXT;
 
 -- Verificar que las columnas se crearon
 SELECT column_name, data_type 
 FROM information_schema.columns 
 WHERE table_name = 'ordenes' 
-AND column_name IN ('ecf_qr', 'ecf_security_code', 'ecf_signature_date');
+AND column_name IN ('ecf_qr', 'ecf_security_code', 'ecf_signature_date', 'ncf_vencimiento');
