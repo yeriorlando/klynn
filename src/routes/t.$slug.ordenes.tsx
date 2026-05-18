@@ -322,7 +322,7 @@ function OrdenesPage() {
             </div>
             <Button 
               className="bg-gradient-primary text-white h-9 px-5 font-bold shrink-0 shadow-sm border-0 transition-all active:scale-95"
-              onClick={() => navigate({ to: "/t/$slug/configuracion", params: { slug: tenant.slug } })}
+              onClick={() => navigate({ to: "/t/$slug/configuracion", params: { slug: tenant.slug }, search: { tab: "plan" } as any })}
             >
               🚀 Ver planes
             </Button>

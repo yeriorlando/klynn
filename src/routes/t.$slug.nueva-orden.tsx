@@ -157,15 +157,15 @@ function NuevaOrdenPage() {
     setRncLoading(true);
     setRncResult(null);
     try {
-      // Usamos un proxy de CORS público para no depender de desplegar la función de Supabase ahora mismo
-      const targetUrl = `https://dgii-rnc.pronesoft.com/get/${rncInput.trim()}`;
-      const proxyUrl = `https://corsproxy.io/?${encodeURIComponent(targetUrl)}`;
+      const { data, error } = await supabase.functions.invoke('pronesoft-proxy', {
+        body: {
+          action: 'get-rnc',
+          payload: { rnc: rncInput.trim() }
+        }
+      });
       
-      const response = await fetch(proxyUrl);
-      if (!response.ok) throw new Error("No se pudo conectar con el servicio de RNC");
-      
-      const data = await response.json();
-      if (!data || !data.name) throw new Error("No se encontró el contribuyente");
+      if (error || !data) throw new Error(error?.message || "No se pudo conectar con el servicio de RNC");
+      if (!data.name) throw new Error("No se encontró el contribuyente");
 
       setRncResult({
         name: data.name,

@@ -53,9 +53,7 @@ export function PlanLimitModal({ open, onOpenChange, type, limit, tenant }: Plan
               className="w-full h-12 rounded-xl font-bold text-lg bg-gradient-primary shadow-elegant"
               onClick={() => {
                 onOpenChange(false);
-                navigate({ to: "/t/$slug/configuracion", params: { slug: tenant.slug } });
-                // We need to switch to the plan tab, but navigate is just changing URL.
-                // The Tab state in configuracion.tsx is internal, but it's okay, user will see the settings.
+                navigate({ to: "/t/$slug/configuracion", params: { slug: tenant.slug }, search: { tab: "plan" } as any });
               }}
             >
               🚀 Cambiar de Plan ahora

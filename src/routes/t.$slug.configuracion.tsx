@@ -91,6 +91,10 @@ function ConfigPage() {
       setShowSuccess(true);
       window.history.replaceState({}, '', window.location.pathname);
     }
+    const t = params.get('tab');
+    if (t && ['perfil', 'apariencia', 'factura', 'caja', 'fiscal', 'whatsapp', 'plan'].includes(t)) {
+      setActiveTab(t);
+    }
   }, []);
 
   if (!auth || auth.tenant.id === '__loading__' || !tenant) return null;

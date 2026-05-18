@@ -152,6 +152,7 @@
     font-family: var(--font-sans); 
     -webkit-font-smoothing: antialiased; 
     background-color: var(--color-background);
+    zoom: 0.9; /* Zoom predeterminado al 90% solicitado */
   }
   body {
     background-color: var(--color-background);

@@ -21,6 +21,7 @@ import {
 } from "@/components/ui/alert-dialog";
 import { saveCliente, deleteCliente, formatPhoneRD, uid, type Cliente } from "@/lib/storage";
 import { toast } from "sonner";
+import { supabase } from "@/lib/supabase";
 
 interface ClienteDialogProps {
   open: boolean;
@@ -55,11 +56,13 @@ export function ClienteDialog({ open, onOpenChange, cliente, tenant, onDone }: C
     }
     setLoadingRNC(true);
     try {
-      const targetUrl = `https://dgii-rnc.pronesoft.com/get/${rnc}`;
-      const proxyUrl = `https://corsproxy.io/?${encodeURIComponent(targetUrl)}`;
-      const res = await fetch(proxyUrl);
-      if (!res.ok) throw new Error();
-      const data = await res.json();
+      const { data, error } = await supabase.functions.invoke('pronesoft-proxy', {
+        body: {
+          action: 'get-rnc',
+          payload: { rnc }
+        }
+      });
+      if (error || !data) throw new Error();
       if (data?.name) {
         setF(prev => ({ ...prev, nombre: data.name, cedula: data.rnc || rnc }));
         toast.success("Datos obtenidos ✅");

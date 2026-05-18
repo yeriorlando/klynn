@@ -7,70 +7,39 @@ const corsHeaders = {
   'Access-Control-Max-Age': '86400',
 }
 
-// Cache simple de tokens en memoria (dura mientras la función esté "caliente")
+// Cache de tokens en memoria
 let cachedToken: { token: string; expires: number } | null = null;
 
-/**
- * Obtiene un token OAuth de Pronesoft.
- * 
- * Según la documentación oficial y la captura del soporte de Pronesoft:
- * - Endpoint: POST /api/v1/oauth/token
- * - Content-Type: application/json
- * - Body: { "clientId": "app_live_...", "clientSecret": "sk_live_..." }
- */
 async function getAccessToken(baseUrl: string, clientId: string, clientSecret: string): Promise<string> {
-  // Validar credenciales
-  if (!clientId || !clientSecret) {
-    throw new Error("Credenciales de Pronesoft no proporcionadas.");
-  }
+  // Limpieza agresiva de credenciales
+  const cleanId = clientId.trim();
+  const cleanSecret = clientSecret.trim();
 
-  // Reutilizar token en caché si aún es válido
+  // Reutilizar token si es válido
   if (cachedToken && Date.now() < cachedToken.expires) {
     return cachedToken.token;
   }
 
-  // Limpiar espacios invisibles de las credenciales
-  const cleanId = clientId.trim();
-  const cleanSecret = clientSecret.trim();
+  console.log(`[pronesoft-proxy] 🔑 Renovando token para: ${cleanId.substring(0, 10)}...`);
 
-  console.log(`[pronesoft-proxy] 🔑 Auth → ClientID COMPLETO: "${cleanId}"`);
-  console.log(`[pronesoft-proxy] 🔑 Auth → ClientSecret longitud: ${cleanSecret.length}, primeros 15: "${cleanSecret.substring(0, 15)}..."`);
-  console.log(`[pronesoft-proxy] 🔑 Auth → BaseURL: "${baseUrl}"`);
-
-  // Según la documentación oficial de Pronesoft:
-  // POST https://api.ecf.sandbox.pronesoft.com/api/v1/oauth/token
-  const authUrl = `${baseUrl}/oauth/token`;
-
-  const authBody = { clientId: cleanId, clientSecret: cleanSecret };
-  console.log(`[pronesoft-proxy] 🔑 Auth → URL: ${authUrl}`);
-  console.log(`[pronesoft-proxy] 🔑 Auth → Body keys: ${Object.keys(authBody).join(', ')}`);
-
-  const res = await fetch(authUrl, {
+  const res = await fetch(`${baseUrl}/oauth/token`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(authBody),
+    body: JSON.stringify({ clientId: cleanId, clientSecret: cleanSecret }),
   });
 
   if (!res.ok) {
-    const errText = await res.text();
-    console.error(`[pronesoft-proxy] ❌ Auth FAILED (${res.status}): ${errText}`);
-    console.error(`[pronesoft-proxy] ❌ Auth falló (${res.status}): ${errText}`);
-    cachedToken = null;
-    throw new Error(`Error de autenticación Pronesoft (${res.status}): ${errText}`);
+    const err = await res.text();
+    throw new Error(`Error de Autenticación Pronesoft: ${err}`);
   }
 
   const data = await res.json();
   const token = data.accessToken || data.access_token;
-
-  if (!token) {
-    throw new Error("Pronesoft no devolvió un accessToken en la respuesta.");
-  }
-
-  console.log("[pronesoft-proxy] ✅ Token obtenido correctamente");
-
+  
+  // Guardamos el token y calculamos expiración (menos un margen de seguridad)
   cachedToken = {
     token,
-    expires: Date.now() + ((data.expiresIn || data.expires_in || 3600) - 60) * 1000,
+    expires: Date.now() + ((data.expiresIn || data.expires_in || 3600) - 60) * 1000
   };
 
   return token;
@@ -84,17 +53,9 @@ serve(async (req) => {
   try {
     const { action, payload, config } = await req.json()
 
-    console.log("[pronesoft-proxy] action:", action);
-    
-    // Acciones que NO requieren token de e-CF
+    // Acciones de RNC (Microservicio aparte)
     if (action === 'get-rnc') {
-      const rncRes = await fetch(`https://dgii-rnc.pronesoft.com/get/${payload.rnc}`, {
-        headers: { "Content-Type": "application/json" }
-      });
-      if (!rncRes.ok) {
-        const errText = await rncRes.text();
-        throw new Error(`Error al buscar RNC (${rncRes.status}): ${errText}`);
-      }
+      const rncRes = await fetch(`https://dgii-rnc.pronesoft.com/get/${payload.rnc}`);
       const data = await rncRes.json();
       return new Response(JSON.stringify(data), {
         headers: { ...corsHeaders, 'Content-Type': 'application/json' },
@@ -102,147 +63,87 @@ serve(async (req) => {
       });
     }
 
-    if (action === 'test-connection') {
-      return new Response(JSON.stringify({ ok: true, message: "Conexión exitosa con el Proxy" }), {
-        headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-        status: 200
-      });
-    }
+    // Configuración base
+    const baseUrl = config.baseUrl || 'https://api.ecf.pronesoft.com/api/v1';
+    const ecfEnv = config.ecfEnv || 'TesteCF';
 
-    // Acciones que SI requieren token
-    console.log("[pronesoft-proxy] tenantId:", config.tenantId);
-    const token = await getAccessToken(config.baseUrl, config.clientId, config.clientSecret);
+    // Obtener Token fresco (Auto-refresh)
+    const token = await getAccessToken(baseUrl, config.clientId, config.clientSecret);
 
     let result;
 
     if (action === 'submit') {
-      // ─── Enviar eCF ───────────────────────────────────────────────
-      const headers: Record<string, string> = {
+      console.log("[pronesoft-proxy] 📤 Enviando eCF a DGII...");
+      
+      const headers: any = {
         "Authorization": `Bearer ${token}`,
         "Content-Type": "application/json",
       };
+      if (config.tenantId) headers["x-tenant-id"] = config.tenantId;
 
-      if (config.tenantId) {
-        headers["x-tenant-id"] = config.tenantId;
-      }
-
-      // Según docs oficiales: POST /api/v1/{environment}/ecf/submit
-      // https://docs.ecf.pronesoft.com/guides/quickstart
-      const ecfEnv = config.ecfEnv || "TesteCF";
-      const submitUrl = `${config.baseUrl}/${ecfEnv}/ecf/submit`;
-
-      console.log(`[pronesoft-proxy] 📤 Enviando a: ${submitUrl}`);
-      console.log(`[pronesoft-proxy] 📤 Payload:`, JSON.stringify(payload).substring(0, 300));
-
-      // El payload va DIRECTO según la documentación de Pronesoft
-      const submitRes = await fetch(submitUrl, {
+      const res = await fetch(`${baseUrl}/${ecfEnv}/ecf/submit`, {
         method: "POST",
         headers,
-        body: JSON.stringify(payload),
+        body: JSON.stringify(payload)
       });
 
-      const responseText = await submitRes.text();
-
-      if (!submitRes.ok) {
-        console.error("[pronesoft-proxy] ❌ Error:", submitRes.status, responseText);
-        return new Response(JSON.stringify({
-          error: `Error de Pronesoft (${submitRes.status}): ${responseText}`
-        }), {
-          headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-          status: 200,
-        });
-      }
+      const responseText = await res.text();
+      if (!res.ok) throw new Error(`Error Fiscal: ${responseText}`);
 
       result = JSON.parse(responseText);
-      console.log("[pronesoft-proxy] ✅ Respuesta Pronesoft:", JSON.stringify(result).substring(0, 500));
-
-      console.log("[pronesoft-proxy] ✅ eCF emitido:", result.encf, "Status:", result.status);
+      console.log("[pronesoft-proxy] ✅ eCF emitido:", result.encf);
 
     } else if (action === 'status') {
-      const statusUrl = `${config.baseUrl}/${config.ecfEnv}/ecf/status/${payload.documentId}`;
-      const statusRes = await fetch(statusUrl, {
-        headers: { "Authorization": `Bearer ${token}` },
+      const res = await fetch(`${baseUrl}/${ecfEnv}/ecf/status/${payload.documentId}`, {
+        headers: { "Authorization": `Bearer ${token}` }
       });
-      result = await statusRes.json();
+      result = await res.json();
 
     } else if (action === 'register-company') {
-      const companyRes = await fetch(`${config.baseUrl}/companies`, {
+      const res = await fetch(`${baseUrl}/companies`, {
         method: "POST",
         headers: {
           "Authorization": `Bearer ${token}`,
-          "Content-Type": "application/json",
+          "Content-Type": "application/json"
         },
-        body: JSON.stringify(payload),
+        body: JSON.stringify(payload)
       });
-      result = await companyRes.json();
+      result = await res.json();
 
     } else if (action === 'upload-cert') {
-      const { certificate, password, rnc } = payload;
-      if (!rnc) throw new Error("RNC es requerido para subir el certificado");
-
-      const binaryString = atob(certificate);
+      const binaryString = atob(payload.certificate);
       const bytes = new Uint8Array(binaryString.length);
       for (let i = 0; i < binaryString.length; i++) {
         bytes[i] = binaryString.charCodeAt(i);
       }
       const blob = new Blob([bytes], { type: "application/x-pkcs12" });
-
       const formData = new FormData();
       formData.append("file", blob, "certificado.p12");
-      formData.append("password", password);
+      formData.append("password", payload.password);
 
-      const certRes = await fetch(`${config.baseUrl}/${rnc}/certificates`, {
+      const res = await fetch(`${baseUrl}/${payload.rnc}/certificates`, {
         method: "POST",
         headers: { "Authorization": `Bearer ${token}` },
-        body: formData,
+        body: formData
       });
+      const text = await res.text();
+      if (!res.ok) throw new Error(`Error Certificado: ${text}`);
+      result = { ok: true, ...JSON.parse(text) };
 
-      const certText = await certRes.text();
-      if (!certRes.ok) throw new Error(`Error al subir certificado (${certRes.status}): ${certText}`);
-
-      result = JSON.parse(certText);
-      result.ok = true;
-
-    } else if (action === 'import-sequences') {
-      const { file } = payload;
-
-      const binaryString = atob(file);
-      const bytes = new Uint8Array(binaryString.length);
-      for (let i = 0; i < binaryString.length; i++) {
-        bytes[i] = binaryString.charCodeAt(i);
-      }
-      const blob = new Blob([bytes], { type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" });
-
-      const formData = new FormData();
-      formData.append("file", blob, "secuencias_dgii.xlsx");
-
-      const importRes = await fetch(`${config.baseUrl}/tax-sequences/import`, {
-        method: "POST",
-        headers: { "Authorization": `Bearer ${token}` },
-        body: formData,
-      });
-
-      const importText = await importRes.text();
-      if (!importRes.ok) throw new Error(`Error al importar secuencias (${importRes.status}): ${importText}`);
-
-      result = JSON.parse(importText);
-      result.ok = true;
-
+    } else if (action === 'test-connection') {
+      result = { ok: true, message: "Conexión estable" };
     }
 
     return new Response(JSON.stringify(result), {
       headers: { ...corsHeaders, 'Content-Type': 'application/json' },
       status: 200
-    })
+    });
 
-  } catch (error) {
-    console.error("[pronesoft-proxy] ❌ Error Crítico:", error.message);
-
-    return new Response(JSON.stringify({
-      error: error.message || "Error desconocido en el proxy"
-    }), {
+  } catch (error: any) {
+    console.error("[pronesoft-proxy] ❌ ERROR:", error.message);
+    return new Response(JSON.stringify({ error: error.message }), {
       headers: { ...corsHeaders, 'Content-Type': 'application/json' },
       status: 200
-    })
+    });
   }
 })
