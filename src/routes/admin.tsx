@@ -35,8 +35,12 @@ import {
   saveGlobalConfig,
   ADMIN_EMAILS,
   formatCedulaRD,
+  getLicenciasLocales,
+  createLicenciaLocal,
+  updateLicenciaLocal,
+  deleteLicenciaLocal,
 
-  type Plan, type PlanId, type Tenant, type GlobalConfig
+  type Plan, type PlanId, type Tenant, type GlobalConfig, type LicenciaLocal
 } from "@/lib/storage";
 import { 
   DropdownMenu,
@@ -109,12 +113,17 @@ function AdminPage() {
   const [selectedPlanId, setSelectedPlanId] = useState<PlanId>("basico");
   const [newStatus, setNewStatus] = useState<any>("ACTIVO");
 
+  const [licencias, setLicencias] = useState<LicenciaLocal[]>([]);
+  const [openLicenciaModal, setOpenLicenciaModal] = useState(false);
+  const [editingLicencia, setEditingLicencia] = useState<LicenciaLocal | null>(null);
+
   useEffect(() => {
     async function load() {
-      const [t, p, cfg] = await Promise.all([getTenants(), getPlans(), getGlobalConfig()]);
+      const [t, p, cfg, lics] = await Promise.all([getTenants(), getPlans(), getGlobalConfig(), getLicenciasLocales()]);
       setTenants(t);
       setPlans(p);
       setGlobalConfig(cfg);
+      setLicencias(lics);
       const ordsMap: Record<string, { count: number; total: number }> = {};
       let grandTotal = 0;
       for (const tenant of t) {
@@ -189,6 +198,7 @@ function AdminPage() {
           <TabsList>
             <TabsTrigger value="tenants">Lavanderías</TabsTrigger>
             <TabsTrigger value="plans">Planes SaaS</TabsTrigger>
+            <TabsTrigger value="licencias">Licencias Desktop</TabsTrigger>
           </TabsList>
 
           <TabsContent value="tenants">
@@ -393,6 +403,88 @@ function AdminPage() {
               ))}
             </div>
           </TabsContent>
+
+          <TabsContent value="licencias">
+            <div className="mb-4 flex items-center justify-between">
+              <div>
+                <h2 className="font-display text-xl">Licencias de Software</h2>
+                <p className="text-sm text-muted-foreground">Genera y controla el acceso a las instalaciones de Klynn Local.</p>
+              </div>
+              <Button onClick={() => { setEditingLicencia(null); setOpenLicenciaModal(true); }} className="bg-gradient-primary text-white rounded-lg shadow-md h-9 px-5">
+                <Plus className="mr-1.5 h-4 w-4" /> Nueva Licencia
+              </Button>
+            </div>
+
+            <Card className="overflow-hidden border-none shadow-card">
+              <div className="overflow-x-auto">
+                <table className="w-full text-sm">
+                  <thead className="bg-surface-elevated text-xs uppercase text-muted-foreground">
+                    <tr>
+                      <th className="px-6 py-4 text-left font-bold">Código / Lavandería</th>
+                      <th className="px-6 py-4 text-center font-bold">Estado</th>
+                      <th className="px-6 py-4 text-center font-bold">WhatsApp</th>
+                      <th className="px-6 py-4 text-center font-bold">Facturación</th>
+                      <th className="px-6 py-4 text-center font-bold">Vencimiento</th>
+                      <th className="px-6 py-4 text-center font-bold">Acciones</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {licencias.map((l) => (
+                      <tr key={l.id} className="border-b border-border/50 hover:bg-muted/30 transition-colors">
+                        <td className="px-6 py-4">
+                          <div className="font-mono text-sm font-bold text-primary tracking-wider">{l.codigo}</div>
+                          <div className="text-xs font-semibold text-foreground mt-0.5">{l.nombre_lavanderia}</div>
+                        </td>
+                        <td className="px-6 py-4 text-center">
+                          <Badge variant={l.estado === "ACTIVO" ? "success" : "outline"} className={l.estado === "INACTIVO" ? "bg-muted text-muted-foreground" : ""}>
+                            {l.estado}
+                          </Badge>
+                        </td>
+                        <td className="px-6 py-4 text-center">
+                          <Switch 
+                            checked={l.whatsapp_activo} 
+                            onCheckedChange={async (v) => {
+                              await updateLicenciaLocal(l.id, { whatsapp_activo: v });
+                              setTick(t => t + 1);
+                              toast.success("WhatsApp actualizado");
+                            }}
+                          />
+                        </td>
+                        <td className="px-6 py-4 text-center">
+                          <Switch 
+                            checked={l.facturacion_activa} 
+                            onCheckedChange={async (v) => {
+                              await updateLicenciaLocal(l.id, { facturacion_activa: v });
+                              setTick(t => t + 1);
+                              toast.success("Facturación actualizada");
+                            }}
+                          />
+                        </td>
+                        <td className="px-6 py-4 text-center text-xs">
+                          {l.es_anual && l.expira_en ? new Date(l.expira_en).toLocaleDateString("es-DO") : "Permanente"}
+                        </td>
+                        <td className="px-6 py-4 text-center flex justify-center gap-2">
+                          <Button size="icon" variant="ghost" onClick={() => { setEditingLicencia(l); setOpenLicenciaModal(true); }}>
+                            <Pencil className="h-4 w-4" />
+                          </Button>
+                          <Button size="icon" variant="ghost" onClick={async () => {
+                            if(confirm("¿Eliminar licencia? Esta lavandería dejará de funcionar la próxima vez que se conecte a internet.")) {
+                              await deleteLicenciaLocal(l.id);
+                              setTick(t => t + 1);
+                              toast.success("Licencia eliminada");
+                            }
+                          }}>
+                            <Trash2 className="h-4 w-4 text-destructive" />
+                          </Button>
+                        </td>
+                      </tr>
+                    ))}
+                    {licencias.length === 0 && <tr><td colSpan={6} className="py-12 text-center text-muted-foreground font-medium">No se encontraron licencias creadas</td></tr>}
+                  </tbody>
+                </table>
+              </div>
+            </Card>
+          </TabsContent>
         </Tabs>
       </main>
 
@@ -484,6 +576,7 @@ function AdminPage() {
 
         <PlanDialog open={openPlan} onOpenChange={setOpenPlan} initial={editingPlan} onSaved={() => { setTick((r) => r + 1); setOpenPlan(false); }} />
         <BankDetailsDialog open={openBank} onOpenChange={setOpenBank} config={globalConfig} onSaved={() => { setTick((r) => r + 1); setOpenBank(false); }} />
+        <LicenciaDialog open={openLicenciaModal} onOpenChange={setOpenLicenciaModal} initial={editingLicencia} onSaved={() => { setTick(r => r + 1); setOpenLicenciaModal(false); }} />
     </div>
   );
 }
@@ -693,6 +786,133 @@ function BankDetailsDialog({ open, onOpenChange, config, onSaved }: {
         <DialogFooter>
           <Button variant="ghost" onClick={() => onOpenChange(false)}>Cancelar</Button>
           <Button onClick={submit} className="bg-primary text-white rounded-xl font-bold shadow-md">Guardar Datos</Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+function LicenciaDialog({ open, onOpenChange, initial, onSaved }: {
+  open: boolean; onOpenChange: (o: boolean) => void; initial: LicenciaLocal | null; onSaved: () => void;
+}) {
+  const [f, setF] = useState<Partial<LicenciaLocal>>({});
+  
+  useEffect(() => {
+    if (open) {
+      if (initial) {
+        setF({ ...initial });
+      } else {
+        // Generar código aleatorio KLYNN-XXXX-XXXX
+        const rand = () => Math.random().toString(36).substring(2, 6).toUpperCase();
+        setF({
+          codigo: `KLYNN-${rand()}-${rand()}`,
+          nombre_lavanderia: "",
+          estado: "ACTIVO",
+          es_anual: true,
+          expira_en: new Date(new Date().setFullYear(new Date().getFullYear() + 1)).toISOString().split("T")[0],
+          whatsapp_activo: false,
+          facturacion_activa: false
+        });
+      }
+    }
+  }, [open, initial]);
+
+  async function submit() {
+    if (!f.nombre_lavanderia?.trim()) { toast.error("Nombre de lavandería requerido"); return; }
+    try {
+      if (initial) {
+        await updateLicenciaLocal(initial.id, {
+          nombre_lavanderia: f.nombre_lavanderia,
+          estado: f.estado,
+          es_anual: f.es_anual,
+          expira_en: f.es_anual ? f.expira_en : undefined,
+          whatsapp_activo: f.whatsapp_activo,
+          facturacion_activa: f.facturacion_activa
+        });
+      } else {
+        await createLicenciaLocal({
+          codigo: f.codigo,
+          nombre_lavanderia: f.nombre_lavanderia,
+          estado: f.estado,
+          es_anual: f.es_anual,
+          expira_en: f.es_anual ? f.expira_en : undefined,
+          whatsapp_activo: f.whatsapp_activo,
+          facturacion_activa: f.facturacion_activa
+        });
+      }
+      toast.success(initial ? "Licencia actualizada" : "Licencia creada");
+      onSaved();
+    } catch(e: any) {
+      toast.error(e.message || "Error al guardar la licencia");
+    }
+  }
+
+  return (
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogContent className="sm:max-w-md rounded-2xl border-none shadow-card">
+        <DialogHeader>
+          <DialogTitle>{initial ? "Editar Licencia" : "Nueva Licencia Klynn Desktop"}</DialogTitle>
+          <DialogDescription>Configura los accesos y módulos permitidos para esta instalación local.</DialogDescription>
+        </DialogHeader>
+
+        <div className="grid gap-4 py-4">
+          <div className="space-y-2">
+            <Label>Código de Activación</Label>
+            <Input value={f.codigo} readOnly disabled className="font-mono tracking-widest bg-accent/30 font-bold" />
+          </div>
+          <div className="space-y-2">
+            <Label>Nombre de la Lavandería / Cliente</Label>
+            <Input value={f.nombre_lavanderia} onChange={(e) => setF({...f, nombre_lavanderia: e.target.value})} placeholder="Ej: Lavandería La Principal" />
+          </div>
+
+          <div className="flex gap-4">
+            <div className="space-y-2 flex-1">
+              <Label>Estado</Label>
+              <Select value={f.estado} onValueChange={(v: any) => setF({...f, estado: v})}>
+                <SelectTrigger><SelectValue /></SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="ACTIVO">Activo</SelectItem>
+                  <SelectItem value="INACTIVO">Inactivo</SelectItem>
+                  <SelectItem value="SUSPENDIDO">Suspendido</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+            {f.es_anual && (
+              <div className="space-y-2 flex-1">
+                <Label>Fecha de Expiración</Label>
+                <Input type="date" value={f.expira_en?.substring(0,10) || ""} onChange={(e) => setF({...f, expira_en: new Date(e.target.value).toISOString()})} />
+              </div>
+            )}
+          </div>
+
+          <div className="space-y-4 mt-2 p-4 bg-accent/20 border border-border/50 rounded-xl">
+            <div className="flex items-center justify-between">
+              <div className="space-y-0.5">
+                <Label className="text-sm font-bold">Licencia Anual</Label>
+                <p className="text-xs text-muted-foreground">Si está apagado, la licencia es de por vida.</p>
+              </div>
+              <Switch checked={f.es_anual} onCheckedChange={(v) => setF({...f, es_anual: v})} />
+            </div>
+            <div className="flex items-center justify-between">
+              <div className="space-y-0.5">
+                <Label className="text-sm font-bold">Módulo WhatsApp</Label>
+                <p className="text-xs text-muted-foreground">Desbloquear notificaciones por WapiSender.</p>
+              </div>
+              <Switch checked={f.whatsapp_activo} onCheckedChange={(v) => setF({...f, whatsapp_activo: v})} />
+            </div>
+            <div className="flex items-center justify-between">
+              <div className="space-y-0.5">
+                <Label className="text-sm font-bold">Módulo Facturación Fiscal</Label>
+                <p className="text-xs text-muted-foreground">Desbloquear e-CFs por Pronesoft.</p>
+              </div>
+              <Switch checked={f.facturacion_activa} onCheckedChange={(v) => setF({...f, facturacion_activa: v})} />
+            </div>
+          </div>
+        </div>
+
+        <DialogFooter>
+          <Button variant="ghost" onClick={() => onOpenChange(false)}>Cancelar</Button>
+          <Button onClick={submit} className="bg-primary text-white font-bold">Guardar Licencia</Button>
         </DialogFooter>
       </DialogContent>
     </Dialog>

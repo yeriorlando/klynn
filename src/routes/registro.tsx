@@ -16,8 +16,11 @@ import { Textarea } from "@/components/ui/textarea";
 import {
   PLANS, formatRD, formatPhoneRD, isSlugAvailable, registerTenant,
   setActiveTenant, uid, PROVINCIAS_RD, NCF_TIPOS, DEFAULT_CONFIG, getGlobalConfig, getPlans,
-  type PlanId, type Tenant, type TenantConfig, type GlobalConfig, type Empleado
+  type PlanId, type Tenant, type TenantConfig, type GlobalConfig, type Empleado,
 } from "@/lib/storage";
+
+// Definimos IS_LOCAL_MODE como false para asegurar compatibilidad 100% cloud
+const IS_LOCAL_MODE = false;
 
 export const Route = createFileRoute("/registro")({
   head: () => ({
@@ -107,6 +110,39 @@ function RegistroPage() {
   const [isProvisioning, setIsProvisioning] = useState(false);
   const [provisioningStep, setProvisioningStep] = useState(0);
 
+  const logoInputRef = useRef<HTMLInputElement>(null);
+
+  async function handleLogoUpload(e: React.ChangeEvent<HTMLInputElement>) {
+    const f = e.target.files?.[0];
+    if (!f) return;
+    if (f.size > 5 * 1024 * 1024) { alert("Máximo 5MB"); return; }
+    try {
+      const compressed = await compressImage(f, 512, 512, 0.7);
+      update("logo_url", compressed);
+    } catch {
+      alert("Error al procesar la imagen");
+    }
+  }
+
+  const provisioningSteps = useMemo(() => {
+    if (IS_LOCAL_MODE) {
+      return [
+        "Creando base de datos IndexedDB local...",
+        "Generando secuencias de facturación electrónica (e-CF)...",
+        "Inicializando catálogo maestro de lavandería...",
+        "Configurando almacenamiento físico seguro...",
+        "¡Todo listo localmente!"
+      ];
+    }
+    return [
+      "Configurando subdominio en Cloudflare...",
+      "Asignando certificados SSL...",
+      "Aislando base de datos para el tenant...",
+      "Configurando entorno de producción...",
+      "¡Listo!"
+    ];
+  }, []);
+
   const filteredSteps = useMemo(() => {
     if (globalConfig.requirePlanOnRegistration) return STEPS;
     return STEPS.filter(s => s.id !== 3);
@@ -190,19 +226,11 @@ function RegistroPage() {
       setActiveTenant(tenant.slug);
       setCreatedTenant(tenant);
 
-      const steps = [
-        "Configurando subdominio en Cloudflare...",
-        "Asignando certificados SSL...",
-        "Aislando base de datos para el tenant...",
-        "Configurando entorno de producción...",
-        "¡Listo!"
-      ];
-
       let current = 0;
       const interval = setInterval(() => {
         current++;
         setProvisioningStep(current);
-        if (current >= steps.length - 1) {
+        if (current >= provisioningSteps.length - 1) {
           clearInterval(interval);
           setTimeout(() => {
             setIsProvisioning(false);
@@ -321,13 +349,7 @@ function RegistroPage() {
               </motion.div>
               <h2 className="text-2xl font-bold">Creando tu espacio</h2>
               <p className="mt-2 text-muted-foreground italic">
-                {[
-                  "Configurando subdominio en Cloudflare...",
-                  "Asignando certificados SSL...",
-                  "Aislando base de datos para el tenant...",
-                  "Configurando entorno de producción...",
-                  "¡Casi listo!"
-                ][provisioningStep]}
+                {provisioningSteps[provisioningStep]}
               </p>
               <div className="mt-8 h-1.5 w-64 overflow-hidden rounded-full bg-slate-100">
                 <motion.div
@@ -372,40 +394,61 @@ function RegistroPage() {
                   <h1 className="mb-2 text-3xl font-bold">Personaliza tu marca</h1>
                   <p className="mb-8 text-muted-foreground">Define la identidad de tu lavandería.</p>
                   <div className="grid gap-6">
-                    <Field label="Tu subdominio *" error={errors.slug}>
-                      <div className="flex h-11 items-center overflow-hidden rounded-lg border border-input bg-background focus-within:ring-2 focus-within:ring-primary/20 transition-all">
-                        <div className="px-4 text-sm font-medium text-muted-foreground bg-muted h-full flex items-center border-r border-input">klynn.com.do/t/</div>
-                        <Input className="border-0 focus-visible:ring-0 font-bold text-lg text-primary h-full" value={form.slug} onChange={(e) => setForm((f) => ({ ...f, slug: slugify(e.target.value), slugTouched: true }))} placeholder="lavanderia" />
-                      </div>
-                    </Field>
-                    <div className="grid gap-5 md:grid-cols-2">
-                      <ColorField label="Color primario" value={form.color_primario} onChange={(v) => update("color_primario", v)} />
-                      <LogoUploader label="Logotipo de tu lavandería" value={form.logo_url} onChange={(v) => update("logo_url", v)} />
-                    </div>
-
-                    {/* Branding Preview */}
-                    <div className="rounded-2xl border border-border bg-accent/20 p-6">
-                      <div className="mb-4 text-center text-xs font-semibold uppercase tracking-wider text-muted-foreground">Vista previa de tu marca</div>
-                      <div className="flex flex-col items-center gap-3">
+                    {/* Branding Preview al inicio */}
+                    <div className="rounded-3xl border border-border/80 bg-slate-50/50 p-6 md:p-8 backdrop-blur-sm relative overflow-hidden text-center shadow-inner">
+                      <div className="absolute -left-10 -top-10 h-32 w-32 rounded-full bg-primary/5 blur-[30px] pointer-events-none" />
+                      <div className="mb-4 text-center text-xs font-semibold uppercase tracking-wider text-muted-foreground/80">Vista previa de tu marca</div>
+                      <div className="flex flex-col items-center gap-4">
                         <div
-                          className="relative h-32 w-32 shrink-0 overflow-hidden rounded-full border-[4px] border-white shadow-elegant transition-all duration-500"
-                          style={{ backgroundColor: form.color_primario }}
+                          className="relative h-32 w-32 shrink-0 overflow-hidden rounded-full border-[4px] border-white shadow-elegant transition-all duration-500 bg-white"
+                          style={{ borderColor: form.color_primario }}
                         >
                           {form.logo_url ? (
                             <img src={form.logo_url} alt="logo" className="h-full w-full object-cover" />
                           ) : (
-                            <div className="flex h-full w-full items-center justify-center bg-white">
-                               <Building2 className="h-12 w-12 text-slate-300" />
+                            <div className="flex h-full w-full items-center justify-center bg-slate-50">
+                               <Building2 className="h-14 w-14 text-slate-300" />
                             </div>
                           )}
                         </div>
                         <div className="text-center">
-                          <div className="text-3xl font-bold tracking-tight" style={{ color: form.color_primario }}>{form.nombre || "Tu Lavandería"}</div>
-                          <div className="mt-1 flex h-10 items-center justify-center rounded-lg bg-white/50 px-4 font-mono text-lg text-muted-foreground border border-slate-200/50">
-                            klynn.com.do/t/{(form.slug || "milavanderia")}
+                          <div className="text-3xl font-display font-bold tracking-tight mb-2" style={{ color: form.color_primario }}>{form.nombre || "Tu Lavandería"}</div>
+                          
+                          {/* El botón de subir logo justo debajo del nombre de la lavandería con su icono */}
+                          <div className="flex items-center justify-center gap-2 mt-3">
+                            <input ref={logoInputRef} type="file" accept="image/*" className="hidden" onChange={handleLogoUpload} />
+                            <button
+                              type="button"
+                              onClick={() => logoInputRef.current?.click()}
+                              className="h-9 px-4 rounded-full bg-white hover:bg-slate-50 text-xs font-bold text-slate-700 border border-slate-200 shadow-sm flex items-center gap-1.5 transition-all hover:scale-105 active:scale-95"
+                            >
+                              <Upload className="h-3.5 w-3.5 text-slate-500" /> {form.logo_url ? "Cambiar logotipo" : "Subir logotipo"}
+                            </button>
+                            {form.logo_url && (
+                              <button
+                                type="button"
+                                onClick={() => update("logo_url", "")}
+                                className="h-9 w-9 rounded-full bg-destructive/10 hover:bg-destructive text-destructive hover:text-white flex items-center justify-center transition-all hover:scale-105 active:scale-95 text-sm font-bold animate-fade-in"
+                                title="Quitar logotipo"
+                              >
+                                ×
+                              </button>
+                            )}
                           </div>
                         </div>
                       </div>
+                    </div>
+
+
+
+                    <div className="flex flex-col items-center justify-center gap-6 mt-4">
+                      {/* Selector de color centrado */}
+                      <ColorField label="Color principal de tu marca" value={form.color_primario} onChange={(v) => update("color_primario", v)} />
+                      
+                      {/* Texto de ayuda centrado debajo */}
+                      <p className="text-xs text-muted-foreground text-center max-w-sm italic">
+                        🎨 Elige el color que mejor represente a tu lavandería. Tu panel administrativo y pantallas se adaptarán automáticamente a este tono.
+                      </p>
                     </div>
                   </div>
                 </>
@@ -535,7 +578,10 @@ function SuccessCard({ tenant, adminNombre, adminEmail, globalConfig, onEnter }:
   globalConfig: GlobalConfig;
   onEnter: () => void 
 }) {
-  const planNombre = PLANS.find((p) => p.id === tenant.plan_id)?.nombre || tenant.plan_id;
+  const planNombre = IS_LOCAL_MODE 
+    ? "Klynn Local / Desktop" 
+    : (PLANS.find((p) => p.id === tenant.plan_id)?.nombre || tenant.plan_id);
+
   return (
     <div className="text-center">
       <motion.div
@@ -567,7 +613,9 @@ function SuccessCard({ tenant, adminNombre, adminEmail, globalConfig, onEnter }:
               <Building2 className="h-4 w-4 text-primary/60" />
               <span className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground">Acceso</span>
             </div>
-            <div className="font-mono text-xs font-semibold">klynn.com.do/t/{tenant.slug}</div>
+            <div className="font-mono text-xs font-semibold">
+              {IS_LOCAL_MODE ? `localhost:8080/t/${tenant.slug}` : `klynn.com.do/t/${tenant.slug}`}
+            </div>
           </div>
           
           <div className="grid grid-cols-2 divide-x divide-border border-b border-border">
@@ -576,8 +624,10 @@ function SuccessCard({ tenant, adminNombre, adminEmail, globalConfig, onEnter }:
               <div className="mt-0.5 font-bold text-lg">{planNombre}</div>
             </div>
             <div className="px-4 py-3">
-              <div className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground">Prueba Gratuita</div>
-              <div className="mt-0.5 font-bold text-lg text-success">{globalConfig.trialDays} Días</div>
+              <div className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground">Licencia</div>
+              <div className="mt-0.5 font-bold text-lg text-success">
+                {IS_LOCAL_MODE ? "Activación Local" : `${globalConfig.trialDays} Días`}
+              </div>
             </div>
           </div>
 
@@ -686,31 +736,52 @@ function LogoUploader({ label, value, onChange }: { label: string; value: string
     }
   }
   return (
-    <div>
-      <Label className="mb-1.5 block text-sm font-medium">{label}</Label>
+    <div className="w-full">
+      <Label className="mb-2 block text-sm font-semibold text-slate-700">{label}</Label>
       <input ref={inputRef} type="file" accept="image/*" hidden onChange={onFile} />
-      <button
-        type="button"
-        onClick={() => inputRef.current?.click()}
-        className="flex h-[60px] w-full items-center justify-center gap-2 rounded-md border-2 border-dashed border-input bg-background text-sm text-muted-foreground transition hover:border-primary hover:bg-accent/30 hover:text-foreground"
-      >
-        {value ? (
-          <>
-            <img src={value} alt="logo" className="h-9 w-9 rounded-md object-cover" />
-            <span>Cambiar logotipo</span>
-          </>
-        ) : (
-          <>
-            <Upload className="h-4 w-4" />
-            <span>Subir logotipo (PNG/JPG, máx 2MB)</span>
-          </>
-        )}
-      </button>
-      {value && (
-        <button type="button" onClick={() => onChange("")} className="mt-1.5 text-xs text-muted-foreground hover:text-destructive">
-          <ImageIcon className="mr-1 inline h-3 w-3" /> Quitar logo
+      
+      <div className="relative group">
+        <button
+          type="button"
+          onClick={() => inputRef.current?.click()}
+          className="relative flex items-center justify-between w-full p-4 rounded-2xl border border-slate-200/80 bg-slate-50/50 hover:bg-white hover:border-primary/80 transition-all shadow-sm hover:shadow-md hover:scale-[1.01] duration-300 text-left active:scale-[0.99]"
+        >
+          <div className="flex items-center gap-4">
+            {value ? (
+              <div className="relative h-14 w-14 rounded-xl border border-slate-100/50 overflow-hidden shadow-inner bg-white shrink-0">
+                <img src={value} alt="logo" className="h-full w-full object-cover" />
+              </div>
+            ) : (
+              <div className="h-14 w-14 rounded-xl bg-primary/5 text-primary border border-primary/10 flex items-center justify-center shrink-0 group-hover:bg-primary group-hover:text-white transition-colors duration-300">
+                <Upload className="h-6 w-6" />
+              </div>
+            )}
+            
+            <div>
+              <p className="font-bold text-slate-800 text-sm">
+                {value ? "Logotipo seleccionado" : "Subir logotipo comercial"}
+              </p>
+              <p className="text-xs text-slate-400 mt-0.5">
+                {value ? "Haz clic para cambiar la imagen" : "PNG o JPG, tamaño sugerido 512x512"}
+              </p>
+            </div>
+          </div>
+
+          <div className="h-9 px-4 rounded-xl bg-white border border-slate-200 text-xs font-bold text-slate-700 flex items-center justify-center hover:bg-slate-50 transition-colors shrink-0">
+            {value ? "Cambiar" : "Examinar"}
+          </div>
         </button>
-      )}
+
+        {value && (
+          <button 
+            type="button" 
+            onClick={() => onChange("")} 
+            className="absolute -top-2 -right-2 h-6 w-6 rounded-full bg-destructive text-white hover:bg-destructive/90 flex items-center justify-center shadow-md text-xs font-bold transition-all active:scale-95"
+          >
+            ×
+          </button>
+        )}
+      </div>
     </div>
   );
 }
@@ -726,13 +797,57 @@ function Field({ label, error, className = "", children }: { label: string; erro
 }
 
 function ColorField({ label, value, onChange }: { label: string; value: string; onChange: (v: string) => void }) {
+  const presets = [
+    { name: "Klynn Blue", hex: "#0F4C81" },
+    { name: "Teal", hex: "#0D9488" },
+    { name: "Emerald", hex: "#059669" },
+    { name: "Purple", hex: "#7C3AED" },
+    { name: "Ruby", hex: "#E11D48" },
+    { name: "Amber", hex: "#D97706" },
+    { name: "Slate", hex: "#334155" },
+  ];
+
   return (
-    <div>
-      <Label className="mb-1.5 block text-sm font-medium">{label}</Label>
-      <div className="flex items-center gap-3 rounded-md border border-input bg-background p-2">
-        <input type="color" value={value} onChange={(e) => onChange(e.target.value)} className="h-10 w-14 cursor-pointer rounded border-0 bg-transparent" />
-        <Input value={value} onChange={(e) => onChange(e.target.value)} className="border-0 font-mono uppercase focus-visible:ring-0" />
+    <div className="flex flex-col items-center justify-center text-center w-full">
+      <Label className="mb-3 block text-xs font-bold text-slate-500 uppercase tracking-widest">{label}</Label>
+      
+      <div className="flex flex-wrap items-center justify-center gap-3 p-3 bg-slate-50/80 border border-slate-200/50 rounded-full shadow-inner max-w-md">
+        {presets.map((p) => {
+          const isSelected = value.toLowerCase() === p.hex.toLowerCase();
+          return (
+            <button
+              key={p.hex}
+              type="button"
+              onClick={() => onChange(p.hex)}
+              className="relative h-9 w-9 rounded-full transition-all duration-300 hover:scale-110 active:scale-95 flex items-center justify-center shadow-sm"
+              style={{ backgroundColor: p.hex }}
+              title={p.name}
+            >
+              {isSelected && (
+                <div className="h-4 w-4 rounded-full bg-white flex items-center justify-center shadow-sm">
+                  <div className="h-2 w-2 rounded-full" style={{ backgroundColor: p.hex }} />
+                </div>
+              )}
+            </button>
+          );
+        })}
+
+        {/* Custom Color Selector (Color Wheel Palette) */}
+        <div className="relative h-9 w-9 rounded-full border border-slate-250 bg-white hover:bg-slate-100 transition-all flex items-center justify-center shadow-sm cursor-pointer hover:scale-110 group active:scale-95">
+          <input
+            type="color"
+            value={value}
+            onChange={(e) => onChange(e.target.value)}
+            className="absolute inset-0 opacity-0 w-full h-full cursor-pointer"
+          />
+          <Palette className="h-4 w-4 text-slate-500 group-hover:text-primary transition-colors" />
+        </div>
       </div>
+      
+      {/* Hex value display */}
+      <span className="mt-3 font-mono text-[11px] font-bold text-slate-400 bg-slate-100/50 px-2 py-0.5 rounded-md uppercase tracking-wider border border-slate-200/30">
+        Código Hex: {value}
+      </span>
     </div>
   );
 }

@@ -110,6 +110,19 @@ export interface WhatsAppConfig {
   plantilla_entregada: string;
 }
 
+export interface LicenciaLocal {
+  id: string;
+  codigo: string;
+  nombre_lavanderia: string;
+  estado: "ACTIVO" | "INACTIVO" | "SUSPENDIDO";
+  es_anual: boolean;
+  expira_en?: string;
+  whatsapp_activo: boolean;
+  facturacion_activa: boolean;
+  creado_en: string;
+  ultima_sincronizacion?: string;
+}
+
 export interface Cliente {
   id: string;
   tenant_id: string;
@@ -574,6 +587,29 @@ export async function getPlans(): Promise<Plan[]> {
   return s;
 }
 export function savePlans(plans: Plan[]) { write(KEY.plans, plans); }
+
+// ============ Licencias Desktop (Supabase) ============
+export async function getLicenciasLocales(): Promise<LicenciaLocal[]> {
+  const { data, error } = await supabase.from('licencias_locales').select('*').order('creado_en', { ascending: false });
+  if (error) { console.error("Error getLicenciasLocales:", error); return []; }
+  return data || [];
+}
+
+export async function createLicenciaLocal(lic: Partial<LicenciaLocal>) {
+  const { data, error } = await supabase.from('licencias_locales').insert(lic).select().single();
+  if (error) throw error;
+  return data;
+}
+
+export async function updateLicenciaLocal(id: string, updates: Partial<LicenciaLocal>) {
+  const { error } = await supabase.from('licencias_locales').update(updates).eq('id', id);
+  if (error) throw error;
+}
+
+export async function deleteLicenciaLocal(id: string) {
+  const { error } = await supabase.from('licencias_locales').delete().eq('id', id);
+  if (error) throw error;
+}
 
 // ============ Tenants (Supabase) ============
 export async function getTenants(): Promise<Tenant[]> {

@@ -315,7 +315,7 @@ function SidebarContent({
           className={`flex items-center gap-3 ${empleado.rol === "ADMIN" && myTenants.length > 1 ? "cursor-pointer rounded-xl p-1 -m-1 transition hover:bg-accent/50" : ""}`}
           onClick={() => empleado.rol === "ADMIN" && myTenants.length > 1 && setShowSwitcher(!showSwitcher)}
         >
-          <div className="grid h-10 w-10 place-items-center overflow-hidden rounded-full bg-white text-white shadow-sm border border-border shrink-0" style={{ background: tenant.logo_url ? "white" : `linear-gradient(135deg, ${tenant.color_primario}, ${tenant.color_secundario})` }}>
+          <div className="grid h-10 w-10 place-items-center overflow-hidden rounded-full bg-white text-white shadow-sm border border-border shrink-0" style={{ background: tenant.logo_url ? "white" : `linear-gradient(135deg, var(--primary), var(--brand-secondary, ${tenant.color_secundario}))` }}>
             {tenant.logo_url ? (
               <img src={tenant.logo_url} alt="logo" className="h-full w-full object-cover" />
             ) : (
@@ -324,7 +324,7 @@ function SidebarContent({
           </div>
           <div className="min-w-0 flex-1">
             <div className="flex items-center gap-1.5">
-              <div className="truncate font-display text-sm font-semibold" style={{ color: tenant.color_primario }}>{tenant.nombre}</div>
+              <div className="truncate font-display text-sm font-semibold" style={{ color: "var(--primary)" }}>{tenant.nombre}</div>
               {empleado.rol === "ADMIN" && myTenants.length > 1 && <ChevronDown className={`h-3 w-3 transition-transform ${showSwitcher ? "rotate-180" : ""}`} />}
             </div>
             <div className="truncate text-xs text-muted-foreground lowercase">klynn.com.do/t/{tenant.slug}</div>
