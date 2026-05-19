@@ -63,6 +63,9 @@ export function Ticket({ orden, tenant, empleado, cliente, formato = "80mm", pag
     }
   }
 
+  // Blindar array de servicios para evitar excepciones en tiempo de ejecución
+  const srvListSafe = serviciosList || [];
+
   return (
     <div className={`thermal-ticket mx-auto ${w} ${cols} bg-white p-3 font-mono text-[11px] leading-snug text-black`}>
       <div className="text-center space-y-0.5">
@@ -132,7 +135,7 @@ export function Ticket({ orden, tenant, empleado, cliente, formato = "80mm", pag
       <div className="mt-1 mb-2">
         {(() => {
            const subtotalBruto = orden.items.reduce((acc, it) => acc + (it.cantidad * it.precio_unitario), 0) + 
-                                 (orden.servicios?.map(s => serviciosList.find(x => x.nombre === s)?.precio || 0).reduce((a,b) => a+b, 0) || 0);
+                                 (orden.servicios?.map(s => srvListSafe.find(x => x.nombre === s)?.precio || 0).reduce((a,b) => a+b, 0) || 0);
            
            // Si el subtotal de la orden es significativamente menor al subtotal bruto de los items, 
            // significa que cuando se creó la orden, los precios INCLUÍAN el ITBIS (y se extrajo el subtotal base).
@@ -140,58 +143,85 @@ export function Ticket({ orden, tenant, empleado, cliente, formato = "80mm", pag
                                               ? (subtotalBruto - orden.subtotal > 1) 
                                               : !!cfg?.itbis_incluido;
 
+           const itemsSueltos = orden.items.filter(it => !it.descripcion.startsWith("↳"));
+           const itemsDesglosados = orden.items.filter(it => it.descripcion.startsWith("↳"));
+
            return (
              <>
-                {orden.items.map((it, i) => {
-                   let baseTotal = it.cantidad * it.precio_unitario;
-                   let itemItbis = 0;
-                   let valor = baseTotal;
-                   if (cfg?.ncf_facturacion_activa && orden.itbis > 0) {
-                     if (isItbisIncluidoEnEstaOrden) {
-                       itemItbis = baseTotal - (baseTotal / (1 + (cfg.itbis_porcentaje || 18) / 100));
-                     } else {
-                       itemItbis = baseTotal * ((cfg.itbis_porcentaje || 18) / 100);
-                       valor = baseTotal + itemItbis;
-                     }
-                   }
-                   return (
-                    <div key={i} className="flex justify-between items-start mb-1.5">
+               {/* 1. Renderizar Servicios Principales y sus desgloses correspondientes */}
+               {orden.servicios?.map((sName, i) => {
+                  const srv = srvListSafe.find(s => s.nombre === sName);
+                  const p = srv ? srv.precio : 0;
+                  let baseTotal = p;
+                  let itemItbis = 0;
+                  let valor = baseTotal;
+                  if (cfg?.ncf_facturacion_activa && orden.itbis > 0) {
+                    if (isItbisIncluidoEnEstaOrden) {
+                      itemItbis = baseTotal - (baseTotal / (1 + (cfg.itbis_porcentaje || 18) / 100));
+                    } else {
+                      itemItbis = baseTotal * ((cfg.itbis_porcentaje || 18) / 100);
+                      valor = baseTotal + itemItbis;
+                    }
+                  }
+
+                  // Encontrar prendas desglosadas que corresponden a este servicio
+                  const misPrendasDesglosadas = itemsDesglosados.filter(it => 
+                    it.descripcion.toLowerCase().includes(sName.toLowerCase()) || 
+                    (it.notas && it.notas.toLowerCase().includes(sName.toLowerCase())) ||
+                    (!orden.items.some(x => x.descripcion.startsWith("↳") && x.descripcion.toLowerCase().includes(sName.toLowerCase())) && orden.servicios.length === 1)
+                  );
+
+                  return (
+                    <div key={'s'+i} className="mb-2">
+                      <div className="flex justify-between items-start mb-1.5">
+                        <div className="w-[44%] pr-1">
+                          <div className="font-bold leading-tight uppercase text-[10px]">Servicio: {sName}</div>
+                          {p > 0 && <div className="text-[9px] text-black/70 leading-tight">1 × {formatRD(p).replace("RD$", "")}</div>}
+                        </div>
+                        <div className="w-[26%] text-right font-bold pt-0.5">{p > 0 ? (itemItbis > 0 ? formatRD(itemItbis).replace("RD$", "") : "0.00") : "—"}</div>
+                        <div className="w-[30%] text-right font-bold pt-0.5">{p > 0 ? formatRD(valor).replace("RD$", "") : "—"}</div>
+                      </div>
+
+                      {/* Desgloses anidados debajo del servicio */}
+                      {misPrendasDesglosadas.map((it, dIdx) => (
+                        <div key={'sd'+dIdx} className="flex justify-between items-start pl-3 mb-1 animate-in fade-in duration-200">
+                          <div className="w-[44%] pr-1">
+                            <div className="font-normal text-black/75 text-[10px] leading-tight">{it.descripcion}{it.es_libra ? ` (${it.cantidad}lb)` : ""}</div>
+                            {it.notas && <div className="text-[9px] italic leading-tight text-black/60">Nota: {it.notas}</div>}
+                          </div>
+                          <div className="w-[26%] text-right font-medium pt-0.5 text-black/50">—</div>
+                          <div className="w-[30%] text-right font-medium pt-0.5 text-black/50">—</div>
+                        </div>
+                      ))}
+                    </div>
+                  );
+               })}
+
+               {/* 2. Renderizar prendas sueltas (no desglosadas) */}
+               {itemsSueltos.map((it, i) => {
+                  let baseTotal = it.cantidad * it.precio_unitario;
+                  let itemItbis = 0;
+                  let valor = baseTotal;
+                  if (cfg?.ncf_facturacion_activa && orden.itbis > 0) {
+                    if (isItbisIncluidoEnEstaOrden) {
+                      itemItbis = baseTotal - (baseTotal / (1 + (cfg.itbis_porcentaje || 18) / 100));
+                    } else {
+                      itemItbis = baseTotal * ((cfg.itbis_porcentaje || 18) / 100);
+                      valor = baseTotal + itemItbis;
+                    }
+                  }
+                  return (
+                    <div key={'suelto'+i} className="flex justify-between items-start mb-1.5">
                       <div className="w-[44%] pr-1">
                         <div className="font-medium leading-tight">{it.descripcion}{it.es_libra ? ` (${it.cantidad}lb)` : ""}</div>
                         <div className="text-[9px] text-black/70 leading-tight">{it.cantidad} × {formatRD(it.precio_unitario).replace("RD$", "")}</div>
-                        {it.notas && <div className="text-[9px] italic leading-tight">Nota: {it.notas}</div>}
+                        {it.notas && <div className="text-[9px] italic leading-tight text-black/60 font-sans">Nota: {it.notas}</div>}
                       </div>
                       <div className="w-[26%] text-right font-medium pt-0.5">{itemItbis > 0 ? formatRD(itemItbis).replace("RD$", "") : "0.00"}</div>
                       <div className="w-[30%] text-right font-medium pt-0.5">{formatRD(valor).replace("RD$", "")}</div>
                     </div>
-                   )
-                })}
-
-                {orden.servicios?.map((sName, i) => {
-                   const srv = serviciosList.find(s => s.nombre === sName);
-                   const p = srv ? srv.precio : 0;
-                   let baseTotal = p;
-                   let itemItbis = 0;
-                   let valor = baseTotal;
-                   if (cfg?.ncf_facturacion_activa && orden.itbis > 0) {
-                     if (isItbisIncluidoEnEstaOrden) {
-                       itemItbis = baseTotal - (baseTotal / (1 + (cfg.itbis_porcentaje || 18) / 100));
-                     } else {
-                       itemItbis = baseTotal * ((cfg.itbis_porcentaje || 18) / 100);
-                       valor = baseTotal + itemItbis;
-                     }
-                   }
-           return (
-            <div key={'s'+i} className="flex justify-between items-start mb-1.5">
-              <div className="w-[44%] pr-1">
-                <div className="font-medium leading-tight">Servicio: {sName}</div>
-                {p > 0 && <div className="text-[9px] text-black/70 leading-tight">1 × {formatRD(p).replace("RD$", "")}</div>}
-              </div>
-              <div className="w-[26%] text-right font-medium pt-0.5">{p > 0 ? (itemItbis > 0 ? formatRD(itemItbis).replace("RD$", "") : "0.00") : "—"}</div>
-              <div className="w-[30%] text-right font-medium pt-0.5">{p > 0 ? formatRD(valor).replace("RD$", "") : "—"}</div>
-            </div>
-           )
-        })}
+                  );
+               })}
              </>
            );
         })()}
@@ -203,6 +233,9 @@ export function Ticket({ orden, tenant, empleado, cliente, formato = "80mm", pag
           <Row k={`ITBIS ${cfg?.itbis_porcentaje ?? 18}%`} v={formatRD(orden.itbis).replace("DOP", "RD$")} />
         )}
         {orden.descuento > 0 && <Row k="Descuento" v={`-${formatRD(orden.descuento).replace("DOP", "RD$")}`} />}
+        {orden.costo_envio && orden.costo_envio > 0 && (
+          <Row k="🚚 Envío a domicilio" v={formatRD(orden.costo_envio).replace("DOP", "RD$")} />
+        )}
         <div className="my-1 border-t border-dashed border-black" />
         <Row k="TOTAL" v={formatRD(orden.total).replace("DOP", "RD$")} bold />
       </div>

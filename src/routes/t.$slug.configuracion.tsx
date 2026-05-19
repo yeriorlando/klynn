@@ -26,7 +26,7 @@ import {
 import {
   saveTenant, DEFAULT_CONFIG, formatPhoneRD, formatCedulaRD, PROVINCIAS_RD, NCF_TIPOS,
   formatAmountInput, parseAmount, getPlans, updateTenantPlan, getGlobalConfig, formatRD,
-  getTenantPlan, getECFConfig, saveECFConfig, getECFSequences, saveECFSequence, nextECFNumero,
+  getTenantPlan, getECFConfig, saveECFConfig, getECFSequences, saveECFSequence, nextECFNumero, deleteECFSequence,
   type Tenant, type TenantConfig, type WhatsAppConfig, type PlanId, type Plan, type Gasto,
   type GlobalConfig, type BankDetails, type ECFConfig, type ECFSequence
 } from "@/lib/storage";
@@ -52,7 +52,7 @@ const CARD = "border shadow-sm p-6 rounded-lg";
 // Mapa de nombres completos para tipos de comprobantes fiscales
 const NCF_NOMBRES: Record<string, string> = {
   B01: "CRÉDITO FISCAL", B02: "CONSUMIDOR FINAL", B03: "NOTA DE DÉBITO", B04: "NOTA DE CRÉDITO",
-  B14: "GUBERNAMENTAL", B15: "RÉGIMEN ESPECIAL", B16: "EXPORTACIONES",
+  B14: "RÉGIMEN ESPECIAL", B15: "GUBERNAMENTAL", B16: "EXPORTACIONES",
   E31: "CRÉDITO FISCAL", E32: "CONSUMIDOR FINAL", E33: "NOTA DE DÉBITO", E34: "NOTA DE CRÉDITO",
   E41: "COMPRAS", E43: "GASTOS MENORES", E44: "REGÍMENES ESPECIALES", E45: "GUBERNAMENTAL", E46: "EXPORTACIONES", E47: "PAGOS AL EXTERIOR",
 };
@@ -952,6 +952,7 @@ function FiscalTab({ tenant, config, sequences, onRefresh, enabled, onTabChange 
   const [loading, setLoading] = useState(false);
   const [showNewSeq, setShowNewSeq] = useState(false);
   const [dialogMode, setDialogMode] = useState<'electronic' | 'traditional'>('electronic');
+  const [deleteSeqId, setDeleteSeqId] = useState<string | null>(null);
   
   const cfg: TenantConfig = tenant.config || DEFAULT_CONFIG;
 
@@ -1061,6 +1062,19 @@ function FiscalTab({ tenant, config, sequences, onRefresh, enabled, onTabChange 
       onRefresh();
     } catch (err: any) {
       toast.error("Error al actualizar alerta: " + err.message);
+    }
+  }
+
+  async function deleteSequence(seqId: string) {
+    if (!window.confirm("¿Estás seguro de que deseas eliminar esta secuencia fiscal? Esta acción no se puede deshacer y podría afectar la numeración de tus facturas si no configuras otra de inmediato.")) {
+      return;
+    }
+    try {
+      await deleteECFSequence(seqId);
+      toast.success("Secuencia eliminada correctamente");
+      onRefresh();
+    } catch (err: any) {
+      toast.error("Error al eliminar la secuencia: " + err.message);
     }
   }
 
@@ -1302,14 +1316,68 @@ function FiscalTab({ tenant, config, sequences, onRefresh, enabled, onTabChange 
             
             {/* Alerta de Secuencias (WhatsApp notification number config) */}
             <Card className={CARD}>
-              <div className="flex items-center gap-3 mb-4">
-                <div className="h-10 w-10 rounded-xl bg-primary/10 flex items-center justify-center text-primary">
-                  <MessageCircle className="h-5 w-5" />
+              <div className="flex items-center justify-between gap-4 mb-4">
+                <div className="flex items-center gap-3">
+                  <div className="h-10 w-10 rounded-xl bg-primary/10 flex items-center justify-center text-primary">
+                    <MessageCircle className="h-5 w-5" />
+                  </div>
+                  <div>
+                    <h3 className="text-lg font-display">Alerta de Secuencias</h3>
+                    <p className="text-xs text-muted-foreground">Recibe alertas por WhatsApp cuando tus secuencias estén próximas a agotarse.</p>
+                  </div>
                 </div>
-                <div>
-                  <h3 className="text-lg font-display">Alerta de Secuencias</h3>
-                  <p className="text-xs text-muted-foreground">Recibe alertas por WhatsApp cuando tus secuencias estén próximas a agotarse.</p>
-                </div>
+                
+                {/* Botón de envío de prueba premium */}
+                <button
+                  onClick={async () => {
+                    if (!alertPhone) {
+                      toast.error("Por favor, ingresa un número de WhatsApp de alerta primero");
+                      return;
+                    }
+                    const wa = cfg.whatsapp;
+                    if (!wa?.api_key) {
+                      toast.error("WhatsApp no está configurado en tu pestaña de WhatsApp");
+                      return;
+                    }
+                    
+                    const promise = (async () => {
+                      const cleanPhone = alertPhone.replace(/\D/g, "");
+                      const formattedPhone = cleanPhone.startsWith('+') ? cleanPhone : `+${cleanPhone}`;
+                      const base = (wa.base_url || "https://wasenderapi.com").replace(/\/$/, "");
+                      const url = `${base}/api/send-message`;
+                      
+                      const res = await fetch(url, {
+                        method: "POST",
+                        headers: { 
+                          "Content-Type": "application/json", 
+                          "Authorization": `Bearer ${wa.api_key}`,
+                          "Accept": "application/json"
+                        },
+                        body: JSON.stringify({ 
+                          to: formattedPhone, 
+                          text: `*🚨 ALERTA FISCAL: SECUENCIA PRÓXIMA A AGOTARSE*\n\nEstimado cliente, te informamos que la secuencia fiscal de tu negocio está a punto de agotarse:\n\n• *Tipo de NCF:* B02 - CONSUMIDOR FINAL\n• *Rango Restante:* 8 comprobantes disponibles (Límite configurado: 50)\n• *Último Emitido:* B0200000042\n• *Fecha de Vencimiento:* 31/12/2026\n\n*Recomendación:* Solicita un nuevo rango de comprobantes en la Oficina Virtual de la DGII de inmediato para evitar interrupciones en tu facturación.\n\n_Mensaje automático de prueba generado desde Klynn._`,
+                          instance_id: wa.instance
+                        }), 
+                      });
+                      
+                      if (!res.ok) {
+                        const data = await res.json().catch(() => ({}));
+                        throw new Error(data.message || `HTTP ${res.status}`);
+                      }
+                    })();
+
+                    toast.promise(promise, {
+                      loading: "Enviando alerta de prueba...",
+                      success: "¡Alerta de prueba enviada con éxito! ✓",
+                      error: (err) => `Error al enviar: ${err.message}`
+                    });
+                  }}
+                  className="px-3 h-8 rounded-lg bg-emerald-50 text-emerald-700 hover:bg-emerald-100 border border-emerald-100 flex items-center gap-1.5 text-[10px] font-sans font-bold transition-all active:scale-95 shadow-sm"
+                  title="Enviar un mensaje de WhatsApp de prueba a este número"
+                >
+                  <Send className="h-3 w-3" />
+                  PROBAR
+                </button>
               </div>
               <div className="space-y-4">
                 <Field label="Número de WhatsApp de Alerta" hint="Ingresa el número con el código de país (Ej: 18091234567)">
@@ -1446,18 +1514,30 @@ function FiscalTab({ tenant, config, sequences, onRefresh, enabled, onTabChange 
                               </div>
                             </div>
                             
-                            {/* Quick Mute Bell Toggle Button */}
-                            <button 
-                              onClick={() => toggleSequenceAlert(seq)}
-                              className={`h-8 w-8 rounded-lg border flex items-center justify-center transition-all active:scale-90 ${
-                                hasAlertEnabled 
-                                  ? 'bg-primary/10 border-primary/20 text-primary shadow-sm shadow-primary/5 hover:bg-primary/20' 
-                                  : 'bg-slate-50 border-slate-200 text-slate-400 hover:bg-slate-100'
-                              }`}
-                              title={hasAlertEnabled ? "Alertas de WhatsApp activadas. Clic para silenciar." : "Alertas desactivadas. Clic para activar."}
-                            >
-                              {hasAlertEnabled ? <Bell className="h-3.5 w-3.5 animate-pulse" /> : <BellOff className="h-3.5 w-3.5 opacity-60" />}
-                            </button>
+                            {/* Actions Group (Bell and Trash) */}
+                            <div className="flex items-center gap-1.5">
+                              {/* Quick Mute Bell Toggle Button */}
+                              <button 
+                                onClick={() => toggleSequenceAlert(seq)}
+                                className={`h-8 w-8 rounded-lg border flex items-center justify-center transition-all active:scale-90 ${
+                                  hasAlertEnabled 
+                                    ? 'bg-primary/10 border-primary/20 text-primary shadow-sm shadow-primary/5 hover:bg-primary/20' 
+                                    : 'bg-slate-50 border-slate-200 text-slate-400 hover:bg-slate-100'
+                                }`}
+                                title={hasAlertEnabled ? "Alertas de WhatsApp activadas. Clic para silenciar." : "Alertas desactivadas. Clic para activar."}
+                              >
+                                {hasAlertEnabled ? <Bell className="h-3.5 w-3.5 animate-pulse" /> : <BellOff className="h-3.5 w-3.5 opacity-60" />}
+                              </button>
+
+                              {/* Trash/Delete Sequence Button */}
+                              <button 
+                                onClick={() => setDeleteSeqId(seq.id)}
+                                className="h-8 w-8 rounded-lg border border-red-100 bg-white text-red-500 hover:bg-red-50 hover:text-red-600 flex items-center justify-center transition-all active:scale-90 shadow-sm"
+                                title="Eliminar esta secuencia permanentemente"
+                              >
+                                <Trash2 className="h-3.5 w-3.5" />
+                              </button>
+                            </div>
                           </div>
                         </div>
                       );
@@ -1548,18 +1628,30 @@ function FiscalTab({ tenant, config, sequences, onRefresh, enabled, onTabChange 
                               </div>
                             </div>
                             
-                            {/* Quick Mute Bell Toggle Button */}
-                            <button 
-                              onClick={() => toggleSequenceAlert(seq)}
-                              className={`h-8 w-8 rounded-lg border flex items-center justify-center transition-all active:scale-90 ${
-                                hasAlertEnabled 
-                                  ? 'bg-primary/10 border-primary/20 text-primary shadow-sm shadow-primary/5 hover:bg-primary/20' 
-                                  : 'bg-slate-50 border-slate-200 text-slate-400 hover:bg-slate-100'
-                              }`}
-                              title={hasAlertEnabled ? "Alertas de WhatsApp activadas. Clic para silenciar." : "Alertas desactivadas. Clic para activar."}
-                            >
-                              {hasAlertEnabled ? <Bell className="h-3.5 w-3.5 animate-pulse" /> : <BellOff className="h-3.5 w-3.5 opacity-60" />}
-                            </button>
+                            {/* Actions Group (Bell and Trash) */}
+                            <div className="flex items-center gap-1.5">
+                              {/* Quick Mute Bell Toggle Button */}
+                              <button 
+                                onClick={() => toggleSequenceAlert(seq)}
+                                className={`h-8 w-8 rounded-lg border flex items-center justify-center transition-all active:scale-90 ${
+                                  hasAlertEnabled 
+                                    ? 'bg-primary/10 border-primary/20 text-primary shadow-sm shadow-primary/5 hover:bg-primary/20' 
+                                    : 'bg-slate-50 border-slate-200 text-slate-400 hover:bg-slate-100'
+                                }`}
+                                title={hasAlertEnabled ? "Alertas de WhatsApp activadas. Clic para silenciar." : "Alertas desactivadas. Clic para activar."}
+                              >
+                                {hasAlertEnabled ? <Bell className="h-3.5 w-3.5 animate-pulse" /> : <BellOff className="h-3.5 w-3.5 opacity-60" />}
+                              </button>
+
+                              {/* Trash/Delete Sequence Button */}
+                              <button 
+                                onClick={() => setDeleteSeqId(seq.id)}
+                                className="h-8 w-8 rounded-lg border border-red-100 bg-white text-red-500 hover:bg-red-50 hover:text-red-600 flex items-center justify-center transition-all active:scale-90 shadow-sm"
+                                title="Eliminar esta secuencia permanentemente"
+                              >
+                                <Trash2 className="h-3.5 w-3.5" />
+                              </button>
+                            </div>
                           </div>
                         </div>
                       );
@@ -1572,13 +1664,52 @@ function FiscalTab({ tenant, config, sequences, onRefresh, enabled, onTabChange 
         </div>
       </div>
 
-      <NewSequenceDialog open={showNewSeq} onOpenChange={setShowNewSeq} tenantId={tenant.id} onCreated={onRefresh} mode={dialogMode} />
+      <AlertDialog open={!!deleteSeqId} onOpenChange={(o) => !o && setDeleteSeqId(null)}>
+        <AlertDialogContent className="rounded-[2rem] border-none shadow-elegant max-w-[420px] p-0 overflow-hidden bg-background">
+          <div className="p-8">
+            <AlertDialogHeader className="mb-6">
+              <div className="h-12 w-12 rounded-2xl bg-red-50 flex items-center justify-center mb-4 text-red-500">
+                <Trash2 className="h-6 w-6" />
+              </div>
+              <AlertDialogTitle className="text-2xl font-display text-slate-900">¿Eliminar secuencia?</AlertDialogTitle>
+              <AlertDialogDescription className="text-xs leading-relaxed text-slate-500 font-sans mt-2">
+                Esta acción no se puede deshacer y podría afectar la numeración de tus facturas si no configuras otra de inmediato.
+              </AlertDialogDescription>
+            </AlertDialogHeader>
+            <div className="flex gap-3 justify-end">
+              <AlertDialogCancel onClick={() => setDeleteSeqId(null)} className="rounded-xl border-none bg-slate-100 hover:bg-slate-200 h-9.5 font-bold text-[11px] text-slate-700 px-4 transition-all">
+                Cancelar
+              </AlertDialogCancel>
+              <AlertDialogAction 
+                onClick={async () => {
+                  if (deleteSeqId) {
+                    try {
+                      await deleteECFSequence(deleteSeqId);
+                      toast.success("Secuencia eliminada correctamente");
+                      onRefresh();
+                    } catch (err: any) {
+                      toast.error("Error al eliminar la secuencia: " + err.message);
+                    } finally {
+                      setDeleteSeqId(null);
+                    }
+                  }
+                }}
+                className="rounded-xl bg-red-600 hover:bg-red-700 text-white h-9.5 font-bold text-[11px] px-5 shadow-md shadow-red-600/10 transition-all"
+              >
+                Eliminar Secuencia
+              </AlertDialogAction>
+            </div>
+          </div>
+        </AlertDialogContent>
+      </AlertDialog>
+
+      <NewSequenceDialog open={showNewSeq} onOpenChange={setShowNewSeq} tenantId={tenant.id} onCreated={onRefresh} mode={dialogMode} sequences={sequences} />
     </div>
   );
 }
 
-function NewSequenceDialog({ open, onOpenChange, tenantId, onCreated, mode = 'electronic' }: {
-  open: boolean; onOpenChange: (o: boolean) => void; tenantId: string; onCreated: () => void; mode?: 'electronic' | 'traditional';
+function NewSequenceDialog({ open, onOpenChange, tenantId, onCreated, mode = 'electronic', sequences = [] }: {
+  open: boolean; onOpenChange: (o: boolean) => void; tenantId: string; onCreated: () => void; mode?: 'electronic' | 'traditional'; sequences?: ECFSequence[];
 }) {
   const [loading, setLoading] = useState(false);
   const [seq, setSeq] = useState<Partial<ECFSequence>>({
@@ -1615,6 +1746,13 @@ function NewSequenceDialog({ open, onOpenChange, tenantId, onCreated, mode = 'el
   async function save() {
     setLoading(true);
     try {
+      const tipo = seq.tipo_ecf;
+      const existing = sequences.find(s => s.tipo_ecf === tipo);
+
+      if (existing) {
+        await deleteECFSequence(existing.id);
+      }
+
       await saveECFSequence({
         ...seq,
         id: crypto.randomUUID(),
@@ -1715,6 +1853,28 @@ function NewSequenceDialog({ open, onOpenChange, tenantId, onCreated, mode = 'el
                     </SelectContent>
                   </Select>
                 </Field>
+
+                {(() => {
+                  const tipo = seq.tipo_ecf;
+                  const existing = sequences.find(s => s.tipo_ecf === tipo);
+                  if (existing) {
+                    const remaining = existing.valor_final - existing.valor_actual;
+                    return (
+                      <div className={`p-3 rounded-xl border text-[10px] font-sans leading-relaxed transition-all ${
+                        remaining <= 0 
+                          ? 'bg-emerald-50 border-emerald-100 text-emerald-700' 
+                          : 'bg-amber-50 border-amber-100 text-amber-700'
+                      }`}>
+                        {remaining <= 0 ? (
+                          <span>✓ La secuencia anterior de tipo <strong>{tipo}</strong> está agotada. Se eliminará automáticamente al crear esta nueva.</span>
+                        ) : (
+                          <span>⚠️ Ya tienes una secuencia activa para <strong>{tipo}</strong> con <strong>{remaining}</strong> comprobantes disponibles. Al guardar, se reemplazará automáticamente por esta nueva.</span>
+                        )}
+                      </div>
+                    );
+                  }
+                  return null;
+                })()}
                 
                 <div className="grid grid-cols-2 gap-4">
                   <Field label="Desde">

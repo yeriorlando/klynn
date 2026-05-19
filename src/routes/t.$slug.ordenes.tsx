@@ -431,14 +431,14 @@ function OrdenesPage() {
       </Card>
 
       {/* Vista detalle */}
-      {/* Vista detalle */}
       <Dialog open={!!view} onOpenChange={(o) => !o && setView(null)}>
-      <DialogContent className="max-w-4xl max-h-[90vh] overflow-y-auto">
+        <DialogContent className="max-w-4xl max-h-[90vh] overflow-y-auto">
           {view && (
             <OrderDetail 
               view={view} 
               tenant={tenant} 
               clientes={clientes} 
+              empleados={empleados}
               cambiarEstado={cambiarEstado} 
               setView={setView} 
               onPrint={() => setShowPrint(view)}
@@ -451,6 +451,8 @@ function OrdenesPage() {
         <TicketPrintPortal 
           orden={showPrint} 
           tenant={tenant} 
+          clientes={clientes}
+          empleados={empleados}
           onClose={() => setShowPrint(null)} 
         />
       )}
@@ -459,6 +461,8 @@ function OrdenesPage() {
         <FacturaA4PrintPortal
           orden={showDownloadA4}
           tenant={tenant}
+          clientes={clientes}
+          empleados={empleados}
           onClose={() => setShowDownloadA4(null)}
         />
       )}
@@ -466,7 +470,9 @@ function OrdenesPage() {
       {/* Anular */}
       <Dialog open={!!anular} onOpenChange={(o) => !o && setAnular(null)}>
         <DialogContent>
-          <DialogHeader><DialogTitle>Anular {anular?.numero}</DialogTitle></DialogHeader>
+          <DialogHeader>
+            <DialogTitle>Anular {anular?.numero}</DialogTitle>
+          </DialogHeader>
           <div className="space-y-4">
             <div>
               <label className="text-sm font-bold mb-1.5 block">Tipo de Modificación (DGII)</label>
@@ -537,21 +543,23 @@ function OrdenesPage() {
   );
 }
 
-function OrderDetail({ view, tenant, clientes, cambiarEstado, setView, onPrint }: { 
-  view: Orden; tenant: any; clientes: any[]; cambiarEstado: any; setView: any; onPrint: () => void;
+function OrderDetail({ view, tenant, clientes, empleados, cambiarEstado, setView, onPrint }: { 
+  view: Orden; tenant: any; clientes: any[]; empleados: any[]; cambiarEstado: any; setView: any; onPrint: () => void;
 }) {
   const [empleadoView, setEmpleadoView] = useState<any>(null);
   const [srvList, setSrvList] = useState<any[]>([]);
   
   useEffect(() => {
     if (view) {
-      getEmpleadoById(view.empleado_id).then(setEmpleadoView);
+      getEmpleadoById(view.empleado_id)
+        .then(res => setEmpleadoView(res))
+        .catch(() => setEmpleadoView(null));
       getServicios(tenant.id).then(setSrvList);
     }
   }, [view, tenant.id]);
 
-  const c = clientes.find((x) => x.id === view?.cliente_id);
-  if (!c || !empleadoView) return <div className="p-12 text-center">Cargando detalles...</div>;
+  const c = clientes.find((x) => x.id === view?.cliente_id) || { nombre: "Consumidor", apellido: "Final", cedula: "", telefono: "" };
+  const emp = empleadoView || empleados.find((e) => e.id === view?.empleado_id) || { nombre: "Personal" };
 
   return (
     <>
@@ -560,13 +568,13 @@ function OrderDetail({ view, tenant, clientes, cambiarEstado, setView, onPrint }
       </DialogHeader>
       <div className="grid gap-6 md:grid-cols-2 items-start">
         <div className="space-y-2 text-sm">
-          <div><strong>Cliente:</strong> {c.nombre}</div>
-          <div><strong>Tel:</strong> {c.telefono}</div>
+          <div><strong>Cliente:</strong> {c.nombre} {c.apellido || ""}</div>
+          {c.telefono && c.telefono !== "---" && <div><strong>Tel:</strong> {c.telefono}</div>}
           <div><strong>Estado:</strong> <EstadoBadge estado={view.estado} /></div>
           <div><strong>Total:</strong> {formatRD(view.total)}</div>
           <div><strong>Pagado:</strong> {formatRD(view.pagado)}</div>
           {view.saldo > 0 && <div className="text-warning-foreground"><strong>Saldo:</strong> {formatRD(view.saldo)}</div>}
-          <div><strong>Atendido por:</strong> {empleadoView.nombre}</div>
+          <div><strong>Atendido por:</strong> {emp.nombre}</div>
           {view.motivo_anulacion && <div className="rounded-md bg-destructive/10 p-2 text-destructive"><strong>Motivo anulación:</strong> {view.motivo_anulacion}</div>}
 
           {/* Datos Fiscales */}
@@ -626,28 +634,29 @@ function OrderDetail({ view, tenant, clientes, cambiarEstado, setView, onPrint }
           </div>
         </div>
         <div className="max-h-[500px] overflow-auto rounded-xl bg-zinc-100 p-4 shadow-inner dark:bg-zinc-800/50">
-          <Ticket orden={view} tenant={tenant} empleado={empleadoView} cliente={c} formato={tenant.config!.formato_ticket} serviciosList={srvList} />
+          <Ticket orden={view} tenant={tenant} empleado={emp} cliente={c} formato={tenant.config!.formato_ticket} serviciosList={srvList} />
         </div>
       </div>
     </>
   );
 }
-function TicketPrintPortal({ orden, tenant, onClose }: { orden: Orden; tenant: any; onClose: () => void }) {
+
+function TicketPrintPortal({ orden, tenant, clientes, empleados, onClose }: { orden: Orden; tenant: any; clientes: any[]; empleados: any[]; onClose: () => void }) {
   const [emp, setEmp] = useState<any>(null);
   const [cli, setCli] = useState<any>(null);
   const [srvList, setSrvList] = useState<any[]>([]);
 
   useEffect(() => {
     Promise.all([
-      getEmpleadoById(orden.empleado_id),
-      getClientes(tenant.id).then(list => list.find(c => c.id === orden.cliente_id)),
+      getEmpleadoById(orden.empleado_id).catch(() => null),
+      Promise.resolve(clientes.find(c => c.id === orden.cliente_id)),
       getServicios(tenant.id)
     ]).then(([e, c, s]) => {
-      setEmp(e);
-      setCli(c);
+      setEmp(e || empleados.find(x => x.id === orden.empleado_id) || { nombre: "Personal" });
+      setCli(c || { nombre: "Consumidor", apellido: "Final", cedula: "", telefono: "" });
       setSrvList(s);
     });
-  }, [orden, tenant.id]);
+  }, [orden, tenant.id, clientes, empleados]);
 
   if (!emp || !cli) return null;
 
@@ -727,22 +736,22 @@ function TicketPrintPortal({ orden, tenant, onClose }: { orden: Orden; tenant: a
   );
 }
 
-function FacturaA4PrintPortal({ orden, tenant, onClose }: { orden: Orden; tenant: any; onClose: () => void }) {
+function FacturaA4PrintPortal({ orden, tenant, clientes, empleados, onClose }: { orden: Orden; tenant: any; clientes: any[]; empleados: any[]; onClose: () => void }) {
   const [emp, setEmp] = useState<any>(null);
   const [cli, setCli] = useState<any>(null);
   const [srvList, setSrvList] = useState<any[]>([]);
 
   useEffect(() => {
     Promise.all([
-      getEmpleadoById(orden.empleado_id),
-      getClientes(tenant.id).then(list => list.find(c => c.id === orden.cliente_id)),
+      getEmpleadoById(orden.empleado_id).catch(() => null),
+      Promise.resolve(clientes.find(c => c.id === orden.cliente_id)),
       getServicios(tenant.id)
     ]).then(([e, c, s]) => {
-      setEmp(e);
-      setCli(c);
+      setEmp(e || empleados.find(x => x.id === orden.empleado_id) || { nombre: "Personal" });
+      setCli(c || { nombre: "Consumidor", apellido: "Final", cedula: "", telefono: "" });
       setSrvList(s);
     });
-  }, [orden, tenant.id]);
+  }, [orden, tenant.id, clientes, empleados]);
 
   if (!emp || !cli) return null;
 
@@ -750,6 +759,7 @@ function FacturaA4PrintPortal({ orden, tenant, onClose }: { orden: Orden; tenant
   const isECF = orden.ncf?.startsWith("E");
   const qrData = orden.ecf_qr || (isECF ? `https://dgii.gov.do/consulta_ecf?RNC_EMISOR=${tenant.rnc}&E_NCF=${orden.ncf}&MONTO_TOTAL=${orden.total}&FECHA_EMISION=${new Date(orden.creado_en).toLocaleDateString('en-GB').replace(/\//g, '')}` : "");
   const cfg = tenant.config;
+
 
   return createPortal(
     <div className="fixed inset-0 bg-white z-[99999] overflow-y-auto pointer-events-auto atomic-print-target">

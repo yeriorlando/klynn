@@ -187,6 +187,7 @@ export interface Orden {
   nota_debito_id?: string;   // ID del documento ECF E33
   nota_debito_monto?: number; // Monto adicionado
   entrega_domicilio?: boolean;
+  costo_envio?: number;
   repartidor_id?: string;
   // Metadatos e-CF para el ticket
   ecf_qr?: string;
@@ -521,7 +522,7 @@ export const PROVINCIAS_RD = [
 // Mapa de nombres completos para tipos de comprobantes fiscales
 export const NCF_NOMBRES: Record<string, string> = {
   B01: "CRÉDITO FISCAL", B02: "CONSUMIDOR FINAL", B03: "NOTA DE DÉBITO", B04: "NOTA DE CRÉDITO",
-  B11: "COMPRAS", B13: "GASTOS MENORES", B14: "GUBERNAMENTAL", B15: "RÉGIMEN ESPECIAL", B16: "EXPORTACIONES",
+  B11: "COMPRAS", B13: "GASTOS MENORES", B14: "RÉGIMEN ESPECIAL", B15: "GUBERNAMENTAL", B16: "EXPORTACIONES",
   E31: "CRÉDITO FISCAL", E32: "CONSUMIDOR FINAL", E33: "NOTA DE DÉBITO", E34: "NOTA DE CRÉDITO",
   E41: "COMPRAS", E43: "GASTOS MENORES", E44: "REGÍMENES ESPECIALES", E45: "GUBERNAMENTAL", E46: "EXPORTACIONES", E47: "PAGOS AL EXTERIOR",
 };
@@ -530,8 +531,8 @@ export const NCF_NOMBRES: Record<string, string> = {
 export const NCF_TIPOS: { codigo: string; nombre: string; descripcion: string }[] = [
   { codigo: "B01", nombre: "Crédito Fiscal", descripcion: "Para empresas con RNC" },
   { codigo: "B02", nombre: "Consumidor Final", descripcion: "Venta a consumidor final" },
-  { codigo: "B14", nombre: "Gubernamental", descripcion: "Ventas a entidades gubernamentales" },
-  { codigo: "B15", nombre: "Régimen Especial", descripcion: "Sectores especiales (zonas francas, etc.)" },
+  { codigo: "B14", nombre: "Régimen Especial", descripcion: "Sectores especiales (zonas francas, etc.)" },
+  { codigo: "B15", nombre: "Gubernamental", descripcion: "Ventas a entidades gubernamentales" },
   { codigo: "B16", nombre: "Exportaciones", descripcion: "Para exportaciones de bienes/servicios" },
 ];
 
@@ -1903,6 +1904,11 @@ export async function saveECFSequence(seq: ECFSequence) {
   if (error) throw error;
 }
 
+export async function deleteECFSequence(id: string) {
+  const { error } = await supabase.from('ecf_sequences').delete().eq('id', id);
+  if (error) throw error;
+}
+
 export async function getECFDocuments(tenantId: string): Promise<ECFDocument[]> {
   const { data, error } = await supabase.from('ecf_documents').select('*').eq('tenant_id', tenantId).order('fecha_emision', { ascending: false });
   if (error) return [];
@@ -1915,6 +1921,23 @@ export async function saveECFDocument(doc: ECFDocument) {
 }
 
 export async function nextECFNumero(tenantId: string, tipo: string): Promise<{ ncf: string; expiration_date?: string }> {
+  try {
+    const { data, error } = await supabase.rpc('reservar_proximo_ncf', {
+      p_tenant_id: tenantId,
+      p_tipo_ecf: tipo
+    });
+
+    if (!error && data && data.length > 0) {
+      return { ncf: data[0].ncf, expiration_date: data[0].expiration_date };
+    }
+    if (error) {
+      console.warn("RPC reservar_proximo_ncf not available, falling back to client logic:", error.message);
+    }
+  } catch (rpcErr) {
+    console.warn("Error calling RPC, using client fallback:", rpcErr);
+  }
+
+  // Fallback de cliente atómico con padStart de 8 posiciones (11 caracteres totales de NCF)
   const { data: seq, error } = await supabase
     .from('ecf_sequences')
     .select('*')
@@ -1927,36 +1950,10 @@ export async function nextECFNumero(tenantId: string, tipo: string): Promise<{ n
   if (seq.valor_actual >= seq.valor_final) throw new Error(`Rango de secuencia agotado para ${tipo}`);
 
   const proximo = seq.valor_actual + 1;
-  const padLength = tipo.startsWith('B') ? 8 : 10;
-  const encf = `${tipo}${String(proximo).padStart(padLength, '0')}`;
+  const encf = `${tipo}${String(proximo).padStart(8, '0')}`;
 
   // Actualizamos el contador inmediatamente
   await supabase.from('ecf_sequences').update({ valor_actual: proximo }).eq('id', seq.id);
-
-  // Despachar alerta de secuencia baja si es necesario (sin bloquear el hilo principal)
-  try {
-    const tenant = await getTenantById(tenantId);
-
-    if (tenant) {
-      const cfg = tenant.config || DEFAULT_CONFIG;
-      const remaining = seq.valor_final - proximo;
-      const limite = seq.alerta_limite ?? (cfg.alerta_ncf_limite ?? 50);
-      const activeAlerts = seq.recibir_alertas !== false;
-
-      if (activeAlerts && remaining <= limite && cfg.alerta_ncf_telefono) {
-        import('./whatsapp').then(({ notificarAlertaNCF }) => {
-          notificarAlertaNCF(tenant!, tipo, remaining)
-            .then(res => {
-              if (res.ok) console.log("Notificación de secuencia baja enviada");
-              else console.warn("Error en envío de alerta:", res.reason);
-            })
-            .catch(e => console.error("Error al despachar alerta:", e));
-        });
-      }
-    }
-  } catch (err) {
-    console.error("Error al procesar alerta de secuencia:", err);
-  }
 
   return { ncf: encf, expiration_date: seq.expiration_date };
 }
@@ -2000,5 +1997,28 @@ export async function updateECFConfig(tenantId: string, updates: Partial<ECFConf
 
   if (error) throw error;
 }
+
+export async function validarLicenciaConNube(codigo: string): Promise<{ ok: boolean; licencia?: any; error?: string }> {
+  try {
+    const { data, error } = await supabase
+      .from('licencias_locales')
+      .select('*')
+      .eq('codigo', codigo)
+      .eq('estado', 'ACTIVO')
+      .single();
+
+    if (error) {
+      return { ok: false, error: 'Código de licencia no encontrado o inactivo.' };
+    }
+
+    await supabase.rpc('marcar_licencia_sincronizada', { p_codigo: codigo });
+
+    return { ok: true, licencia: data };
+  } catch (err: any) {
+    return { ok: false, error: err.message || 'Error de conexión con el servidor.' };
+  }
+}
+
+
 
 

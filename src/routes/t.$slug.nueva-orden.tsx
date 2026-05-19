@@ -53,6 +53,7 @@ function NuevaOrdenPage() {
   const [step, setStep] = useState(1);
   const [isPosMode, setIsPosMode] = useState(false);
   const [activeCategory, setActiveCategory] = useState<string>("TODOS");
+  const [posFilterTab, setPosFilterTab] = useState<"TODOS" | "SERVICIOS" | "PRENDAS">("TODOS");
   const [posSearch, setPosSearch] = useState("");
   const [showLimitModal, setShowLimitModal] = useState(false);
 
@@ -73,8 +74,11 @@ function NuevaOrdenPage() {
   const [showDiscountPOS, setShowDiscountPOS] = useState(false);
   const [servicioDomicilio, setServicioDomicilio] = useState(false);
   const [direccionDomicilio, setDireccionDomicilio] = useState("");
+  const [costoDomicilio, setCostoDomicilio] = useState<number>(0);
 
   const [tipoECF, setTipoECF] = useState<string>("E32");
+  const [indexDesglose, setIndexDesglose] = useState<number | null>(null);
+  const [showDesgloseDialog, setShowDesgloseDialog] = useState(false);
 
   const { data: catalogoData = [], isLoading: loadingCatalog } = useCatalogo(tenantId);
   const { data: serviciosData = [], isLoading: loadingServicios } = useServicios(tenantId);
@@ -92,9 +96,11 @@ function NuevaOrdenPage() {
   );
 
   // Obtener los tipos únicos disponibles en base a las secuencias configuradas
-  const validTipos = activeSequences.length > 0
-    ? Array.from(new Set(activeSequences.map(s => s.tipo_ecf))).sort()
-    : (isElectronic ? ["E32", "E31"] : ["B02", "B01"]);
+  const validTipos = useMemo(() => {
+    return activeSequences.length > 0
+      ? Array.from(new Set(activeSequences.map(s => s.tipo_ecf))).sort()
+      : (isElectronic ? ["E32", "E31"] : ["B02", "B01"]);
+  }, [activeSequences, isElectronic]);
 
   const catalogo = useMemo(() => catalogoData.filter(i => i.activo), [catalogoData]);
   const servicios = useMemo(() => serviciosData.filter(s => s.activo), [serviciosData]);
@@ -109,12 +115,16 @@ function NuevaOrdenPage() {
     return () => document.body.classList.remove("pos-mode");
   }, [isPosMode]);
 
+  // 1. Setea la dirección únicamente cuando cambia el cliente seleccionado realmente, pero mantiene el envío desactivado por defecto
   useEffect(() => {
     if (cliente) {
       setDireccionDomicilio(cliente.direccion || "");
-      if (cliente.direccion) setServicioDomicilio(true);
+    }
+  }, [cliente?.id]);
 
-      // Auto-seleccionar tipo de comprobante según el cliente
+  // 2. Auto-selecciona el tipo de comprobante fiscal cuando cambian datos de cliente o config fiscal
+  useEffect(() => {
+    if (cliente) {
       const isEmpresa = cliente.tipo === "Empresa" || (cliente.cedula && cliente.cedula.length >= 9);
       if (isEmpresa) {
         const target = isElectronic ? "E31" : "B01";
@@ -133,7 +143,7 @@ function NuevaOrdenPage() {
         }
       }
     }
-  }, [cliente, isElectronic, validTipos]);
+  }, [cliente?.id, cliente?.tipo, cliente?.cedula, isElectronic, validTipos]);
 
   useEffect(() => {
     if (validTipos.length > 0 && !validTipos.includes(tipoECF)) {
@@ -272,21 +282,23 @@ function NuevaOrdenPage() {
     check();
   }, [user]);
 
-  const categories = useMemo(() => {
+  const categoriesPrendas = useMemo(() => {
     const cats = new Set(catalogo.map(c => c.categoria || "Otros"));
-    return ["TODOS", "Servicios", ...Array.from(cats)];
+    return ["TODAS LAS PRENDAS", ...Array.from(cats)];
   }, [catalogo]);
 
   const catalogFiltered = useMemo(() => {
     let list = catalogo;
-    if (!posSearch && activeCategory !== "TODOS" && activeCategory !== "Servicios") {
-      list = list.filter(c => (c.categoria || "Otros") === activeCategory);
+    if (posFilterTab === "PRENDAS") {
+      if (activeCategory !== "TODAS LAS PRENDAS") {
+        list = list.filter(c => (c.categoria || "Otros") === activeCategory);
+      }
     }
     if (posSearch) {
       list = list.filter(c => c.nombre.toLowerCase().includes(posSearch.toLowerCase()));
     }
     return list;
-  }, [catalogo, activeCategory, posSearch]);
+  }, [catalogo, activeCategory, posSearch, posFilterTab]);
 
   const servicesFiltered = useMemo(() => {
     if (posSearch) {
@@ -332,8 +344,11 @@ function NuevaOrdenPage() {
 
   const costoServicios = servicios.filter(s => serviciosSel.includes(s.nombre)).reduce((acc, s) => acc + s.precio, 0);
 
-  // El recargo de urgencia se aplica al subtotal base total
-  const recargoTotal = esUrgente ? (subtotalGravableBase + subtotalExentoBase) * (cfg.recargo_urgencia / 100) : 0;
+  // El recargo de urgencia se aplica al subtotal base de prendas más el costo de los servicios
+  const recargoTotal = esUrgente ? (subtotalGravableBase + subtotalExentoBase + costoServicios) * (cfg.recargo_urgencia / 100) : 0;
+
+  // Costo de domicilio (se agrega al final, no entra en la base gravable de ITBIS por ser un servicio de entrega)
+  const costoEnvio = servicioDomicilio ? costoDomicilio : 0;
 
   // Proporción del recargo que es gravable (si hay items exentos, el recargo suele ser gravable igual por ser un servicio, 
   // pero para ser conservadores en este flujo lo sumamos a la base gravable total)
@@ -355,16 +370,16 @@ function NuevaOrdenPage() {
       const baseSinItbis = +(baseParaItbis / (1 + itbisRate)).toFixed(2);
       itbis = +(baseParaItbis - baseSinItbis).toFixed(2);
       subtotal = +(baseSinItbis + subtotalExentoBase).toFixed(2);
-      total = subtotal + itbis - descuento;
+      total = subtotal + itbis - descuento + costoEnvio;
     } else {
       // ITBIS se suma a la base gravable
       itbis = +(baseParaItbis * itbisRate).toFixed(2);
       subtotal = +(baseParaItbis + subtotalExentoBase).toFixed(2);
-      total = subtotal + itbis - descuento;
+      total = subtotal + itbis - descuento + costoEnvio;
     }
   } else {
     // Sin facturación fiscal o ITBIS desactivado
-    total = subtotal - descuento;
+    total = subtotal - descuento + costoEnvio;
   }
 
   const vuelto = metodo === "EFECTIVO" && recibido > total ? recibido - total : 0;
@@ -380,6 +395,23 @@ function NuevaOrdenPage() {
     });
   }
   function removeItem(i: number) { setItems((arr) => arr.filter((_, idx) => idx !== i)); }
+  function addItemDesglose(it: OrdenItem) {
+    if (indexDesglose === null) return;
+    setItems((arr) => {
+      const idx = arr.findIndex(x => x.descripcion === it.descripcion && x.precio_unitario === it.precio_unitario);
+      if (idx > -1) {
+        return arr.map((item, i) => i === idx ? { ...item, cantidad: item.cantidad + it.cantidad } : item);
+      }
+      
+      const result = [...arr];
+      if (indexDesglose === -1) {
+        return [...result, it];
+      }
+      result.splice(indexDesglose + 1, 0, it);
+      return result;
+    });
+    toast.success(`${it.descripcion.replace('↳ ', '')} agregada al desglose`);
+  }
   function updateItemQuantity(i: number, delta: number) {
     setItems((arr) => arr.map((it, idx) => {
       if (idx !== i) return it;
@@ -479,6 +511,8 @@ function NuevaOrdenPage() {
         creado_en: new Date().toISOString(),
         ncf: finalNCF,
         ncf_vencimiento: ncfVencimiento,
+        entrega_domicilio: servicioDomicilio || undefined,
+        costo_envio: servicioDomicilio && costoEnvio > 0 ? costoEnvio : undefined,
       };
 
       // --- LOGICA FISCAL ELECTRONICA (Pronesoft) ---
@@ -624,6 +658,8 @@ function NuevaOrdenPage() {
                 setEnabled={setServicioDomicilio}
                 address={direccionDomicilio}
                 setAddress={setDireccionDomicilio}
+                cost={costoDomicilio}
+                setCost={setCostoDomicilio}
               />
 
               <DiscountPOSDialog
@@ -664,19 +700,54 @@ function NuevaOrdenPage() {
         <div className="flex flex-1 gap-6 overflow-hidden min-h-[600px]">
           {/* CATALOG GRID */}
           <div className="flex-1 flex flex-col gap-4 overflow-hidden">
-            <div className="flex flex-wrap items-center gap-2 pb-2">
-              {categories.map(cat => (
-                <button
-                  key={cat}
-                  onClick={() => setActiveCategory(cat)}
-                  className={`px-4 py-1.5 rounded-full text-[10px] font-black uppercase tracking-widest whitespace-nowrap transition-all shadow-sm border ${activeCategory === cat
-                      ? "bg-primary text-white border-primary shadow-glow ring-2 ring-primary/20 ring-offset-2 ring-offset-background"
-                      : "bg-card text-muted-foreground hover:bg-accent border-border/50"
+            <div className="flex flex-col gap-3 pb-2 border-b border-border/40 mb-2">
+              {/* Filtro Principal de 3 Pestañas */}
+              <div className="grid grid-cols-3 gap-2">
+                {[
+                  { id: "TODOS", label: "Todos", icon: "🌟" },
+                  { id: "SERVICIOS", label: "Servicios", icon: "🧺" },
+                  { id: "PRENDAS", label: "Prendas", icon: "👕" }
+                ].map(tab => (
+                  <button
+                    key={tab.id}
+                    onClick={() => {
+                      setPosFilterTab(tab.id as any);
+                      if (tab.id === "PRENDAS") {
+                        setActiveCategory("TODAS LAS PRENDAS");
+                      } else {
+                        setActiveCategory("TODOS");
+                      }
+                    }}
+                    className={`flex items-center justify-center gap-2 py-3 px-4 rounded-2xl text-xs font-black uppercase tracking-wider transition-all duration-300 active:scale-95 border-2 shadow-sm ${
+                      posFilterTab === tab.id
+                        ? "bg-primary text-white border-primary shadow-glow ring-2 ring-primary/20"
+                        : "bg-card text-muted-foreground hover:bg-primary/5 hover:border-primary/20 border-border/60"
                     }`}
-                >
-                  {cat}
-                </button>
-              ))}
+                  >
+                    <span className="text-sm">{tab.icon}</span>
+                    <span>{tab.label}</span>
+                  </button>
+                ))}
+              </div>
+
+              {/* Sub-filtro de Categorías de Prendas */}
+              {posFilterTab === "PRENDAS" && (
+                <div className="flex flex-wrap items-center gap-1.5 pt-2 animate-in slide-in-from-top-1 duration-200">
+                  {categoriesPrendas.map(cat => (
+                    <button
+                      key={cat}
+                      onClick={() => setActiveCategory(cat)}
+                      className={`px-3.5 py-1.5 rounded-full text-[9px] font-black uppercase tracking-widest whitespace-nowrap transition-all shadow-sm border ${
+                        activeCategory === cat
+                          ? "bg-emerald-600 text-white border-emerald-600 shadow-sm"
+                          : "bg-card text-muted-foreground hover:bg-accent border-border/50"
+                      }`}
+                    >
+                      {cat}
+                    </button>
+                  ))}
+                </div>
+              )}
             </div>
 
             <div className="flex-1 overflow-y-auto pr-2 custom-scrollbar space-y-8">
@@ -937,8 +1008,8 @@ function NuevaOrdenPage() {
               ) : (
                 <>
                   {/* SECCION SERVICIOS */}
-                  {(activeCategory === "TODOS" || activeCategory === "Servicios" || posSearch) && servicesFiltered.length > 0 && (
-                    <div className="space-y-4">
+                  {(posFilterTab === "TODOS" || posFilterTab === "SERVICIOS" || posSearch) && servicesFiltered.length > 0 && (
+                    <div className="space-y-4 animate-in fade-in duration-200">
                       <h3 className="text-sm font-black uppercase tracking-widest text-muted-foreground flex items-center gap-2">
                         <div className="h-4 w-1 bg-primary rounded-full" />
                         Servicios
@@ -979,8 +1050,8 @@ function NuevaOrdenPage() {
                     </div>
                   )}
 
-                  {/* SECCIONES DE CATEGORIAS */}
-                  {Array.from(new Set(catalogFiltered.map(c => c.categoria || "Otros"))).map(catName => {
+                  {/* SECCIONES DE CATEGORIAS DE PRENDAS */}
+                  {(posFilterTab === "TODOS" || posFilterTab === "PRENDAS" || posSearch) && Array.from(new Set(catalogFiltered.map(c => c.categoria || "Otros"))).map(catName => {
                     const itemsInCat = catalogFiltered.filter(c => (c.categoria || "Otros") === catName);
                     if (itemsInCat.length === 0) return null;
 
@@ -1090,28 +1161,95 @@ function NuevaOrdenPage() {
                   <p className="text-xs font-medium">Carrito vacío</p>
                 </div>
               ) : (
-                items.map((it, i) => (
-                  <div key={i} className="flex flex-col gap-1 p-2 rounded-lg border bg-accent/5 hover:bg-accent/10 transition-colors">
-                    <div className="flex justify-between items-start">
-                      <div className="text-xs font-bold line-clamp-1">{it.descripcion}</div>
-                      <Button variant="ghost" size="icon" className="h-5 w-5 text-destructive" onClick={() => removeItem(i)}>
-                        <X className="h-3 w-3" />
-                      </Button>
-                    </div>
-                    <div className="flex justify-between items-center">
-                      <div className="flex items-center gap-2">
-                        <Button variant="outline" size="icon" className="h-6 w-6 rounded-md" onClick={() => updateItemQuantity(i, -1)}>
-                          <Minus className="h-2 w-2" />
-                        </Button>
-                        <span className="text-xs font-bold w-5 text-center">{it.cantidad}</span>
-                        <Button variant="outline" size="icon" className="h-6 w-6 rounded-md" onClick={() => updateItemQuantity(i, 1)}>
-                          <Plus className="h-2 w-2" />
+                <>
+                  {/* Servicios Seleccionados en Carrito POS */}
+                  {servicios.filter(s => serviciosSel.includes(s.nombre)).map((srv, idx) => (
+                    <div key={'pos-srv-'+idx} className="flex flex-col gap-1.5 p-2.5 rounded-xl border border-primary/20 bg-primary/5 mb-3 transition-all animate-in fade-in duration-200">
+                      <div className="flex justify-between items-start">
+                        <div className="flex items-center gap-1.5 text-xs font-bold text-primary leading-tight flex-1">
+                          <span>🧺</span>
+                          <span className="line-clamp-1">Servicio: {srv.nombre}</span>
+                        </div>
+                        <Button
+                          variant="ghost"
+                          size="icon"
+                          className="h-5 w-5 text-destructive hover:bg-rose-50 rounded-md shrink-0"
+                          onClick={() => setServiciosSel(prev => prev.filter(x => x !== srv.nombre))}
+                        >
+                          <X className="h-3 w-3" />
                         </Button>
                       </div>
-                      <div className="text-xs font-black text-primary">{formatRD(it.cantidad * it.precio_unitario)}</div>
+                      <div className="flex justify-between items-center">
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          className="h-6 px-2 text-[9px] font-black uppercase text-primary hover:bg-primary/10 rounded-md gap-1"
+                          onClick={() => {
+                            setIndexDesglose(-1);
+                            setShowDesgloseDialog(true);
+                          }}
+                        >
+                          <Plus className="h-2.5 w-2.5" /> Detalle
+                        </Button>
+                        <div className="text-xs font-black text-primary">
+                          {formatRD(srv.precio || 0)}
+                        </div>
+                      </div>
                     </div>
-                  </div>
-                ))
+                  ))}
+
+                  {/* Prendas (Items) */}
+                  {items.map((it, i) => {
+                    const isDetail = it.descripcion.startsWith("↳");
+                    return (
+                      <div key={i} className={`flex flex-col gap-1.5 p-2.5 rounded-xl border transition-all ${
+                        isDetail ? "bg-accent/5 ml-6 border-dashed border-primary/20 text-muted-foreground" : "bg-card shadow-sm hover:border-primary/25"
+                      }`}>
+                        <div className="flex justify-between items-start">
+                          <div className="flex items-center gap-1.5 text-xs font-bold leading-tight flex-1">
+                            {isDetail && <Shirt className="h-3 w-3 text-primary shrink-0" />}
+                            <span className="line-clamp-1">{it.descripcion}{isDetail && it.cantidad > 1 ? ` (x${it.cantidad})` : ""}</span>
+                          </div>
+                          <Button variant="ghost" size="icon" className="h-5 w-5 text-destructive hover:bg-rose-50 rounded-md" onClick={() => removeItem(i)}>
+                            <X className="h-3 w-3" />
+                          </Button>
+                        </div>
+                        <div className="flex justify-between items-center">
+                          {isDetail ? (
+                            <div className="text-[10px] font-black uppercase text-primary/80 tracking-wide flex items-center gap-1">
+                              <span>🧺</span> {it.cantidad > 1 ? `${it.cantidad} Unids. en Hamper` : "En Hamper"}
+                            </div>
+                          ) : (
+                            <div className="flex items-center gap-2">
+                              <Button variant="outline" size="icon" className="h-6 w-6 rounded-md" onClick={() => updateItemQuantity(i, -1)}>
+                                <Minus className="h-2.5 w-2.5" />
+                              </Button>
+                              <span className="text-xs font-bold w-5 text-center">{it.cantidad}</span>
+                              <Button variant="outline" size="icon" className="h-6 w-6 rounded-md" onClick={() => updateItemQuantity(i, 1)}>
+                                <Plus className="h-2.5 w-2.5" />
+                              </Button>
+                              
+                              <Button
+                                variant="ghost"
+                                size="sm"
+                                className="h-6 px-2 text-[9px] font-black uppercase text-primary hover:bg-primary/10 rounded-md gap-1 ml-1"
+                                onClick={() => {
+                                  setIndexDesglose(i);
+                                  setShowDesgloseDialog(true);
+                                }}
+                              >
+                                <Plus className="h-2.5 w-2.5" /> Detalle
+                              </Button>
+                            </div>
+                          )}
+                          <div className="text-xs font-black text-primary">
+                            {isDetail ? "RD$0.00" : formatRD(it.cantidad * it.precio_unitario)}
+                          </div>
+                        </div>
+                      </div>
+                    );
+                  })}
+                </>
               )}
             </div>
 
@@ -1316,23 +1454,85 @@ function NuevaOrdenPage() {
               {step === 3 && (
                 <>
                   <h2 className="mb-1 text-2xl font-display">Prendas y precios</h2>
-                  <p className="mb-5 text-sm text-muted-foreground">Agrega cada prenda. Los precios vienen del catálogo y son editables.</p>
+                  <p className="mb-5 text-sm text-muted-foreground">Agrega cada prenda o desglosa los servicios contratados.</p>
 
                   <div className="space-y-2">
-                    {items.map((it, i) => (
-                      <div key={i} className="flex items-center justify-between gap-3 rounded-lg border border-border bg-surface-elevated p-3">
+                    {/* Servicios Seleccionados para desglose */}
+                    {servicios.filter(s => serviciosSel.includes(s.nombre)).map((srv, idx) => (
+                      <div key={'srv-'+idx} className="flex items-center justify-between gap-3 rounded-lg border border-primary/20 bg-primary/5 p-3 animate-in fade-in duration-200">
                         <div className="flex-1">
-                          <div className="font-medium">{it.descripcion}</div>
+                          <div className="font-semibold text-primary flex items-center gap-1.5 text-sm sm:text-base">
+                            <span>🧺</span> Servicio: {srv.nombre}
+                          </div>
                           <div className="text-xs text-muted-foreground">
-                            {it.es_libra ? `${it.cantidad} lb` : `${it.cantidad} unid.`} × {formatRD(it.precio_unitario)}
-                            {it.notas ? ` · ${it.notas}` : ""}
+                            Servicio de la orden · Haz clic en "+" para detallar sus prendas
                           </div>
                         </div>
-                        <div className="font-display text-lg">{formatRD(it.cantidad * it.precio_unitario)}</div>
-                        <Button variant="ghost" size="icon" onClick={() => removeItem(i)}><Trash2 className="h-4 w-4 text-destructive" /></Button>
+                        <div className="font-display text-base sm:text-lg font-bold text-primary">{formatRD(srv.precio || 0)}</div>
+                        <div className="flex items-center gap-1">
+                          <Button
+                            variant="ghost"
+                            size="icon"
+                            className="h-8 w-8 text-primary hover:bg-primary/10 rounded-md"
+                            title={`Desglosar prendas para el servicio ${srv.nombre}`}
+                            onClick={() => {
+                              setIndexDesglose(-1);
+                              setShowDesgloseDialog(true);
+                            }}
+                          >
+                            <Plus className="h-4 w-4" />
+                          </Button>
+                          <Button
+                            variant="ghost"
+                            size="icon"
+                            className="h-8 w-8 text-destructive hover:bg-rose-50 rounded-md"
+                            onClick={() => setServiciosSel(prev => prev.filter(x => x !== srv.nombre))}
+                          >
+                            <Trash2 className="h-4 w-4" />
+                          </Button>
+                        </div>
                       </div>
                     ))}
-                    {items.length === 0 && <div className="rounded-lg border border-dashed border-border py-12 text-center text-sm text-muted-foreground">No hay prendas. Haz clic en "Agregar prenda".</div>}
+
+                    {/* Items normal */}
+                    {items.map((it, i) => {
+                      const isDetail = it.descripcion.startsWith("↳");
+                      return (
+                        <div key={i} className={`flex items-center justify-between gap-3 rounded-lg border border-border p-3 transition-all ${
+                          isDetail ? "bg-accent/5 ml-8 border-dashed border-primary/20 text-muted-foreground" : "bg-surface-elevated"
+                        }`}>
+                          <div className="flex-1">
+                            <div className="font-medium flex items-center gap-2">
+                              {isDetail && <Shirt className="h-3 w-3 text-primary" />}
+                              {it.descripcion}{isDetail && it.cantidad > 1 ? ` (x${it.cantidad})` : ""}
+                            </div>
+                            <div className="text-xs text-muted-foreground">
+                              {isDetail ? `${it.cantidad} ${it.cantidad > 1 ? "unidades" : "unidad"} en Hamper (Lavado Incluido)` : (it.es_libra ? `${it.cantidad} lb × ${formatRD(it.precio_unitario)}` : `${it.cantidad} unid. × ${formatRD(it.precio_unitario)}`)}
+                              {it.notes || it.notas ? ` · ${it.notes || it.notas}` : ""}
+                            </div>
+                          </div>
+                          <div className="font-display text-lg">{isDetail ? "RD$0.00" : formatRD(it.cantidad * it.precio_unitario)}</div>
+                          <div className="flex items-center gap-1">
+                            {!isDetail && (
+                              <Button
+                                variant="ghost"
+                                size="icon"
+                                className="h-8 w-8 text-primary hover:bg-primary/10 rounded-md"
+                                title="Desglosar Ropa en Hamper / Bolsa"
+                                onClick={() => {
+                                  setIndexDesglose(i);
+                                  setShowDesgloseDialog(true);
+                                }}
+                              >
+                                <Plus className="h-4 w-4" />
+                              </Button>
+                            )}
+                            <Button variant="ghost" size="icon" className="h-8 w-8 text-destructive" onClick={() => removeItem(i)}><Trash2 className="h-4 w-4" /></Button>
+                          </div>
+                        </div>
+                      );
+                    })}
+                    {items.length === 0 && serviciosSel.length === 0 && <div className="rounded-lg border border-dashed border-border py-12 text-center text-sm text-muted-foreground">No hay prendas ni servicios agregados. Haz clic en "Agregar prenda".</div>}
                   </div>
 
                   <Button className="mt-4 bg-emerald-600 hover:bg-emerald-700 text-white border-none shadow-sm transition-all active:scale-95" onClick={() => setShowAddItem(true)}>
@@ -1393,7 +1593,7 @@ function NuevaOrdenPage() {
                         </label>
 
                         {servicioDomicilio && (
-                          <motion.div initial={{ opacity: 0, height: 0 }} animate={{ opacity: 1, height: "auto" }}>
+                          <motion.div initial={{ opacity: 0, height: 0 }} animate={{ opacity: 1, height: "auto" }} className="space-y-3">
                             <Field label="Dirección de entrega">
                               <Input
                                 value={direccionDomicilio}
@@ -1405,6 +1605,14 @@ function NuevaOrdenPage() {
                             <p className="mt-1 text-[10px] text-muted-foreground">
                               Se guardará en la ficha del cliente si es nueva.
                             </p>
+                            <Field label="Costo de envío (RD$)">
+                              <Input
+                                value={costoDomicilio ? formatAmountInput(String(costoDomicilio)) : ""}
+                                onChange={(e) => setCostoDomicilio(parseAmount(e.target.value))}
+                                placeholder="0.00"
+                                className="bg-background"
+                              />
+                            </Field>
                           </motion.div>
                         )}
                       </div>
@@ -1449,6 +1657,13 @@ function NuevaOrdenPage() {
                         {esUrgente && (
                           <div className="text-xs font-bold text-warning uppercase">
                             + {formatRD(recargo)} Recargo Urgencia
+                          </div>
+                        )}
+
+                        {servicioDomicilio && costoEnvio > 0 && (
+                          <div className="flex items-center justify-center gap-1 text-xs font-bold text-teal-600 uppercase">
+                            <Truck className="h-3 w-3" />
+                            + {formatRD(costoEnvio)} Envío a domicilio
                           </div>
                         )}
 
@@ -1749,6 +1964,17 @@ function NuevaOrdenPage() {
           </DialogFooter>
         </DialogContent>
       </Dialog>
+
+      <AddItemDialog
+        open={showDesgloseDialog}
+        onOpenChange={setShowDesgloseDialog}
+        catalogo={catalogo}
+        items={items}
+        onAdd={addItemDesglose}
+        onUpdateQty={updateItemQuantity}
+        isDesglose
+        onAddDesglose={addItemDesglose}
+      />
     </div>
   );
 }
@@ -1787,7 +2013,9 @@ function AddItemDialog({
   catalogo,
   items,
   onAdd,
-  onUpdateQty
+  onUpdateQty,
+  isDesglose = false,
+  onAddDesglose
 }: {
   open: boolean;
   onOpenChange: (o: boolean) => void;
@@ -1795,6 +2023,8 @@ function AddItemDialog({
   items: OrdenItem[];
   onAdd: (it: OrdenItem) => void;
   onUpdateQty: (i: number, d: number) => void;
+  isDesglose?: boolean;
+  onAddDesglose?: (it: OrdenItem) => void;
 }) {
   const [activeCat, setActiveCat] = useState<string>("TODOS");
   const [search, setSearch] = useState("");
@@ -1823,6 +2053,10 @@ function AddItemDialog({
   }, [open]);
 
   function handleItemClick(it: CatalogoItem) {
+    if (isDesglose && onAddDesglose) {
+      onAddDesglose({ descripcion: `↳ ${it.nombre}`, cantidad: 1, precio_unitario: 0, es_libra: false, is_exento: true });
+      return;
+    }
     const existingIdx = items.findIndex(x => x.descripcion === it.nombre);
     if (existingIdx > -1) {
       onUpdateQty(existingIdx, 1);
@@ -1836,7 +2070,9 @@ function AddItemDialog({
       <DialogContent className="max-w-4xl max-h-[85vh] p-0 overflow-hidden flex flex-col rounded-3xl">
         <DialogHeader className="p-6 pb-2 border-b border-border/50">
           <div className="flex items-center justify-between gap-4">
-            <DialogTitle className="text-2xl font-display font-bold">Seleccionar Prendas</DialogTitle>
+            <DialogTitle className="text-2xl font-display font-bold">
+              {isDesglose ? "Desglosar Ropa en Hamper" : "Seleccionar Prendas"}
+            </DialogTitle>
             <DialogDescription className="sr-only">
               Selecciona las prendas que deseas agregar a la orden.
             </DialogDescription>
@@ -1921,11 +2157,12 @@ function AddItemDialog({
 }
 
 function DeliveryPOSDialog({
-  open, onOpenChange, enabled, setEnabled, address, setAddress
+  open, onOpenChange, enabled, setEnabled, address, setAddress, cost, setCost
 }: {
   open: boolean; onOpenChange: (o: boolean) => void;
   enabled: boolean; setEnabled: (e: boolean) => void;
   address: string; setAddress: (a: string) => void;
+  cost: number; setCost: (c: number) => void;
 }) {
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
@@ -1949,15 +2186,30 @@ function DeliveryPOSDialog({
           </div>
 
           {enabled && (
-            <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} className="space-y-2">
-              <Label className="font-bold text-sm">Dirección de Entrega</Label>
-              <Input
-                value={address}
-                onChange={(e) => setAddress(e.target.value)}
-                placeholder="Calle, No., Sector..."
-                className="h-12 rounded-xl bg-card border-primary/20 focus-visible:ring-primary/30"
-                autoFocus
-              />
+            <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} className="space-y-4">
+              <div className="space-y-2">
+                <Label className="font-bold text-sm">Dirección de Entrega</Label>
+                <Input
+                  value={address}
+                  onChange={(e) => setAddress(e.target.value)}
+                  placeholder="Calle, No., Sector..."
+                  className="h-12 rounded-xl bg-card border-primary/20 focus-visible:ring-primary/30"
+                  autoFocus
+                />
+              </div>
+              <div className="space-y-2">
+                <Label className="font-bold text-sm">Costo de Envío (RD$)</Label>
+                <div className="relative">
+                  <span className="absolute left-4 top-1/2 -translate-y-1/2 font-black text-muted-foreground/50">RD$</span>
+                  <Input
+                    value={cost ? formatAmountInput(String(cost)) : ""}
+                    onChange={(e) => setCost(parseAmount(e.target.value))}
+                    placeholder="0.00"
+                    className="h-12 rounded-xl bg-card border-primary/20 focus-visible:ring-primary/30 pl-12"
+                  />
+                </div>
+                <p className="text-[10px] text-muted-foreground">Se sumará al total de la orden.</p>
+              </div>
             </motion.div>
           )}
         </div>
