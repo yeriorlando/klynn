@@ -1,5 +1,5 @@
 import type { Orden, Tenant, Empleado, Cliente, Servicio } from "@/lib/storage";
-import { formatRD, formatDateTimeRD, formatDateRD } from "@/lib/storage";
+import { formatRD, formatDateTimeRD, formatDateRD, NCF_NOMBRES } from "@/lib/storage";
 import { QRCodeSVG } from "qrcode.react";
 
 interface Props {
@@ -53,11 +53,14 @@ export function Ticket({ orden, tenant, empleado, cliente, formato = "80mm", pag
   if (orden.nota_credito_ncf) {
     tipoDocumento = isECF ? "NOTA DE CRÉDITO ELECTRÓNICA" : "NOTA DE CRÉDITO";
   } else if (orden.ncf) {
-    if (orden.ncf.startsWith('E31') || orden.ncf.startsWith('B01')) tipoDocumento = "FACTURA PARA CRÉDITO FISCAL";
-    else if (orden.ncf.startsWith('E32') || orden.ncf.startsWith('B02')) tipoDocumento = "FACTURA PARA CONSUMIDOR FINAL";
-    else if (orden.ncf.startsWith('E33') || orden.ncf.startsWith('B03')) tipoDocumento = "NOTA DE DÉBITO";
-    else if (orden.ncf.startsWith('E34') || orden.ncf.startsWith('B04')) tipoDocumento = "NOTA DE CRÉDITO";
-    else tipoDocumento = "COMPROBANTE FISCAL";
+    const prefix = orden.ncf.substring(0, 3);
+    const nombreOficial = NCF_NOMBRES[prefix];
+    
+    if (nombreOficial) {
+      tipoDocumento = isECF ? `FACTURA DE ${nombreOficial} ELECTRÓNICA` : `FACTURA DE ${nombreOficial}`;
+    } else {
+      tipoDocumento = "COMPROBANTE FISCAL";
+    }
   }
 
   return (
@@ -241,7 +244,7 @@ export function Ticket({ orden, tenant, empleado, cliente, formato = "80mm", pag
       {isECF && qrData && (
         <div className="mt-4 flex flex-col items-center gap-1 border-t border-dashed border-black pt-4">
           <div className="text-[9px] font-bold uppercase text-center">
-            {orden.ncf?.startsWith("E31") ? "Factura de Crédito Fiscal Electrónica" : "Factura de Consumo Electrónica"}
+            {orden.ncf ? (NCF_NOMBRES[orden.ncf.substring(0, 3)] ? `Factura de ${NCF_NOMBRES[orden.ncf.substring(0, 3)]} Electrónica` : "Factura Electrónica") : ""}
           </div>
           <div className="p-1 bg-white">
             <QRCodeSVG value={qrData} size={100} level="M" />

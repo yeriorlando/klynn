@@ -2,10 +2,10 @@ import { createFileRoute, useNavigate } from "@tanstack/react-router";
 import { supabase } from "@/lib/supabase";
 import { useMemo, useState, useEffect } from "react";
 import { motion } from "framer-motion";
-import { 
-  ArrowLeft, ArrowRight, Plus, Trash2, Search, UserPlus, Check, AlertTriangle, 
+import {
+  ArrowLeft, ArrowRight, Plus, Trash2, Search, UserPlus, Check, AlertTriangle,
   Printer, Phone, Shirt, Truck, Maximize2, Minimize2, LayoutGrid, List,
-  ShoppingCart, User as UserIcon, X, Minus, CheckCircle2, Loader2
+  ShoppingCart, User as UserIcon, X, Minus, CheckCircle2, Loader2, Building
 } from "lucide-react";
 import { useRequireAuth } from "@/lib/useRequireAuth";
 import { PageHeader } from "@/components/klynn/PageHeader";
@@ -28,13 +28,13 @@ import {
   formatAmountInput, parseAmount, saveTenant, getTenantPlan,
   checkPlanLimits, getECFConfig, getECFSequences, nextECFNumero, saveECFDocument,
   type Cliente, type OrdenItem, type MetodoPago, type Orden, type CatalogoItem, type Servicio, type Caja,
-  type ECFConfig, type ECFSequence, type ECFDocument
+  type ECFConfig, type ECFSequence, type ECFDocument, NCF_NOMBRES
 } from "@/lib/storage";
 import { emitirECF } from "@/lib/fiscal";
 import { getProneSoftClient } from "@/lib/fiscal/pronesoft-client";
 import { PlanLimitModal } from "@/components/klynn/PlanLimitModal";
 import { ClienteDialog } from "@/components/klynn/ClienteDialog";
-import { useCatalogo, useServicios, useClientes, useCajaAbierta, useECFConfig, usePlans } from "@/hooks/use-queries";
+import { useCatalogo, useServicios, useClientes, useCajaAbierta, useECFConfig, usePlans, useECFSequences } from "@/hooks/use-queries";
 import { useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
 
@@ -81,6 +81,20 @@ function NuevaOrdenPage() {
   const { data: clientes = [], isLoading: loadingClientes } = useClientes(tenantId);
   const { data: caja, isLoading: loadingCaja } = useCajaAbierta(tenantId);
   const { data: fiscalConfigData } = useECFConfig(tenantId);
+  const { data: ecfSequences } = useECFSequences(tenantId);
+
+  const isElectronic = fiscalConfigData?.is_active || false;
+
+  // Calcular secuencias activas según el modo (electrónico o tradicional)
+  const activeSequences = (ecfSequences || []).filter(s =>
+    s.is_active &&
+    (isElectronic ? s.tipo_ecf.startsWith('E') : s.tipo_ecf.startsWith('B'))
+  );
+
+  // Obtener los tipos únicos disponibles en base a las secuencias configuradas
+  const validTipos = activeSequences.length > 0
+    ? Array.from(new Set(activeSequences.map(s => s.tipo_ecf))).sort()
+    : (isElectronic ? ["E32", "E31"] : ["B02", "B01"]);
 
   const catalogo = useMemo(() => catalogoData.filter(i => i.activo), [catalogoData]);
   const servicios = useMemo(() => serviciosData.filter(s => s.activo), [serviciosData]);
@@ -99,18 +113,44 @@ function NuevaOrdenPage() {
     if (cliente) {
       setDireccionDomicilio(cliente.direccion || "");
       if (cliente.direccion) setServicioDomicilio(true);
-      
+
       // Auto-seleccionar tipo de comprobante según el cliente
-      if (cliente.tipo === "Empresa" || (cliente.cedula && cliente.cedula.length >= 9)) {
-        setTipoECF("E31");
+      const isEmpresa = cliente.tipo === "Empresa" || (cliente.cedula && cliente.cedula.length >= 9);
+      if (isEmpresa) {
+        const target = isElectronic ? "E31" : "B01";
+        if (validTipos.includes(target)) {
+          setTipoECF(target);
+        } else {
+          const fallback = validTipos.find(t => t !== "E32" && t !== "B02");
+          if (fallback) setTipoECF(fallback);
+        }
       } else {
-        setTipoECF("E32");
+        const target = isElectronic ? "E32" : "B02";
+        if (validTipos.includes(target)) {
+          setTipoECF(target);
+        } else {
+          if (validTipos.length > 0) setTipoECF(validTipos[0]);
+        }
       }
     }
-  }, [cliente]);
+  }, [cliente, isElectronic, validTipos]);
+
+  useEffect(() => {
+    if (validTipos.length > 0 && !validTipos.includes(tipoECF)) {
+      const isConsumo = tipoECF === "E32" || tipoECF === "B02";
+      if (isConsumo) {
+        const matchingConsumo = validTipos.find(t => t === "E32" || t === "B02");
+        setTipoECF(matchingConsumo || validTipos[0]);
+      } else {
+        const matchingCredito = validTipos.find(t => t === "E31" || t === "B01");
+        setTipoECF(matchingCredito || validTipos[0]);
+      }
+    }
+  }, [validTipos, tipoECF]);
 
   const [metodo, setMetodo] = useState<MetodoPago>("EFECTIVO");
   const [recibido, setRecibido] = useState<number>(0);
+  const [abonoCredito, setAbonoCredito] = useState<number>(0);
 
   const [creada, setCreada] = useState<Orden | null>(null);
   const [showTicket, setShowTicket] = useState(false);
@@ -131,16 +171,16 @@ function NuevaOrdenPage() {
       limite_credito: 0,
       creado_en: new Date().toISOString()
     };
-    
+
     try {
       await saveCliente(c);
       queryClient.invalidateQueries({ queryKey: ['clientes', tenantId] });
     } catch (e) {
       console.warn("Cliente genérico ya existe");
     }
-    
+
     setCliente(c);
-    setTipoECF(isPersona ? "E32" : "E31");
+    setTipoECF(isPersona ? (isElectronic ? "E32" : "B02") : (isElectronic ? "E31" : "B01"));
     setStep(2);
   }
 
@@ -163,7 +203,7 @@ function NuevaOrdenPage() {
           payload: { rnc: rncInput.trim() }
         }
       });
-      
+
       if (error || !data) throw new Error(error?.message || "No se pudo conectar con el servicio de RNC");
       if (!data.name) throw new Error("No se encontró el contribuyente");
 
@@ -183,7 +223,7 @@ function NuevaOrdenPage() {
 
   async function handleConfirmEmpresa() {
     if (!rncResult) return;
-    
+
     setRncLoading(true);
     try {
       const c: Cliente = {
@@ -199,12 +239,12 @@ function NuevaOrdenPage() {
         limite_credito: 0,
         creado_en: new Date().toISOString()
       };
-      
+
       await saveCliente(c);
       queryClient.invalidateQueries({ queryKey: ['clientes', tenantId] });
-      
+
       setCliente(c);
-      setTipoECF("E31");
+      setTipoECF(isElectronic ? "E31" : "B01");
       setStep(2);
       setEmpresaDialogOpen(false);
       setRncInput("");
@@ -260,14 +300,14 @@ function NuevaOrdenPage() {
   // Efecto para calcular la fecha de entrega automáticamente
   useEffect(() => {
     if (!user || user.tenant.id === '__loading__') return;
-    
-    const horas = esUrgente 
-      ? (cfg.tiempo_entrega_urgente || 6) 
+
+    const horas = esUrgente
+      ? (cfg.tiempo_entrega_urgente || 6)
       : (cfg.tiempo_entrega_estandar || 24);
-    
+
     const d = new Date();
     d.setHours(d.getHours() + horas);
-    
+
     // Formato YYYY-MM-DD para el input de fecha
     setFechaEntrega(d);
   }, [esUrgente, cfg.tiempo_entrega_estandar, cfg.tiempo_entrega_urgente, user?.tenant.id]);
@@ -279,26 +319,26 @@ function NuevaOrdenPage() {
     c.nombre.toLowerCase().includes(clienteSearch.toLowerCase()) ||
     c.telefono.includes(clienteSearch),
   );
-  
+
   // Cálculo detallado de ITBIS
   const itbisRate = (cfg.itbis_porcentaje || 0) / 100;
-  
+
   // Separar montos gravables y exentos
   const itemsGravables = items.filter(it => !it.is_exento);
   const itemsExentos = items.filter(it => it.is_exento);
-  
+
   const subtotalGravableBase = itemsGravables.reduce((s, it) => s + it.cantidad * it.precio_unitario, 0);
   const subtotalExentoBase = itemsExentos.reduce((s, it) => s + it.cantidad * it.precio_unitario, 0);
-  
+
   const costoServicios = servicios.filter(s => serviciosSel.includes(s.nombre)).reduce((acc, s) => acc + s.precio, 0);
-  
+
   // El recargo de urgencia se aplica al subtotal base total
   const recargoTotal = esUrgente ? (subtotalGravableBase + subtotalExentoBase) * (cfg.recargo_urgencia / 100) : 0;
-  
+
   // Proporción del recargo que es gravable (si hay items exentos, el recargo suele ser gravable igual por ser un servicio, 
   // pero para ser conservadores en este flujo lo sumamos a la base gravable total)
   const baseParaItbis = subtotalGravableBase + costoServicios + recargoTotal;
-  
+
   let itbis = 0;
   let total = 0;
   let subtotal = subtotalGravableBase + subtotalExentoBase + costoServicios + recargoTotal;
@@ -330,14 +370,14 @@ function NuevaOrdenPage() {
   const vuelto = metodo === "EFECTIVO" && recibido > total ? recibido - total : 0;
   const faltante = metodo === "EFECTIVO" && recibido > 0 && recibido < total ? total - recibido : 0;
 
-  function addItem(it: OrdenItem) { 
+  function addItem(it: OrdenItem) {
     setItems((arr) => {
       const idx = arr.findIndex(x => x.descripcion === it.descripcion && x.precio_unitario === it.precio_unitario);
       if (idx > -1) {
         return arr.map((item, i) => i === idx ? { ...item, cantidad: item.cantidad + it.cantidad } : item);
       }
       return [...arr, it];
-    }); 
+    });
   }
   function removeItem(i: number) { setItems((arr) => arr.filter((_, idx) => idx !== i)); }
   function updateItemQuantity(i: number, delta: number) {
@@ -366,31 +406,55 @@ function NuevaOrdenPage() {
     if (limits?.ordersReached) { setShowLimitModal(true); return; }
     if (!cliente) { toast.error("Selecciona un cliente"); return; }
     if (items.length === 0) { toast.error("Agrega al menos una prenda"); return; }
-    if (metodo !== "CREDITO" && !caja) { toast.error("Abre la caja antes de cobrar"); return; }
+    if ((metodo !== "CREDITO" || abonoCredito > 0) && !caja) {
+      toast.error("Abre la caja antes de registrar un pago");
+      return;
+    }
     if (metodo === "EFECTIVO" && recibido < total) { toast.error("El monto recibido es menor al total"); return; }
+    if (metodo === "CREDITO" && abonoCredito >= total) {
+      toast.error("El abono debe ser menor al total. Si desea pagar completo, cambie el método de pago.");
+      return;
+    }
 
     try {
-      const pagado = metodo === "CREDITO" ? 0 : total;
+      const pagado = metodo === "CREDITO" ? abonoCredito : total;
       const saldo = total - pagado;
-      
+
       const numero = await nextOrdenNumero(tenant.id);
-      
+
       // Calcular la fecha final de entrega combinando el día del input con la hora calculada
       const deliveryDate = new Date(fechaEntrega || new Date());
-      
+
       const horasAdd = esUrgente ? (cfg.tiempo_entrega_urgente || 3) : (cfg.tiempo_entrega_estandar || 24);
       const now = new Date();
       now.setHours(now.getHours() + horasAdd);
       deliveryDate.setHours(now.getHours(), now.getMinutes(), 0, 0);
 
+      const isElectronic = !!fiscalConfig?.is_active;
+      const activeTipo = isElectronic
+        ? (tipoECF.startsWith('E') ? tipoECF : (tipoECF === 'B01' ? 'E31' : 'E32'))
+        : (tipoECF.startsWith('B') ? tipoECF : (tipoECF === 'E31' ? 'B01' : 'B02'));
+
       let ncfVencimiento: string | undefined = undefined;
       let finalNCF: string | undefined = undefined;
 
-      if (cfg.ncf_facturacion_activa && cfg.ncf_secuencia && !fiscalConfig?.is_active) {
-        finalNCF = `${cfg.ncf_secuencia}${String(cfg.ncf_proximo || 1).padStart(8, "0")}`;
-        // Para NCF tradicional, podrías tener una fecha global o por tipo. 
-        // Por ahora Klynn no tiene campo específico en config global, 
-        // pero podemos habilitarlo si fuera necesario.
+      if (cfg.ncf_facturacion_activa && !isElectronic) {
+        try {
+          const { ncf: nextNCF, expiration_date } = await nextECFNumero(tenant.id, activeTipo);
+          finalNCF = nextNCF;
+          ncfVencimiento = expiration_date;
+        } catch (seqErr) {
+          console.log("No dynamic sequence for traditional NCF, falling back to legacy sequence.");
+          finalNCF = `${cfg.ncf_secuencia || 'B02'}${String(cfg.ncf_proximo || 1).padStart(8, "0")}`;
+          // Incrementar secuencia global heredada
+          await saveTenant({
+            ...tenant,
+            config: {
+              ...cfg,
+              ncf_proximo: (cfg.ncf_proximo || 1) + 1
+            }
+          });
+        }
       }
 
       const orden: Orden = {
@@ -414,54 +478,71 @@ function NuevaOrdenPage() {
         notas: notas || undefined,
         creado_en: new Date().toISOString(),
         ncf: finalNCF,
+        ncf_vencimiento: ncfVencimiento,
       };
 
       // --- LOGICA FISCAL ELECTRONICA (Pronesoft) ---
       let ordenActualizada = { ...orden };
-      if (fiscalConfig?.is_active && tipoECF) {
+      if (isElectronic && activeTipo) {
         try {
           // Obtener el próximo número y la fecha de vencimiento de la secuencia activa
-          const { ncf: nextNCF, expiration_date } = await nextECFNumero(tenant.id, tipoECF);
+          const { ncf: nextNCF, expiration_date } = await nextECFNumero(tenant.id, activeTipo);
           ncfVencimiento = expiration_date;
-          
+
           const result = await emitirECF(
-            { ...orden, ncf: nextNCF }, // Pasamos el NCF ya generado
+            { ...orden, ncf: nextNCF },
             cliente,
             fiscalConfig.pronesoft_tenant_id,
             cfg,
             tenant,
-            tipoECF
+            activeTipo
           );
 
           const fiscalFields = {
-            ncf: result.encf, 
-            tipo_ecf: tipoECF, 
+            ncf: result.encf,
+            tipo_ecf: activeTipo,
             ecf_id: result.document.id,
             ecf_qr: result.stamp_url || result.document.document_stamp_url || '',
             ecf_security_code: result.security_code || '',
             ecf_signature_date: result.document.signature_date || new Date().toISOString(),
             ncf_vencimiento: ncfVencimiento,
           };
-          
+
           ordenActualizada = { ...orden, ...fiscalFields };
-          // Guardamos la orden inicial con los campos fiscales
           await saveOrden(ordenActualizada);
           toast.success(`✅ Comprobante ${result.encf} emitido`);
         } catch (fErr: any) {
           console.error("Error Fiscal:", fErr);
           toast.error("Error al generar comprobante: " + fErr.message);
-          // Si falla lo fiscal, guardamos la orden sin NCF o con error
           await saveOrden(orden);
         }
       } else {
         await saveOrden(orden);
       }
 
-      setCreada({ ...ordenActualizada }); // Clonar para asegurar re-render
+      // Registrar movimiento de caja si se recibió un pago (ventas normales o abono de crédito)
+      if ((metodo !== "CREDITO" || abonoCredito > 0) && caja) {
+        const montoMov = metodo === "CREDITO" ? abonoCredito : total;
+        await saveMovimiento({
+          id: uid("mov"),
+          tenant_id: tenant.id,
+          caja_id: caja.id,
+          empleado_id: empleado.id,
+          tipo: "VENTA",
+          concepto: metodo === "CREDITO"
+            ? `Abono inicial orden #${ordenActualizada.numero}`
+            : `Venta orden #${ordenActualizada.numero}`,
+          monto: montoMov,
+          metodo: metodo === "CREDITO" ? "EFECTIVO" : metodo,
+          orden_id: ordenActualizada.id,
+          creado_en: new Date().toISOString(),
+        });
+      }
+
+      setCreada({ ...ordenActualizada });
       setShowTicket(true);
       toast.success(`Orden ${ordenActualizada.numero} creada ✅`);
 
-      // Actualizar dirección del cliente si cambió o es nueva
       if (cliente && servicioDomicilio && direccionDomicilio.trim() && direccionDomicilio !== cliente.direccion) {
         await saveCliente({ ...cliente, direccion: direccionDomicilio.trim() });
       }
@@ -496,11 +577,11 @@ function NuevaOrdenPage() {
           {isPosMode && (
             <div className="relative w-72 max-w-md animate-in fade-in slide-in-from-left-4 duration-500">
               <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground/50" />
-              <Input 
-                value={posSearch} 
-                onChange={(e) => setPosSearch(e.target.value)} 
-                placeholder="Buscar prenda o servicio..." 
-                className="pl-10 h-10 bg-accent/30 border-primary/5 focus-visible:ring-primary/20 rounded-xl shadow-inner border-0" 
+              <Input
+                value={posSearch}
+                onChange={(e) => setPosSearch(e.target.value)}
+                placeholder="Buscar prenda o servicio..."
+                className="pl-10 h-10 bg-accent/30 border-primary/5 focus-visible:ring-primary/20 rounded-xl shadow-inner border-0"
               />
               {posSearch && (
                 <Button variant="ghost" size="icon" className="absolute right-1 top-1/2 -translate-y-1/2 h-7 w-7 hover:bg-transparent" onClick={() => setPosSearch("")}>
@@ -511,7 +592,7 @@ function NuevaOrdenPage() {
           )}
           {isPosMode && (
             <div className="flex items-center gap-2 animate-in fade-in slide-in-from-left-4 duration-500 delay-150">
-              <Button 
+              <Button
                 size="sm"
                 onClick={() => setShowDeliveryPOS(true)}
                 className={`rounded-md px-4 font-bold transition-all border-none bg-teal-600 text-white shadow-glow hover:bg-teal-700`}
@@ -519,7 +600,7 @@ function NuevaOrdenPage() {
                 <Truck className="mr-2 h-4 w-4" />
                 {servicioDomicilio ? "Envío activo" : "Envío a domicilio"}
               </Button>
-              <Button 
+              <Button
                 size="sm"
                 onClick={() => setShowDiscountPOS(true)}
                 className={`rounded-md px-4 font-bold transition-all border-none bg-slate-600 text-white shadow-glow hover:bg-slate-700`}
@@ -536,9 +617,9 @@ function NuevaOrdenPage() {
                 <Switch checked={esUrgente} onCheckedChange={setEsUrgente} className="scale-[0.65] origin-right" />
               </div>
 
-              <DeliveryPOSDialog 
-                open={showDeliveryPOS} 
-                onOpenChange={setShowDeliveryPOS} 
+              <DeliveryPOSDialog
+                open={showDeliveryPOS}
+                onOpenChange={setShowDeliveryPOS}
                 enabled={servicioDomicilio}
                 setEnabled={setServicioDomicilio}
                 address={direccionDomicilio}
@@ -555,9 +636,9 @@ function NuevaOrdenPage() {
           )}
         </div>
         <div className="flex items-center gap-2">
-          <Button 
-            variant={isPosMode ? "default" : "outline"} 
-            size="sm" 
+          <Button
+            variant={isPosMode ? "default" : "outline"}
+            size="sm"
             onClick={() => setIsPosMode(!isPosMode)}
             className={isPosMode ? "bg-primary text-white shadow-glow" : ""}
           >
@@ -588,11 +669,10 @@ function NuevaOrdenPage() {
                 <button
                   key={cat}
                   onClick={() => setActiveCategory(cat)}
-                  className={`px-4 py-1.5 rounded-full text-[10px] font-black uppercase tracking-widest whitespace-nowrap transition-all shadow-sm border ${
-                    activeCategory === cat 
-                      ? "bg-primary text-white border-primary shadow-glow ring-2 ring-primary/20 ring-offset-2 ring-offset-background" 
+                  className={`px-4 py-1.5 rounded-full text-[10px] font-black uppercase tracking-widest whitespace-nowrap transition-all shadow-sm border ${activeCategory === cat
+                      ? "bg-primary text-white border-primary shadow-glow ring-2 ring-primary/20 ring-offset-2 ring-offset-background"
                       : "bg-card text-muted-foreground hover:bg-accent border-border/50"
-                  }`}
+                    }`}
                 >
                   {cat}
                 </button>
@@ -610,7 +690,7 @@ function NuevaOrdenPage() {
                       </Button>
                     </div>
                   </div>
-                  
+
                   <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4 mb-4">
                     {[
                       { id: "EFECTIVO", label: "Efectivo", icon: "💵" },
@@ -619,35 +699,34 @@ function NuevaOrdenPage() {
                       { id: "CREDITO", label: "Crédito", icon: "📝" }
                     ].map((m) => (
                       <button key={m.id} onClick={() => setMetodo(m.id as MetodoPago)}
-                        className={`relative flex flex-col items-center gap-2 rounded-xl border-2 p-4 transition-all active:scale-95 ${
-                          metodo === m.id 
-                            ? "border-primary bg-primary/5 ring-1 ring-primary shadow-glow" 
+                        className={`relative flex flex-col items-center gap-2 rounded-xl border-2 p-4 transition-all active:scale-95 ${metodo === m.id
+                            ? "border-primary bg-primary/5 ring-1 ring-primary shadow-glow"
                             : "border-border bg-card hover:border-primary/40"
-                        }`}>
+                          }`}>
                         <span className="text-2xl">{m.icon}</span>
                         <div className="font-bold text-sm uppercase tracking-tight">{m.label}</div>
                         {metodo === m.id && <div className="absolute top-2 right-2 h-2 w-2 rounded-full bg-primary" />}
                       </button>
                     ))}
                   </div>
-                  {fiscalConfig?.is_active && (
+                  {cfg.ncf_facturacion_activa && (
                     <div className="mb-4 p-4 rounded-2xl border-2 border-primary/10 bg-primary/5">
                       <Label className="text-xs font-black uppercase tracking-widest text-primary mb-2 block">Tipo de Comprobante Fiscal</Label>
                       <div className="grid grid-cols-2 gap-2">
-                        <button 
-                          onClick={() => setTipoECF("E32")}
-                          className={`py-2 px-4 rounded-xl font-bold text-xs transition-all ${tipoECF === "E32" ? "bg-primary text-white" : "bg-background border border-border"}`}
+                        <button
+                          onClick={() => setTipoECF(isElectronic ? "E32" : "B02")}
+                          className={`py-2 px-4 rounded-xl font-bold text-xs transition-all ${(tipoECF === "E32" || tipoECF === "B02") ? "bg-primary text-white" : "bg-background border border-border"}`}
                         >
-                          CONSUMO (E32)
+                          CONSUMO ({isElectronic ? "E32" : "B02"})
                         </button>
-                        <button 
-                          onClick={() => setTipoECF("E31")}
-                          className={`py-2 px-4 rounded-xl font-bold text-xs transition-all ${tipoECF === "E31" ? "bg-primary text-white" : "bg-background border border-border"}`}
+                        <button
+                          onClick={() => setTipoECF(isElectronic ? "E31" : "B01")}
+                          className={`py-2 px-4 rounded-xl font-bold text-xs transition-all ${(tipoECF === "E31" || tipoECF === "B01") ? "bg-primary text-white" : "bg-background border border-border"}`}
                         >
-                          CRÉDITO FISCAL (E31)
+                          CRÉDITO FISCAL ({isElectronic ? "E31" : "B01"})
                         </button>
                       </div>
-                      {tipoECF === "E31" && !cliente?.cedula && (
+                      {(tipoECF === "E31" || tipoECF === "B01") && !cliente?.cedula && (
                         <p className="mt-2 text-[10px] text-destructive font-bold flex items-center gap-1">
                           <AlertTriangle className="h-3 w-3" /> El cliente debe tener RNC/Cédula para Crédito Fiscal.
                         </p>
@@ -674,18 +753,16 @@ function NuevaOrdenPage() {
                           </div>
                         </Field>
 
-                        <div className={`flex flex-col items-center justify-center h-28 px-4 rounded-2xl border-2 transition-all duration-300 ${
-                          faltante > 0 
-                            ? "bg-destructive/5 border-destructive/30 text-destructive animate-pulse" 
+                        <div className={`flex flex-col items-center justify-center h-28 px-4 rounded-2xl border-2 transition-all duration-300 ${faltante > 0
+                            ? "bg-destructive/5 border-destructive/30 text-destructive animate-pulse"
                             : "bg-emerald-500/5 border-emerald-500/30 text-emerald-600"
-                        }`}>
+                          }`}>
                           <div className="text-[10px] font-black uppercase tracking-widest opacity-70 mb-1 text-center">
                             {faltante > 0 ? "Faltante" : "Vuelto a entregar"}
                           </div>
-                          <div className={`font-display font-black text-center break-all leading-tight ${
-                            (faltante > 0 ? faltante : vuelto) > 9999999 ? "text-xl" : 
-                            (faltante > 0 ? faltante : vuelto) > 999999 ? "text-2xl" : "text-4xl"
-                          }`}>
+                          <div className={`font-display font-black text-center break-all leading-tight ${(faltante > 0 ? faltante : vuelto) > 9999999 ? "text-xl" :
+                              (faltante > 0 ? faltante : vuelto) > 999999 ? "text-2xl" : "text-4xl"
+                            }`}>
                             {formatRD(faltante > 0 ? faltante : vuelto)}
                           </div>
                         </div>
@@ -694,18 +771,45 @@ function NuevaOrdenPage() {
                   )}
 
                   {metodo === "CREDITO" && (
-                    <div className="flex items-center gap-4 rounded-xl border border-warning/40 bg-warning/5 p-4 text-warning-foreground mb-4">
-                      <AlertTriangle className="h-8 w-8 text-warning shrink-0" />
-                      <div>
-                        <strong className="block text-lg">Venta a crédito</strong>
-                        Se registrará en el balance de <span className="font-bold">{cliente?.nombre}</span>.
+                    <div className="space-y-4 mb-4">
+                      <div className="flex items-center gap-4 rounded-xl border border-warning/40 bg-warning/5 p-4 text-warning-foreground">
+                        <AlertTriangle className="h-8 w-8 text-warning shrink-0" />
+                        <div>
+                          <strong className="block text-lg">Venta a crédito</strong>
+                          Se registrará en el balance de <span className="font-bold">{cliente?.nombre}</span>.
+                        </div>
+                      </div>
+
+                      <div className="rounded-3xl border-2 border-warning/20 bg-warning/5 p-4 animate-in fade-in slide-in-from-top-1 duration-200">
+                        <Label className="mb-2 block text-xs font-black uppercase tracking-widest text-amber-600">
+                          ¿Monto a abonar inicialmente? (Opcional)
+                        </Label>
+                        <div className="relative h-20">
+                          <span className="absolute left-5 top-1/2 -translate-y-1/2 font-black text-xl text-amber-600/40">RD$</span>
+                          <Input
+                            className="!h-full pl-20 !text-4xl font-black font-display bg-background border-2 border-warning/20 focus-visible:ring-warning/30 rounded-2xl text-amber-700 font-bold"
+                            value={abonoCredito ? formatAmountInput(String(abonoCredito)) : ""}
+                            onChange={(e) => {
+                              const val = parseAmount(e.target.value);
+                              if (val > total) {
+                                toast.warning("El abono no puede exceder el total de la orden");
+                                return;
+                              }
+                              setAbonoCredito(val);
+                            }}
+                            placeholder="0.00"
+                          />
+                        </div>
+                        <p className="mt-2 text-xs text-amber-600/70 font-medium">
+                          El monto abonado se registrará en la caja activa. El saldo restante (<strong>{formatRD(total - abonoCredito)}</strong>) irá al balance de <strong>{cliente?.nombre}</strong>.
+                        </p>
                       </div>
                     </div>
                   )}
 
                   <div className="flex justify-center px-4 pb-4">
-                    <Button 
-                      size="lg" 
+                    <Button
+                      size="lg"
                       className="w-full md:max-w-md h-14 text-base tracking-wide rounded-[1.25rem] font-bold bg-[#16A34A] hover:bg-[#15803D] text-white hover:-translate-y-0.5 transition-all shadow-none"
                       onClick={onCrearOrden}
                       disabled={metodo === "EFECTIVO" && faltante > 0}
@@ -733,56 +837,85 @@ function NuevaOrdenPage() {
 
                   <div className="relative mb-6">
                     <Search className="absolute left-4 top-1/2 h-5 w-5 -translate-y-1/2 text-muted-foreground" />
-                    <Input 
-                      placeholder="Buscar por nombre o teléfono..." 
+                    <Input
+                      placeholder="Buscar por nombre o teléfono..."
                       className="pl-12 h-14 text-lg bg-card rounded-2xl shadow-sm border-primary/10"
-                      value={clienteSearch} 
-                      onChange={(e) => setClienteSearch(e.target.value)} 
+                      value={clienteSearch}
+                      onChange={(e) => setClienteSearch(e.target.value)}
                     />
                   </div>
 
-                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 mb-8">
-                    <button 
-                      onClick={() => handleSelectGeneric("Persona")}
-                      className="flex items-center gap-4 p-5 rounded-[2rem] border-2 border-dashed border-primary/20 bg-primary/5 hover:bg-primary/10 hover:border-primary/40 transition-all group text-left"
-                    >
-                      <div className="h-12 w-12 rounded-full bg-primary/20 flex items-center justify-center group-hover:scale-110 transition-transform">
-                        <UserIcon className="h-6 w-6 text-primary" />
-                      </div>
-                      <div>
-                        <div className="font-bold text-lg text-primary leading-tight">Consumidor Final</div>
-                        <div className="text-[10px] uppercase tracking-widest font-black opacity-60">Para Factura de Consumo</div>
-                      </div>
-                    </button>
+                  <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4 mb-8">
+                    {validTipos.map((tipo) => {
+                      const isConsumo = tipo === "E32" || tipo === "B02";
+                      const isCredito = tipo === "E31" || tipo === "B01";
+                      const name = NCF_NOMBRES[tipo.substring(0,3)]?.replace("FISCAL", "")?.trim() || "Empresa";
+                      
+                      const label = isConsumo ? "Consumidor Final" : (isCredito ? "Empresa / RNC" : name);
+                      const subLabel = isConsumo ? "Para Factura de Consumo" : (isCredito ? "Para Crédito Fiscal" : `Para Comprobante ${tipo}`);
+                      const Icon = isConsumo ? UserIcon : (isCredito ? Truck : Building);
 
-                    <button 
-                      onClick={() => setEmpresaDialogOpen(true)}
-                      className={`flex items-center gap-4 p-5 rounded-[2rem] border-2 transition-all group text-left ${
-                        cliente?.cedula && cliente?.tipo === "Empresa" 
-                          ? "border-blue-600 bg-blue-50/80 ring-1 ring-blue-600 shadow-sm" 
-                          : "border-dashed border-blue-200 bg-blue-50/50 hover:bg-blue-100/50 hover:border-blue-400"
-                      }`}
-                    >
-                      <div className="h-12 w-12 rounded-full bg-blue-100 flex items-center justify-center group-hover:scale-110 transition-transform">
-                        <Truck className="h-6 w-6 text-blue-600" />
-                      </div>
-                      <div>
-                        <div className="font-bold text-lg text-blue-700 leading-tight">Empresa / RNC</div>
-                        <div className="text-[10px] uppercase tracking-widest font-black opacity-60">Para Crédito Fiscal</div>
-                      </div>
-                    </button>
+                      let colorClass = "";
+                      let bgIconClass = "";
+                      let iconColorClass = "";
+                      let textClass = "";
+
+                      if (isConsumo) {
+                         colorClass = tipoECF === tipo ? "border-primary bg-primary/20 ring-1 ring-primary shadow-sm" : "border-dashed border-primary/20 bg-primary/5 hover:bg-primary/10 hover:border-primary/40";
+                         bgIconClass = "bg-primary/20";
+                         iconColorClass = "text-primary";
+                         textClass = "text-primary";
+                      } else if (isCredito) {
+                         colorClass = tipoECF === tipo ? "border-blue-600 bg-blue-50/80 ring-1 ring-blue-600 shadow-sm" : "border-dashed border-blue-200 bg-blue-50/50 hover:bg-blue-100/50 hover:border-blue-400";
+                         bgIconClass = "bg-blue-100";
+                         iconColorClass = "text-blue-600";
+                         textClass = "text-blue-700";
+                      } else {
+                         colorClass = tipoECF === tipo ? "border-amber-600 bg-amber-50/80 ring-1 ring-amber-600 shadow-sm" : "border-dashed border-amber-200 bg-amber-50/50 hover:bg-amber-100/50 hover:border-amber-400";
+                         bgIconClass = "bg-amber-100";
+                         iconColorClass = "text-amber-600";
+                         textClass = "text-amber-700";
+                      }
+
+                      if (!isConsumo && !((plans.find(p => p.id === user.tenant.plan_id) || getTenantPlan(user.tenant)).modulos.facturacion_fiscal)) {
+                        return null;
+                      }
+
+                      return (
+                        <button 
+                          key={tipo}
+                          onClick={() => {
+                            setTipoECF(tipo);
+                            if (isConsumo) {
+                              handleSelectGeneric("Persona");
+                            } else {
+                              setEmpresaDialogOpen(true);
+                            }
+                          }}
+                          className={`flex items-center gap-4 p-5 rounded-[2rem] border-2 transition-all group text-left ${colorClass}`}
+                        >
+                          <div className={`h-12 w-12 rounded-full flex items-center justify-center group-hover:scale-110 transition-transform ${bgIconClass}`}>
+                            <Icon className={`h-6 w-6 ${iconColorClass}`} />
+                          </div>
+                          <div>
+                            <div className={`font-bold text-lg leading-tight ${textClass}`}>{label}</div>
+                            <div className="text-[10px] uppercase tracking-widest font-black opacity-60">{subLabel}</div>
+                          </div>
+                        </button>
+                      );
+                    })}
                   </div>
 
                   <div className="text-[10px] font-black uppercase tracking-widest text-muted-foreground/60 px-2 mb-4">O busca en tu base de datos</div>
 
                   <div className="grid gap-3 grid-cols-1 md:grid-cols-2">
-                    {clientes.filter(c => 
-                      c.nombre.toLowerCase().includes(clienteSearch.toLowerCase()) || 
+                    {clientes.filter(c =>
+                      c.nombre.toLowerCase().includes(clienteSearch.toLowerCase()) ||
                       (c.apellido && c.apellido.toLowerCase().includes(clienteSearch.toLowerCase())) ||
                       c.telefono.includes(clienteSearch)
                     ).map(c => (
-                      <button 
-                        key={c.id} 
+                      <button
+                        key={c.id}
                         onClick={() => { setCliente(c); setStep(2); }}
                         className="flex items-center justify-between p-4 rounded-2xl border-2 border-border hover:border-primary/40 hover:bg-primary/5 transition-all group"
                       >
@@ -817,9 +950,8 @@ function NuevaOrdenPage() {
                             <button
                               key={s.id}
                               onClick={() => setServiciosSel((arr) => sel ? arr.filter((x) => x !== s.nombre) : [...arr, s.nombre])}
-                              className={`group relative flex flex-col items-center justify-center gap-3 p-4 rounded-2xl border-2 transition-all active:scale-95 text-center ${
-                                sel ? "border-primary bg-primary/10 shadow-glow" : "border-transparent bg-card hover:border-primary/40 hover:bg-primary/5 hover:shadow-elegant"
-                              }`}
+                              className={`group relative flex flex-col items-center justify-center gap-3 p-4 rounded-2xl border-2 transition-all active:scale-95 text-center ${sel ? "border-primary bg-primary/10 shadow-glow" : "border-transparent bg-card hover:border-primary/40 hover:bg-primary/5 hover:shadow-elegant"
+                                }`}
                             >
                               {s.imagen_url ? (
                                 <div className="h-24 w-24 rounded-2xl bg-white shadow-md overflow-hidden ring-2 ring-white/20">
@@ -862,10 +994,10 @@ function NuevaOrdenPage() {
                           {itemsInCat.map(item => (
                             <button
                               key={item.id}
-                              onClick={() => addItem({ 
-                                descripcion: item.nombre, 
-                                cantidad: 1, 
-                                precio_unitario: item.precio, 
+                              onClick={() => addItem({
+                                descripcion: item.nombre,
+                                cantidad: 1,
+                                precio_unitario: item.precio,
                                 es_libra: item.por_libra,
                                 is_exento: item.is_exento
                               })}
@@ -1008,8 +1140,8 @@ function NuevaOrdenPage() {
                 </div>
               </div>
               {!(isPosMode && step === 5) && (
-                <Button 
-                  disabled={items.length === 0 || !cliente} 
+                <Button
+                  disabled={items.length === 0 || !cliente}
                   className="w-full h-14 text-lg font-bold bg-primary hover:bg-primary/90 text-white shadow-glow border-none transition-all active:scale-[0.98] mt-2"
                   onClick={() => { setStep(5); }}
                 >
@@ -1034,38 +1166,66 @@ function NuevaOrdenPage() {
                     <Input value={clienteSearch} onChange={(e) => setClienteSearch(e.target.value)} placeholder="Nombre o teléfono..." className="pl-10" />
                   </div>
 
-                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 mt-6">
-                    <button 
-                      onClick={() => handleSelectGeneric("Persona")}
-                      className={`flex items-center gap-4 p-4 rounded-2xl border-2 transition-all text-left ${
-                        cliente?.id.includes("generic-consumidor") ? "border-primary bg-primary/10 ring-1 ring-primary" : "border-dashed border-primary/20 bg-primary/5 hover:border-primary/40"
-                      }`}
-                    >
-                      <div className="h-10 w-10 rounded-full bg-primary/20 flex items-center justify-center">
-                        <UserIcon className="h-5 w-5 text-primary" />
-                      </div>
-                      <div>
-                        <div className="font-bold text-sm text-primary leading-tight">Consumidor Final</div>
-                        <div className="text-[10px] uppercase tracking-widest font-black opacity-60">Factura de Consumo</div>
-                      </div>
-                    </button>
+                  <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4 mt-6">
+                    {validTipos.map((tipo) => {
+                      const isConsumo = tipo === "E32" || tipo === "B02";
+                      const isCredito = tipo === "E31" || tipo === "B01";
+                      const name = NCF_NOMBRES[tipo.substring(0,3)]?.replace("FISCAL", "")?.trim() || "Empresa";
+                      
+                      const label = isConsumo ? "Consumidor Final" : (isCredito ? "Empresa / RNC" : name);
+                      const subLabel = isConsumo ? "Factura de Consumo" : (isCredito ? "Crédito Fiscal" : `Comprobante ${tipo}`);
+                      const Icon = isConsumo ? UserIcon : (isCredito ? Truck : Building);
 
-                    {(plans.find(p => p.id === user.tenant.plan_id) || getTenantPlan(user.tenant)).modulos.facturacion_fiscal && (
-                      <button 
-                        onClick={() => setEmpresaDialogOpen(true)}
-                        className={`flex items-center gap-4 p-4 rounded-2xl border-2 transition-all text-left ${
-                          cliente?.cedula && cliente?.tipo === "Empresa" ? "border-blue-600 bg-blue-50 ring-1 ring-blue-600" : "border-dashed border-blue-200 bg-blue-50/50 hover:border-blue-400"
-                        }`}
-                      >
-                        <div className="h-10 w-10 rounded-full bg-blue-100 flex items-center justify-center">
-                          <Truck className="h-5 w-5 text-blue-600" />
-                        </div>
-                        <div>
-                          <div className="font-bold text-sm text-blue-700 leading-tight">Empresa / RNC</div>
-                          <div className="text-[10px] uppercase tracking-widest font-black opacity-60">Crédito Fiscal</div>
-                        </div>
-                      </button>
-                    )}
+                      let colorClass = "";
+                      let bgIconClass = "";
+                      let iconColorClass = "";
+                      let textClass = "";
+
+                      if (isConsumo) {
+                         colorClass = tipoECF === tipo ? "border-primary bg-primary/10 ring-1 ring-primary" : "border-dashed border-primary/20 bg-primary/5 hover:border-primary/40";
+                         bgIconClass = "bg-primary/20";
+                         iconColorClass = "text-primary";
+                         textClass = "text-primary";
+                      } else if (isCredito) {
+                         colorClass = tipoECF === tipo ? "border-blue-600 bg-blue-50 ring-1 ring-blue-600" : "border-dashed border-blue-200 bg-blue-50/50 hover:border-blue-400";
+                         bgIconClass = "bg-blue-100";
+                         iconColorClass = "text-blue-600";
+                         textClass = "text-blue-700";
+                      } else {
+                         colorClass = tipoECF === tipo ? "border-amber-600 bg-amber-50 ring-1 ring-amber-600" : "border-dashed border-amber-200 bg-amber-50/50 hover:border-amber-400";
+                         bgIconClass = "bg-amber-100";
+                         iconColorClass = "text-amber-600";
+                         textClass = "text-amber-700";
+                      }
+
+                      // We only show non-consumo buttons if billing is active
+                      if (!isConsumo && !((plans.find(p => p.id === user.tenant.plan_id) || getTenantPlan(user.tenant)).modulos.facturacion_fiscal)) {
+                        return null;
+                      }
+
+                      return (
+                        <button 
+                          key={tipo}
+                          onClick={() => {
+                            setTipoECF(tipo);
+                            if (isConsumo) {
+                              handleSelectGeneric("Persona");
+                            } else {
+                              setEmpresaDialogOpen(true);
+                            }
+                          }}
+                          className={`flex items-center gap-4 p-4 rounded-2xl border-2 transition-all text-left ${colorClass}`}
+                        >
+                          <div className={`h-10 w-10 rounded-full flex items-center justify-center ${bgIconClass}`}>
+                            <Icon className={`h-5 w-5 ${iconColorClass}`} />
+                          </div>
+                          <div>
+                            <div className={`font-bold text-sm leading-tight ${textClass}`}>{label}</div>
+                            <div className="text-[10px] uppercase tracking-widest font-black opacity-60">{subLabel}</div>
+                          </div>
+                        </button>
+                      );
+                    })}
                   </div>
 
                   <div className="mt-8 flex items-center justify-between">
@@ -1081,16 +1241,14 @@ function NuevaOrdenPage() {
                       <button
                         key={c.id}
                         onClick={() => setCliente(c)}
-                        className={`flex w-full items-center justify-between rounded-lg border p-4 text-left transition-all ${
-                          cliente?.id === c.id 
-                            ? "border-primary bg-primary/10 ring-1 ring-primary shadow-sm" 
+                        className={`flex w-full items-center justify-between rounded-lg border p-4 text-left transition-all ${cliente?.id === c.id
+                            ? "border-primary bg-primary/10 ring-1 ring-primary shadow-sm"
                             : "border-border bg-card hover:border-primary/50 hover:bg-accent/30 hover:shadow-elegant"
-                        }`}
+                          }`}
                       >
                         <div className="flex items-center gap-4">
-                          <div className={`flex h-10 w-10 items-center justify-center rounded-full text-xs font-bold ${
-                            cliente?.id === c.id ? "bg-primary text-white" : "bg-accent text-muted-foreground"
-                          }`}>
+                          <div className={`flex h-10 w-10 items-center justify-center rounded-full text-xs font-bold ${cliente?.id === c.id ? "bg-primary text-white" : "bg-accent text-muted-foreground"
+                            }`}>
                             {c.nombre.charAt(0)}{c.apellido?.charAt(0) || ""}
                           </div>
                           <div>
@@ -1132,9 +1290,8 @@ function NuevaOrdenPage() {
                         const sel = serviciosSel.includes(s.nombre);
                         return (
                           <button key={s.id} onClick={() => setServiciosSel((arr) => sel ? arr.filter((x) => x !== s.nombre) : [...arr, s.nombre])}
-                            className={`flex items-center gap-3 rounded-lg border-2 p-3 text-left text-sm transition ${
-                              sel ? "border-primary bg-primary/5" : "border-border hover:border-primary/40"
-                            }`}>
+                            className={`flex items-center gap-3 rounded-lg border-2 p-3 text-left text-sm transition ${sel ? "border-primary bg-primary/5" : "border-border hover:border-primary/40"
+                              }`}>
                             <div className={`flex h-5 w-5 items-center justify-center rounded border-2 ${sel ? "border-primary bg-primary text-white" : "border-border"}`}>
                               {sel && <Check className="h-3 w-3" />}
                             </div>
@@ -1182,12 +1339,12 @@ function NuevaOrdenPage() {
                     <Shirt className="mr-2 h-4 w-4" /> Agregar prenda
                   </Button>
 
-                  <AddItemDialog 
-                    open={showAddItem} 
-                    onOpenChange={setShowAddItem} 
-                    catalogo={catalogo} 
+                  <AddItemDialog
+                    open={showAddItem}
+                    onOpenChange={setShowAddItem}
+                    catalogo={catalogo}
                     items={items}
-                    onAdd={addItem} 
+                    onAdd={addItem}
                     onUpdateQty={updateItemQuantity}
                   />
                 </>
@@ -1225,7 +1382,7 @@ function NuevaOrdenPage() {
                         <Textarea value={notas} onChange={(e) => setNotas(e.target.value)} placeholder="Observaciones..." rows={3} />
                       </Field>
                       <Field label="Descuento (RD$)"><Input type="number" value={descuento} onChange={(e) => setDescuento(Number(e.target.value) || 0)} /></Field>
-                      
+
                       <div className="rounded-lg border border-border p-3 space-y-3 bg-accent/5">
                         <label className="flex items-center justify-between cursor-pointer">
                           <div className="flex items-center gap-2">
@@ -1238,9 +1395,9 @@ function NuevaOrdenPage() {
                         {servicioDomicilio && (
                           <motion.div initial={{ opacity: 0, height: 0 }} animate={{ opacity: 1, height: "auto" }}>
                             <Field label="Dirección de entrega">
-                              <Input 
-                                value={direccionDomicilio} 
-                                onChange={(e) => setDireccionDomicilio(e.target.value)} 
+                              <Input
+                                value={direccionDomicilio}
+                                onChange={(e) => setDireccionDomicilio(e.target.value)}
                                 placeholder="Calle, No., Sector..."
                                 className="bg-background"
                               />
@@ -1332,11 +1489,10 @@ function NuevaOrdenPage() {
                       { id: "CREDITO", label: "Crédito", icon: "📝" }
                     ].map((m) => (
                       <button key={m.id} onClick={() => setMetodo(m.id as MetodoPago)}
-                        className={`relative flex flex-col items-center gap-2 rounded-xl border-2 p-4 transition-all active:scale-95 ${
-                          metodo === m.id 
-                            ? "border-primary bg-primary/5 ring-1 ring-primary" 
+                        className={`relative flex flex-col items-center gap-2 rounded-xl border-2 p-4 transition-all active:scale-95 ${metodo === m.id
+                            ? "border-primary bg-primary/5 ring-1 ring-primary"
                             : "border-border bg-card hover:border-primary/40"
-                        }`}>
+                          }`}>
                         <span className="text-2xl">{m.icon}</span>
                         <div className="font-bold text-sm uppercase tracking-tight">{m.label}</div>
                         {metodo === m.id && <div className="absolute top-2 right-2 h-2 w-2 rounded-full bg-primary" />}
@@ -1344,25 +1500,36 @@ function NuevaOrdenPage() {
                     ))}
                   </div>
 
-                  {cfg.ncf_facturacion_activa && fiscalConfig?.is_active && (
+                  {cfg.ncf_facturacion_activa && (
                     <div className="mt-4 rounded-2xl border-2 border-primary/20 bg-primary/5 p-4">
                       <div className="text-xs font-bold uppercase tracking-widest text-primary mb-3">TIPO DE COMPROBANTE FISCAL</div>
-                      <div className="flex gap-2">
-                         <Button 
-                           variant="outline"
-                           className={`flex-1 h-12 rounded-xl font-bold transition-all border-2 ${tipoECF === "E32" ? "bg-primary text-white border-primary shadow-glow hover:bg-primary/90 hover:text-white" : "bg-card text-muted-foreground border-border hover:bg-accent/50"}`}
-                           onClick={() => setTipoECF("E32")}
-                         >
-                           CONSUMO (E32)
-                         </Button>
-                         <Button 
-                           variant="outline"
-                           className={`flex-1 h-12 rounded-xl font-bold transition-all border-2 ${tipoECF === "E31" ? "bg-primary text-white border-primary shadow-glow hover:bg-primary/90 hover:text-white" : "bg-card text-muted-foreground border-border hover:bg-accent/50"}`}
-                           onClick={() => setTipoECF("E31")}
-                         >
-                           CRÉDITO FISCAL (E31)
-                         </Button>
-                      </div>
+                      {validTipos.length <= 2 ? (
+                        <div className="flex gap-2">
+                          {validTipos.map((tipo) => (
+                            <Button
+                              key={tipo}
+                              variant="outline"
+                              className={`flex-1 h-12 rounded-xl font-bold transition-all border-2 ${tipoECF === tipo ? "bg-primary text-white border-primary shadow-glow hover:bg-primary/90 hover:text-white" : "bg-card text-muted-foreground border-border hover:bg-accent/50"}`}
+                              onClick={() => setTipoECF(tipo)}
+                            >
+                              {NCF_NOMBRES[tipo.substring(0, 3)]?.replace("FISCAL", "")?.trim() || "COMPROBANTE"} ({tipo})
+                            </Button>
+                          ))}
+                        </div>
+                      ) : (
+                        <Select value={tipoECF} onValueChange={setTipoECF}>
+                          <SelectTrigger className="w-full h-14 bg-card border-2 border-border rounded-xl font-bold text-lg shadow-sm">
+                            <SelectValue placeholder="Seleccione un comprobante" />
+                          </SelectTrigger>
+                          <SelectContent className="rounded-xl">
+                            {validTipos.map((tipo) => (
+                              <SelectItem key={tipo} value={tipo} className="font-bold py-3 cursor-pointer">
+                                {NCF_NOMBRES[tipo.substring(0, 3)] || "COMPROBANTE"} ({tipo})
+                              </SelectItem>
+                            ))}
+                          </SelectContent>
+                        </Select>
+                      )}
                     </div>
                   )}
 
@@ -1381,11 +1548,10 @@ function NuevaOrdenPage() {
                           </div>
                         </Field>
 
-                        <div className={`flex flex-col items-center justify-center h-28 rounded-xl border-2 transition-all duration-300 ${
-                          faltante > 0 
-                            ? "bg-destructive/5 border-destructive/30 text-destructive animate-pulse" 
+                        <div className={`flex flex-col items-center justify-center h-28 rounded-xl border-2 transition-all duration-300 ${faltante > 0
+                            ? "bg-destructive/5 border-destructive/30 text-destructive animate-pulse"
                             : "bg-emerald-500/5 border-emerald-500/30 text-emerald-600"
-                        }`}>
+                          }`}>
                           <div className="text-xs font-black uppercase tracking-widest opacity-70">
                             {faltante > 0 ? "Faltante" : "Vuelto a entregar"}
                           </div>
@@ -1398,14 +1564,41 @@ function NuevaOrdenPage() {
                   )}
 
                   {metodo === "CREDITO" && (
-                    <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }}
-                      className="mt-6 flex items-center gap-3 rounded-xl border border-warning/40 bg-warning/10 p-5 text-sm text-warning-foreground">
-                      <AlertTriangle className="h-6 w-6 text-warning shrink-0" />
-                      <div>
-                        <strong className="block text-base">Venta a crédito</strong>
-                        Esta orden se registrará como pendiente de cobro en el balance de <strong>{cliente?.nombre}</strong>.
+                    <div className="space-y-4 mt-6 w-full max-w-2xl mx-auto">
+                      <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }}
+                        className="flex items-center gap-3 rounded-xl border border-warning/40 bg-warning/10 p-5 text-sm text-warning-foreground">
+                        <AlertTriangle className="h-6 w-6 text-warning shrink-0" />
+                        <div>
+                          <strong className="block text-base">Venta a crédito</strong>
+                          Esta orden se registrará como pendiente de cobro en el balance de <strong>{cliente?.nombre}</strong>.
+                        </div>
+                      </motion.div>
+
+                      <div className="rounded-3xl border-2 border-warning/20 bg-warning/5 p-5 animate-in fade-in slide-in-from-top-1 duration-200">
+                        <Label className="mb-2 block text-xs font-black uppercase tracking-widest text-amber-600">
+                          ¿Monto a abonar inicialmente? (Opcional)
+                        </Label>
+                        <div className="relative h-20">
+                          <span className="absolute left-5 top-1/2 -translate-y-1/2 font-black text-xl text-amber-600/40">RD$</span>
+                          <Input
+                            className="!h-full pl-20 !text-4xl font-black font-display bg-background border-2 border-warning/20 focus-visible:ring-warning/30 rounded-2xl text-amber-700 font-bold"
+                            value={abonoCredito ? formatAmountInput(String(abonoCredito)) : ""}
+                            onChange={(e) => {
+                              const val = parseAmount(e.target.value);
+                              if (val > total) {
+                                toast.warning("El abono no puede exceder el total de la orden");
+                                return;
+                              }
+                              setAbonoCredito(val);
+                            }}
+                            placeholder="0.00"
+                          />
+                        </div>
+                        <p className="mt-2 text-xs text-amber-600/70 font-medium">
+                          El monto abonado se registrará en la caja activa. El saldo restante (<strong>{formatRD(total - abonoCredito)}</strong>) irá al balance de <strong>{cliente?.nombre}</strong>.
+                        </p>
                       </div>
-                    </motion.div>
+                    </div>
                   )}
                 </>
               )}
@@ -1414,16 +1607,16 @@ function NuevaOrdenPage() {
             <div className={`mt-4 flex ${step === 5 ? "flex-col items-center gap-6" : "items-center justify-between"} border-t border-border pt-8`}>
               {step === 5 ? (
                 <>
-                  <Button 
-                    size="lg" 
+                  <Button
+                    size="lg"
                     className="w-full md:max-w-md h-14 text-base tracking-wide rounded-[1.25rem] font-bold bg-[#16A34A] hover:bg-[#15803D] text-white shadow-none transition-all active:scale-95"
                     onClick={onCrearOrden}
                     disabled={metodo === "EFECTIVO" && (faltante > 0)}
                   >
                     <CheckCircle2 className="mr-2 h-5 w-5" /> CONFIRMAR Y CREAR ORDEN
                   </Button>
-                  <Button 
-                    variant="outline" 
+                  <Button
+                    variant="outline"
                     className="h-10 px-8 rounded-xl bg-accent/50 border-border/50 font-bold text-xs text-muted-foreground hover:bg-accent hover:text-foreground transition-all"
                     onClick={() => setStep((s) => Math.max(1, s - 1))}
                   >
@@ -1432,10 +1625,10 @@ function NuevaOrdenPage() {
                 </>
               ) : (
                 <>
-                  <Button 
-                    variant="outline" 
+                  <Button
+                    variant="outline"
                     className="rounded-xl bg-accent/50 border-border/50 font-bold text-xs px-6 h-10 transition-all hover:bg-accent"
-                    onClick={() => setStep((s) => Math.max(1, s - 1))} 
+                    onClick={() => setStep((s) => Math.max(1, s - 1))}
                     disabled={step === 1}
                   >
                     <ArrowLeft className="mr-2 h-3 w-3" /> ATRÁS
@@ -1470,12 +1663,12 @@ function NuevaOrdenPage() {
           </DialogFooter>
         </DialogContent>
       </Dialog>
-      <PlanLimitModal 
-        open={showLimitModal} 
-        onOpenChange={setShowLimitModal} 
-        type="orders" 
-        limit={limits?.orderLimit ?? 0} 
-        tenant={user.tenant} 
+      <PlanLimitModal
+        open={showLimitModal}
+        onOpenChange={setShowLimitModal}
+        type="orders"
+        limit={limits?.orderLimit ?? 0}
+        tenant={user.tenant}
       />
 
       <Dialog open={empresaDialogOpen} onOpenChange={(o) => {
@@ -1493,18 +1686,18 @@ function NuevaOrdenPage() {
             <div className="space-y-2">
               <Label className="text-sm font-medium">RNC o Cédula (DGII)</Label>
               <div className="flex gap-2">
-                <Input 
-                  value={rncInput} 
-                  onChange={(e) => setRncInput(e.target.value)} 
-                  placeholder="Ej. 131123456" 
+                <Input
+                  value={rncInput}
+                  onChange={(e) => setRncInput(e.target.value)}
+                  placeholder="Ej. 131123456"
                   disabled={rncLoading}
                   className="h-10 rounded-xl border-border bg-background"
                   onKeyDown={(e) => e.key === "Enter" && handleSearchEmpresaRNC()}
                   autoFocus
                 />
-                <Button 
-                  onClick={handleSearchEmpresaRNC} 
-                  disabled={rncLoading} 
+                <Button
+                  onClick={handleSearchEmpresaRNC}
+                  disabled={rncLoading}
                   className="h-10 px-4 rounded-xl bg-primary hover:bg-primary/90 text-white gap-2 font-bold shadow-sm transition-all active:scale-95"
                 >
                   {rncLoading ? <Loader2 className="h-4 w-4 animate-spin" /> : <Search className="h-4 w-4" />}
@@ -1514,9 +1707,9 @@ function NuevaOrdenPage() {
             </div>
 
             {rncResult && (
-              <motion.div 
-                initial={{ opacity: 0, y: 8 }} 
-                animate={{ opacity: 1, y: 0 }} 
+              <motion.div
+                initial={{ opacity: 0, y: 8 }}
+                animate={{ opacity: 1, y: 0 }}
                 className="rounded-xl border border-primary/20 bg-primary/5 p-6 space-y-4 shadow-sm"
               >
                 <div className="flex justify-between items-start gap-4">
@@ -1569,9 +1762,8 @@ function Stepper({ step }: { step: number }) {
         const done = step > n; const cur = step === n;
         return (
           <div key={l} className="flex flex-1 items-center">
-            <div className={`flex h-8 w-8 shrink-0 items-center justify-center rounded-full text-xs font-bold ${
-              done ? "bg-success text-white" : cur ? "bg-gradient-primary text-white shadow-glow" : "bg-muted text-muted-foreground"
-            }`}>{done ? <Check className="h-4 w-4" /> : n}</div>
+            <div className={`flex h-8 w-8 shrink-0 items-center justify-center rounded-full text-xs font-bold ${done ? "bg-success text-white" : cur ? "bg-gradient-primary text-white shadow-glow" : "bg-muted text-muted-foreground"
+              }`}>{done ? <Check className="h-4 w-4" /> : n}</div>
             <div className={`ml-2 hidden text-xs sm:block ${cur ? "font-semibold text-foreground" : "text-muted-foreground"}`}>{l}</div>
             {i < labels.length - 1 && <div className={`mx-2 h-0.5 flex-1 ${done ? "bg-success" : "bg-border"}`} />}
           </div>
@@ -1589,24 +1781,24 @@ function Row({ k, v, className = "" }: { k: string; v: string; className?: strin
 }
 
 // === Add Item Dialog ===
-function AddItemDialog({ 
-  open, 
-  onOpenChange, 
-  catalogo, 
+function AddItemDialog({
+  open,
+  onOpenChange,
+  catalogo,
   items,
   onAdd,
   onUpdateQty
-}: { 
-  open: boolean; 
-  onOpenChange: (o: boolean) => void; 
-  catalogo: ReturnType<typeof getCatalogo>; 
+}: {
+  open: boolean;
+  onOpenChange: (o: boolean) => void;
+  catalogo: ReturnType<typeof getCatalogo>;
   items: OrdenItem[];
   onAdd: (it: OrdenItem) => void;
   onUpdateQty: (i: number, d: number) => void;
 }) {
   const [activeCat, setActiveCat] = useState<string>("TODOS");
   const [search, setSearch] = useState("");
-  
+
   const categories = useMemo(() => {
     const cats = new Set(catalogo.map(c => c.categoria || "Otros"));
     return ["TODOS", ...Array.from(cats)];
@@ -1650,15 +1842,15 @@ function AddItemDialog({
             </DialogDescription>
             <div className="relative flex-1 max-w-sm">
               <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
-              <Input 
-                placeholder="Buscar por nombre..." 
+              <Input
+                placeholder="Buscar por nombre..."
                 className="pl-9 h-11 bg-accent/5 rounded-2xl border-primary/10 shadow-sm"
                 value={search}
                 onChange={(e) => setSearch(e.target.value)}
               />
             </div>
           </div>
-          
+
           <div className="flex gap-2 py-4 overflow-x-auto no-scrollbar">
             {categories.map(c => (
               <Button
@@ -1666,9 +1858,8 @@ function AddItemDialog({
                 variant={activeCat === c ? "default" : "outline"}
                 size="sm"
                 onClick={() => setActiveCat(c)}
-                className={`rounded-full px-5 h-9 text-xs font-bold uppercase tracking-tight transition-all ${
-                  activeCat === c ? "bg-primary text-white shadow-glow" : "opacity-70 hover:opacity-100 bg-background"
-                }`}
+                className={`rounded-full px-5 h-9 text-xs font-bold uppercase tracking-tight transition-all ${activeCat === c ? "bg-primary text-white shadow-glow" : "opacity-70 hover:opacity-100 bg-background"
+                  }`}
               >
                 {c}
               </Button>
@@ -1690,11 +1881,10 @@ function AddItemDialog({
                   <button
                     key={it.id}
                     onClick={() => handleItemClick(it)}
-                    className={`group relative flex flex-col items-center justify-center gap-3 p-5 rounded-3xl border-2 transition-all active:scale-90 text-center ${
-                      count > 0 
-                        ? "border-primary bg-primary/5" 
+                    className={`group relative flex flex-col items-center justify-center gap-3 p-5 rounded-3xl border-2 transition-all active:scale-90 text-center ${count > 0
+                        ? "border-primary bg-primary/5"
                         : "border-border bg-background hover:border-primary/40"
-                    }`}
+                      }`}
                   >
                     {it.imagen_url ? (
                       <img src={it.imagen_url} alt={it.nombre} className={`h-16 w-16 rounded-2xl object-cover shadow-sm transition-all duration-300 ${count > 0 ? "scale-110 ring-4 ring-primary/20" : "group-hover:scale-105"}`} />
@@ -1707,7 +1897,7 @@ function AddItemDialog({
                       <div className="text-sm font-bold leading-tight line-clamp-1">{it.nombre}</div>
                       <div className="mt-1 text-xs font-black text-primary">{formatRD(it.precio)}</div>
                     </div>
-                    
+
                     {count > 0 && (
                       <div className="absolute -top-2 -right-2 flex h-8 w-8 items-center justify-center rounded-full bg-primary text-white text-xs font-black shadow-glow animate-in zoom-in duration-300 ring-4 ring-background">
                         {count}
@@ -1730,10 +1920,10 @@ function AddItemDialog({
   );
 }
 
-function DeliveryPOSDialog({ 
-  open, onOpenChange, enabled, setEnabled, address, setAddress 
-}: { 
-  open: boolean; onOpenChange: (o: boolean) => void; 
+function DeliveryPOSDialog({
+  open, onOpenChange, enabled, setEnabled, address, setAddress
+}: {
+  open: boolean; onOpenChange: (o: boolean) => void;
   enabled: boolean; setEnabled: (e: boolean) => void;
   address: string; setAddress: (a: string) => void;
 }) {
@@ -1757,13 +1947,13 @@ function DeliveryPOSDialog({
             </div>
             <Switch checked={enabled} onCheckedChange={setEnabled} />
           </div>
-          
+
           {enabled && (
             <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} className="space-y-2">
               <Label className="font-bold text-sm">Dirección de Entrega</Label>
-              <Input 
-                value={address} 
-                onChange={(e) => setAddress(e.target.value)} 
+              <Input
+                value={address}
+                onChange={(e) => setAddress(e.target.value)}
                 placeholder="Calle, No., Sector..."
                 className="h-12 rounded-xl bg-card border-primary/20 focus-visible:ring-primary/30"
                 autoFocus
@@ -1781,14 +1971,14 @@ function DeliveryPOSDialog({
   );
 }
 
-function DiscountPOSDialog({ 
-  open, onOpenChange, discount, setDiscount 
-}: { 
-  open: boolean; onOpenChange: (o: boolean) => void; 
+function DiscountPOSDialog({
+  open, onOpenChange, discount, setDiscount
+}: {
+  open: boolean; onOpenChange: (o: boolean) => void;
   discount: number; setDiscount: (d: number) => void;
 }) {
   const [val, setVal] = useState(discount > 0 ? String(discount) : "");
-  
+
   function apply() {
     setDiscount(Number(val) || 0);
     onOpenChange(false);

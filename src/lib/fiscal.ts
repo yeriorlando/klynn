@@ -155,23 +155,28 @@ export async function registerTenantInPronesoft(tenantId: string): Promise<strin
 
   const companyName = config.razon_social || tenantData?.nombre || "Lavanderia Klynn";
 
-  // 2. Registrar en Pronesoft
+  // 2. Registrar en Pronesoft (solo si es producción)
   try {
-    const res = await client.createAssociatedCompany({
-      rnc: config.rnc_emisor,
-      name: companyName,
-      environment: config.ambiente === 'pruebas' ? 'sandbox' : config.ambiente === 'produccion' ? 'production' : 'sandbox'
-    });
+    let pronesoftTenantId = "sandbox-tenant";
 
-    if (!res.id) throw new Error("Pronesoft no devolvió un ID de empresa");
+    if (config.ambiente === 'produccion') {
+      const res = await client.createAssociatedCompany({
+        rnc: config.rnc_emisor,
+        name: companyName,
+        environment: 'production'
+      });
+
+      if (!res.id) throw new Error("Pronesoft no devolvió un ID de empresa");
+      pronesoftTenantId = res.id;
+    }
 
     // 3. Actualizar configuración en Supabase
     await updateECFConfig(tenantId, {
-      pronesoft_tenant_id: res.id,
+      pronesoft_tenant_id: pronesoftTenantId,
       is_active: true
     });
 
-    return res.id;
+    return pronesoftTenantId;
   } catch (err: any) {
     console.error("Error en registro Pronesoft:", err);
     throw new Error(err.message || "Error al conectar con el servidor de certificación");

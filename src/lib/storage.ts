@@ -1,6 +1,8 @@
 import { supabase } from './supabase';
 import { createClient } from '@supabase/supabase-js';
 
+export const IS_LOCAL_MODE = import.meta.env.VITE_APP_MODE === 'local';
+
 export type PlanId = "basico" | "pro" | "enterprise";
 
 export interface Plan {
@@ -95,6 +97,10 @@ export interface TenantConfig {
   tiempo_entrega_estandar: number; // en horas
   tiempo_entrega_urgente: number;  // en horas
   whatsapp?: WhatsAppConfig;
+
+  // Alertas de Secuencias NCF/e-CF
+  alerta_ncf_limite?: number;
+  alerta_ncf_telefono?: string;
 }
 
 export interface WhatsAppConfig {
@@ -235,6 +241,8 @@ export interface ECFSequence {
   valor_actual: number;
   expiration_date?: string;
   is_active: boolean;
+  recibir_alertas?: boolean;
+  alerta_limite?: number;
 }
 
 export interface ECFDocument {
@@ -424,6 +432,8 @@ export const DEFAULT_CONFIG: TenantConfig = {
   usar_color_secundario: false,
   tiempo_entrega_estandar: 24,
   tiempo_entrega_urgente: 6,
+  alerta_ncf_limite: 50,
+  alerta_ncf_telefono: "",
   whatsapp: {
     enabled: false,
     api_key: "",
@@ -500,13 +510,22 @@ export const TIPOS_SERVICIO = [
 ];
 
 export const PROVINCIAS_RD = [
-  "Azua","Baoruco","Barahona","Dajabón","Distrito Nacional","Duarte","Elías Piña",
-  "El Seibo","Espaillat","Hato Mayor","Hermanas Mirabal","Independencia","La Altagracia",
-  "La Romana","La Vega","María Trinidad Sánchez","Monseñor Nouel","Monte Cristi",
-  "Monte Plata","Pedernales","Peravia","Puerto Plata","Samaná","San Cristóbal",
-  "San José de Ocoa","San Juan","San Pedro de Macorís","Sánchez Ramírez","Santiago",
-  "Santiago Rodríguez","Santo Domingo","Valverde",
+  "Azua", "Baoruco", "Barahona", "Dajabón", "Distrito Nacional", "Duarte", "Elías Piña",
+  "El Seibo", "Espaillat", "Hato Mayor", "Hermanas Mirabal", "Independencia", "La Altagracia",
+  "La Romana", "La Vega", "María Trinidad Sánchez", "Monseñor Nouel", "Monte Cristi",
+  "Monte Plata", "Pedernales", "Peravia", "Puerto Plata", "Samaná", "San Cristóbal",
+  "San José de Ocoa", "San Juan", "San Pedro de Macorís", "Sánchez Ramírez", "Santiago",
+  "Santiago Rodríguez", "Santo Domingo", "Valverde",
 ];
+
+// Mapa de nombres completos para tipos de comprobantes fiscales
+export const NCF_NOMBRES: Record<string, string> = {
+  B01: "CRÉDITO FISCAL", B02: "CONSUMIDOR FINAL", B03: "NOTA DE DÉBITO", B04: "NOTA DE CRÉDITO",
+  B11: "COMPRAS", B13: "GASTOS MENORES", B14: "GUBERNAMENTAL", B15: "RÉGIMEN ESPECIAL", B16: "EXPORTACIONES",
+  E31: "CRÉDITO FISCAL", E32: "CONSUMIDOR FINAL", E33: "NOTA DE DÉBITO", E34: "NOTA DE CRÉDITO",
+  E41: "COMPRAS", E43: "GASTOS MENORES", E44: "REGÍMENES ESPECIALES", E45: "GUBERNAMENTAL", E46: "EXPORTACIONES", E47: "PAGOS AL EXTERIOR",
+};
+
 
 export const NCF_TIPOS: { codigo: string; nombre: string; descripcion: string }[] = [
   { codigo: "B01", nombre: "Crédito Fiscal", descripcion: "Para empresas con RNC" },
@@ -581,7 +600,7 @@ export async function getPlans(): Promise<Plan[]> {
   } catch (e) {
     console.error("Error fetching plans from Supabase:", e);
   }
-  
+
   const s = read<Plan[] | null>(KEY.plans, null);
   if (!Array.isArray(s) || s.length === 0) return PLANS;
   return s;
@@ -653,7 +672,7 @@ export async function registerTenant(tenant: Tenant, admin: Empleado) {
     id: authData.user.id,
     password: '***'
   });
-  
+
   if (empError) {
     // Rollback: eliminar el tenant creado
     await supabase.from('tenants').delete().eq('id', tenant.id);
@@ -684,7 +703,7 @@ export async function registerBranch(tenant: Tenant, admin: Empleado, userId: st
     tenant_id: tenant.id,
     password: '***'
   });
-  
+
   if (empError) {
     // Rollback: eliminar el tenant creado
     await supabase.from('tenants').delete().eq('id', tenant.id);
@@ -746,14 +765,14 @@ export async function getTenantsForUser(email: string): Promise<Tenant[]> {
     .select('tenant_id')
     .eq('email', email.toLowerCase())
     .eq('activo', true);
-  
+
   if (errEmps || !emps) return [];
   const tenantIds = Array.from(new Set(emps.map(e => e.tenant_id)));
-  
+
   const { data: tenants, error: errTenants } = await supabase.from('tenants')
     .select('*')
     .in('id', tenantIds);
-    
+
   return tenants || [];
 }
 
@@ -769,9 +788,9 @@ export async function updateTenantAdmin(tenant_id: string, newEmail: string, new
     if (newPassword) {
       updates.password = '***'; // No guardamos texto plano
       // Actualizar en Auth mediante la función RPC segura
-      await supabase.rpc('admin_set_user_password', { 
-        target_user_id: admin.id, 
-        new_password: newPassword 
+      await supabase.rpc('admin_set_user_password', {
+        target_user_id: admin.id,
+        new_password: newPassword
       });
     }
     await supabase.from('empleados').update(updates).eq('id', admin.id);
@@ -813,8 +832,8 @@ export async function getGlobalConfig(): Promise<GlobalConfig> {
 
 export async function saveGlobalConfig(config: GlobalConfig) {
   try {
-    const { error } = await supabase.from('global_config').upsert({ 
-      id: 1, 
+    const { error } = await supabase.from('global_config').upsert({
+      id: 1,
       require_plan_on_registration: config.requirePlanOnRegistration,
       trial_days: config.trialDays,
       default_plan_id: config.defaultPlanId,
@@ -847,7 +866,7 @@ export async function saveEmpleado(e: Empleado) {
   if (e.password && e.password.length >= 6 && e.password !== '***') {
     try {
       const { data: { user: currentUser } } = await supabase.auth.getUser();
-      
+
       // Caso especial: El admin se actualiza a sí mismo
       if (currentUser && currentUser.id === e.id) {
         console.log("Auto-actualización de contraseña...");
@@ -857,13 +876,13 @@ export async function saveEmpleado(e: Empleado) {
         // ESTRATEGIA ROBUSTA: Intentamos Sign Up primero. 
         // Si el usuario ya existe en Auth, fallará con un mensaje específico.
         console.log("Intentando vincular/crear cuenta en Auth...");
-        
+
         const tempClient = createClient(
           import.meta.env.VITE_SUPABASE_URL || '',
           import.meta.env.VITE_SUPABASE_ANON_KEY || '',
           { auth: { persistSession: false, autoRefreshToken: false } }
         );
-        
+
         const { data: authData, error: authError } = await tempClient.auth.signUp({
           email: emailLower,
           password: e.password,
@@ -874,9 +893,9 @@ export async function saveEmpleado(e: Empleado) {
           // Si el error es que ya existe, intentamos el RPC de actualización
           if (authError.message.toLowerCase().includes("already registered") || authError.status === 422) {
             console.log("El usuario ya existe en Auth. Intentando actualización via RPC...");
-            const { error: rpcError } = await supabase.rpc('admin_set_user_password', { 
-              target_user_id: e.id, 
-              new_password: e.password 
+            const { error: rpcError } = await supabase.rpc('admin_set_user_password', {
+              target_user_id: e.id,
+              new_password: e.password
             });
             if (rpcError) {
               console.error("RPC ERROR:", rpcError);
@@ -898,18 +917,18 @@ export async function saveEmpleado(e: Empleado) {
   }
 
   // 2. Guardar en la tabla empleados
-  const dataToSave = { 
-    ...e, 
-    email: emailLower, 
+  const dataToSave = {
+    ...e,
+    email: emailLower,
     password: '***',
     nombre: e.nombre || "",
     apellido: e.apellido || "",
     pin: e.pin || ""
   };
-  
+
   console.log("Upsert en tabla empleados:", dataToSave);
   const { error: dbError } = await supabase.from('empleados').upsert(dataToSave);
-  
+
   if (dbError) {
     console.error("DB ERROR:", dbError);
     throw new Error("Error DB: " + dbError.message);
@@ -974,7 +993,7 @@ export async function getClienteById(id: string): Promise<Cliente | undefined> {
 export async function getOrdenes(tenant_id: string): Promise<Orden[]> {
   const { data, error } = await supabase.from('ordenes').select('*').eq('tenant_id', tenant_id).order('creado_en', { ascending: false });
   let results = data || [];
-  
+
   if (isBrowser()) {
     const local = read<Orden[]>(KEY.ordenes, []).filter(o => o.tenant_id === tenant_id);
     // Combinar y desduplicar por ID, priorizando local si hay colisión (ya que local podría ser una edición más reciente offline)
@@ -986,25 +1005,25 @@ export async function getOrdenes(tenant_id: string): Promise<Orden[]> {
     });
     results = combined.sort((a, b) => +new Date(b.creado_en) - +new Date(a.creado_en));
   }
-  
+
   return results;
 }
 
 export async function getOrdenesByPeriod(filters: { tenant_id: string; empleado_id?: string; desde?: string; hasta?: string }): Promise<Orden[]> {
   let query = supabase.from('ordenes').select('*').eq('tenant_id', filters.tenant_id);
-  
+
   if (filters.empleado_id && filters.empleado_id !== 'all') {
     query = query.eq('empleado_id', filters.empleado_id);
   }
-  
+
   if (filters.desde) {
     query = query.gte('creado_en', filters.desde);
   }
-  
+
   if (filters.hasta) {
     query = query.lte('creado_en', filters.hasta + 'T23:59:59Z');
   }
-  
+
   const { data, error } = await query.order('creado_en', { ascending: false });
   if (error) { console.error("Error getOrdenesByPeriod:", error); return []; }
   return data || [];
@@ -1060,19 +1079,19 @@ export async function getCajas(tenant_id: string): Promise<Caja[]> {
 
 export async function getHistoricoCierres(filters: { tenant_id: string; empleado_id?: string; desde?: string; hasta?: string }): Promise<Caja[]> {
   let query = supabase.from('cajas').select('*').eq('tenant_id', filters.tenant_id).eq('estado', 'CERRADA');
-  
+
   if (filters.empleado_id && filters.empleado_id !== 'all') {
     query = query.eq('empleado_id', filters.empleado_id);
   }
-  
+
   if (filters.desde) {
     query = query.gte('abierta_en', filters.desde);
   }
-  
+
   if (filters.hasta) {
     query = query.lte('abierta_en', filters.hasta + 'T23:59:59Z');
   }
-  
+
   const { data, error } = await query.order('cerrada_en', { ascending: false });
   if (error) { console.error("Error getHistoricoCierres:", error); return []; }
   return data || [];
@@ -1111,7 +1130,7 @@ export async function saveMovimiento(m: MovimientoCaja) {
 export async function getGastos(tenant_id: string): Promise<Gasto[]> {
   const { data, error } = await supabase.from('gastos').select('*').eq('tenant_id', tenant_id).order('fecha', { ascending: false });
   let results = data || [];
-  
+
   if (isBrowser()) {
     const local = read<Gasto[]>(KEY.gastos, []).filter(g => g.tenant_id === tenant_id);
     const combined = [...results];
@@ -1122,7 +1141,7 @@ export async function getGastos(tenant_id: string): Promise<Gasto[]> {
     });
     results = combined.sort((a, b) => +new Date(b.fecha) - +new Date(a.fecha));
   }
-  
+
   return results;
 }
 
@@ -1141,8 +1160,18 @@ export async function saveGasto(g: Gasto) {
 }
 
 export async function deleteGasto(id: string) {
+  try {
+    await supabase.from('movimientos_caja').delete().eq('referencia', id);
+  } catch (e) {
+    console.error("Error deleting related movimiento:", e);
+  }
   const { error } = await supabase.from('gastos').delete().eq('id', id);
   if (error) throw error;
+
+  if (isBrowser()) {
+    const local = read<Gasto[]>(KEY.gastos, []);
+    write(KEY.gastos, local.filter(x => x.id !== id));
+  }
 }
 
 // ============ Catálogo (Supabase) ============
@@ -1153,7 +1182,7 @@ export async function getCatalogo(tenant_id: string): Promise<CatalogoItem[]> {
     .or(`tenant_id.eq.${tenant_id},tenant_id.eq.admin`)
     .order('categoria', { ascending: true })
     .order('nombre', { ascending: true });
-    
+
   if (error) {
     console.error('Error cargando catálogo:', error);
     return [];
@@ -1199,7 +1228,7 @@ export async function deleteCatalogoItem(id: string) {
     .from('catalogo_items')
     .delete()
     .eq('id', id);
-    
+
   if (error) throw error;
 }
 
@@ -1210,7 +1239,7 @@ export async function getServicios(tenant_id: string): Promise<Servicio[]> {
     .select('*')
     .or(`tenant_id.eq.${tenant_id},tenant_id.eq.admin`)
     .order('nombre', { ascending: true });
-    
+
   if (error) {
     console.error('Error cargando servicios:', error);
     return [];
@@ -1239,7 +1268,7 @@ export async function saveServicio(s: Servicio) {
   const { error } = await supabase
     .from('servicios')
     .upsert(s);
-    
+
   if (error) throw error;
 }
 
@@ -1248,7 +1277,7 @@ export async function deleteServicio(id: string) {
     .from('servicios')
     .delete()
     .eq('id', id);
-    
+
   if (error) throw error;
 }
 
@@ -1275,7 +1304,7 @@ export async function savePlan(p: Plan) {
   } catch (e) {
     console.error("Error saving plan:", e);
   }
-  
+
   // Fallback / Cache local
   const all = await getPlans();
   const i = all.findIndex((x) => x.id === p.id);
@@ -1308,7 +1337,7 @@ export function setSession(s: Session | null) { if (s) write(KEY.session, s); el
 
 export async function login(slug: string, email: string, password: string):
   Promise<{ ok: true; empleado: Empleado; tenant: Tenant } | { ok: false; error: string }> {
-  
+
   // 1. Verificar el Tenant
   const tenant = await getTenantBySlug(slug);
   if (!tenant) return { ok: false, error: "Lavandería no encontrada" };
@@ -1324,7 +1353,7 @@ export async function login(slug: string, email: string, password: string):
 
   // 3. Obtener el perfil del empleado (usando el ID de Auth)
   const emp = await getEmpleadoById(authData.user.id);
-  
+
   // Validar que el empleado exista, esté activo y pertenezca a esta lavandería
   if (!emp || !emp.activo || emp.tenant_id !== tenant.id) {
     await supabase.auth.signOut();
@@ -1369,7 +1398,7 @@ export async function getCurrentUser(): Promise<{ empleado: Empleado; tenant: Te
   const sessionStr = isBrowser() ? localStorage.getItem('lvx:session') : null;
   let session: Session | null = null;
   if (sessionStr) {
-    try { session = JSON.parse(sessionStr); } catch {}
+    try { session = JSON.parse(sessionStr); } catch { }
   }
 
   // Caso 1: Es Super Admin
@@ -1464,13 +1493,13 @@ export async function checkPlanLimits(tenant: Tenant | string) {
 
   const plans = await getPlans();
   const plan = plans.find(p => p.id === t.plan_id) || PLANS[0];
-  
+
   const orderCount = await getMonthlyOrderCount(t.id);
   const employeeCount = (await getEmpleados(t.id)).filter(e => e.rol !== "ADMIN").length;
-  
+
   const ordersReached = plan.limite_ordenes_mes !== null && orderCount >= plan.limite_ordenes_mes;
   const employeesReached = employeeCount >= plan.limite_empleados;
-  
+
   return {
     plan,
     orderCount,
@@ -1588,7 +1617,7 @@ export async function migrateLocalDataToSupabase(tenant_id: string) {
   const toMigrateClientes = localClientes.filter(x => x.tenant_id === tenant_id);
   const failedClientesIds = new Set<string>();
   for (let c of toMigrateClientes) {
-    try { 
+    try {
       // REPARAR DATOS: Si tiene tipo "Persona" o le falta limite_credito
       if (c.tipo === ("Persona" as any)) c.tipo = "Consumidor Final";
       if (c.limite_credito === undefined) c.limite_credito = 0;
@@ -1600,7 +1629,7 @@ export async function migrateLocalDataToSupabase(tenant_id: string) {
       } else {
         results.clientes++;
       }
-    } catch(e) { 
+    } catch (e) {
       console.error("Migrate Cliente network error:", e);
       failedClientesIds.add(c.id);
     }
@@ -1610,7 +1639,7 @@ export async function migrateLocalDataToSupabase(tenant_id: string) {
   const toMigrateOrds = localOrds.filter(x => x.tenant_id === tenant_id);
   const failedOrdsIds = new Set<string>();
   for (const o of toMigrateOrds) {
-    try { 
+    try {
       const { error } = await supabase.from('ordenes').upsert(o);
       if (error) {
         console.error("Migrate Orden error:", error);
@@ -1618,7 +1647,7 @@ export async function migrateLocalDataToSupabase(tenant_id: string) {
       } else {
         results.ordenes++;
       }
-    } catch(e) { 
+    } catch (e) {
       console.error("Migrate Orden network error:", e);
       failedOrdsIds.add(o.id);
     }
@@ -1629,7 +1658,7 @@ export async function migrateLocalDataToSupabase(tenant_id: string) {
   const toMigrateCat = localCat.filter(x => x.tenant_id === tenant_id);
   const failedCatIds = new Set<string>();
   for (const item of toMigrateCat) {
-    try { 
+    try {
       const { error } = await supabase.from('catalogo_items').upsert(item);
       if (error) {
         console.error("Migrate Catalogo error:", error);
@@ -1637,7 +1666,7 @@ export async function migrateLocalDataToSupabase(tenant_id: string) {
       } else {
         results.catalogo++;
       }
-    } catch(e) { 
+    } catch (e) {
       console.error("Migrate Catalogo network error:", e);
       failedCatIds.add(item.id);
     }
@@ -1648,7 +1677,7 @@ export async function migrateLocalDataToSupabase(tenant_id: string) {
   const toMigrateGastos = localGastos.filter(x => x.tenant_id === tenant_id);
   const failedGastosIds = new Set<string>();
   for (const g of toMigrateGastos) {
-    try { 
+    try {
       const { error } = await supabase.from('gastos').upsert(g);
       if (error) {
         console.error("Migrate Gasto error:", error);
@@ -1656,7 +1685,7 @@ export async function migrateLocalDataToSupabase(tenant_id: string) {
       } else {
         results.gastos++;
       }
-    } catch(e) { 
+    } catch (e) {
       console.error("Migrate Gasto network error:", e);
       failedGastosIds.add(g.id);
     }
@@ -1812,7 +1841,7 @@ export async function incrementWhatsAppCount(tenantId: string) {
 
   const now = new Date();
   const lastReset = t.whatsapp_last_reset ? new Date(t.whatsapp_last_reset) : null;
-  
+
   // Si el mes ha cambiado desde el último reset, reiniciamos a 1
   let nextCount = (t.whatsapp_sent_month || 0) + 1;
   let nextReset = t.whatsapp_last_reset;
@@ -1824,9 +1853,9 @@ export async function incrementWhatsAppCount(tenantId: string) {
 
   await supabase
     .from('tenants')
-    .update({ 
-      whatsapp_sent_month: nextCount, 
-      whatsapp_last_reset: nextReset 
+    .update({
+      whatsapp_sent_month: nextCount,
+      whatsapp_last_reset: nextReset
     })
     .eq('id', tenantId);
 }
@@ -1879,10 +1908,36 @@ export async function nextECFNumero(tenantId: string, tipo: string): Promise<{ n
   if (seq.valor_actual >= seq.valor_final) throw new Error(`Rango de secuencia agotado para ${tipo}`);
 
   const proximo = seq.valor_actual + 1;
-  const encf = `${tipo}${String(proximo).padStart(10, '0')}`;
+  const padLength = tipo.startsWith('B') ? 8 : 10;
+  const encf = `${tipo}${String(proximo).padStart(padLength, '0')}`;
 
   // Actualizamos el contador inmediatamente
   await supabase.from('ecf_sequences').update({ valor_actual: proximo }).eq('id', seq.id);
+
+  // Despachar alerta de secuencia baja si es necesario (sin bloquear el hilo principal)
+  try {
+    const tenant = await getTenantById(tenantId);
+
+    if (tenant) {
+      const cfg = tenant.config || DEFAULT_CONFIG;
+      const remaining = seq.valor_final - proximo;
+      const limite = seq.alerta_limite ?? (cfg.alerta_ncf_limite ?? 50);
+      const activeAlerts = seq.recibir_alertas !== false;
+
+      if (activeAlerts && remaining <= limite && cfg.alerta_ncf_telefono) {
+        import('./whatsapp').then(({ notificarAlertaNCF }) => {
+          notificarAlertaNCF(tenant!, tipo, remaining)
+            .then(res => {
+              if (res.ok) console.log("Notificación de secuencia baja enviada");
+              else console.warn("Error en envío de alerta:", res.reason);
+            })
+            .catch(e => console.error("Error al despachar alerta:", e));
+        });
+      }
+    }
+  } catch (err) {
+    console.error("Error al procesar alerta de secuencia:", err);
+  }
 
   return { ncf: encf, expiration_date: seq.expiration_date };
 }

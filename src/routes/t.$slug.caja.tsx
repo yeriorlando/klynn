@@ -1,7 +1,7 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { useMemo, useState, useEffect } from "react";
 import { createPortal } from "react-dom";
-import { Wallet, Lock, ArrowDownLeft, ArrowUpRight, AlertTriangle, Plus, CheckCircle2, Printer, Search, FileText, PiggyBank } from "lucide-react";
+import { Wallet, Lock, ArrowDownLeft, ArrowUpRight, AlertTriangle, Plus, CheckCircle2, Printer, Search, FileText, PiggyBank, Coins } from "lucide-react";
 import { useRequireAuth } from "@/lib/useRequireAuth";
 import { PageHeader } from "@/components/klynn/PageHeader";
 import { Card } from "@/components/ui/card";
@@ -21,8 +21,9 @@ import {
   type Caja, type TipoMovimiento, type MetodoPago, type Empleado, type Orden, type Tenant, type MovimientoCaja, type ECFConfig, type ECFDocument
 } from "@/lib/storage";
 import { getECFConfig, getECFDocuments, registerTenantInPronesoft } from "@/lib/fiscal";
-import { useCajaAbierta, useCajas, useMovimientos, useECFConfig, useECFDocuments } from "@/hooks/use-queries";
+import { useCajaAbierta, useCajas, useMovimientos, useECFConfig, useECFDocuments, useEmpleados } from "@/hooks/use-queries";
 import { useQueryClient } from "@tanstack/react-query";
+import { supabase } from "@/lib/supabase";
 import { toast } from "sonner";
 import { BarChart3, Rocket, Activity, CheckCircle } from "lucide-react";
 import { Progress } from "@/components/ui/progress";
@@ -45,12 +46,18 @@ function CajaPage() {
   const [showCuadre, setShowCuadre] = useState(false);
   const [showCajaChica, setShowCajaChica] = useState(false);
   const [refresh, setRefresh] = useState(0);
+  const [selectedPrintCaja, setSelectedPrintCaja] = useState<Caja | null>(null);
+  const [printOrders, setPrintOrders] = useState<Orden[]>([]);
+  const [printMovs, setPrintMovs] = useState<MovimientoCaja[]>([]);
+  const [cierrePage, setCierrePage] = useState(1);
 
   const { data: caja, isLoading: loadingCaja } = useCajaAbierta(tenantId);
   const { data: todas = [], isLoading: loadingTodas } = useCajas(tenantId);
-  const { data: movs = [], isLoading: loadingMovs } = useMovimientos(tenantId, caja?.id);
+  const { data: movsData = [], isLoading: loadingMovs } = useMovimientos(tenantId, caja?.id);
+  const movs = caja ? movsData : [];
   const { data: fiscalConfigData } = useECFConfig(tenantId);
   const { data: fiscalDocs = [] } = useECFDocuments(tenantId);
+  const { data: empleados = [] } = useEmpleados(tenantId);
 
   const fiscalConfig = fiscalConfigData || null;
   const loading = loadingCaja || loadingTodas || (!!caja && loadingMovs);
@@ -62,7 +69,55 @@ function CajaPage() {
   const egresos = movs.filter((m) => ["EGRESO", "RETIRO", "GASTO_CAJA_CHICA"].includes(m.tipo)).reduce((s, m) => s + m.monto, 0);
   const efectivoEsperado = (caja?.monto_inicial || 0) + ventasEf + otrosIng - egresos;
 
+  const closedCierres = todas.filter((c) => c.estado === "CERRADA").sort((a,b) => +new Date(b.cerrada_en || b.abierta_en) - +new Date(a.cerrada_en || a.abierta_en));
+  const totalCierrePages = Math.ceil(closedCierres.length / 5);
+  const currentCierres = closedCierres.slice((cierrePage - 1) * 5, cierrePage * 5);
+
+  async function handlePrintCierreHistorico(c: Caja) {
+    const toastId = toast.loading("Preparando cuadre para impresión...");
+    try {
+      // Fetch orders within the exact period (ISO timestamps)
+      let query = supabase.from('ordenes').select('*').eq('tenant_id', tenantId);
+      query = query.gte('creado_en', c.abierta_en).lte('creado_en', c.cerrada_en || new Date().toISOString());
+      const { data: ordsData } = await query.order('creado_en', { ascending: false });
+      setPrintOrders(ordsData || []);
+
+      // Fetch movements within the exact period
+      const allMovs = await getMovimientos(tenantId);
+      let filteredMovs = allMovs.filter(m => {
+        const created = m.creado_en || new Date().toISOString();
+        return created >= c.abierta_en && created <= (c.cerrada_en || new Date().toISOString());
+      });
+      filteredMovs.sort((a, b) => +new Date(a.creado_en) - +new Date(b.creado_en));
+      setPrintMovs(filteredMovs);
+
+      setSelectedPrintCaja(c);
+      toast.dismiss(toastId);
+    } catch (err) {
+      console.error(err);
+      toast.error("Error al preparar impresión");
+      toast.dismiss(toastId);
+    }
+  }
+
   if (!user || user.tenant.id === '__loading__') return null;
+
+  if (selectedPrintCaja) {
+    const targetEmp = empleados.find(e => e.id === selectedPrintCaja.empleado_id);
+    const targetEmpName = targetEmp ? `${targetEmp.nombre} ${targetEmp.apellido || ""}` : "Cajero";
+    
+    return (
+      <ReporteCuadreThermal 
+        ordenes={printOrders} 
+        movimientos={printMovs}
+        tenant={tenant} 
+        empleadoName={targetEmpName}
+        rango={`${formatDateTimeRD(selectedPrintCaja.abierta_en)} - ${formatDateTimeRD(selectedPrintCaja.cerrada_en!)}`}
+        formato={tenant.config?.formato_ticket || "80mm"}
+        onBack={() => setSelectedPrintCaja(null)}
+      />
+    );
+  }
 
   return (
     <div>
@@ -254,10 +309,11 @@ function CajaPage() {
                 <th className="px-4 py-3 text-right">Esperado</th>
                 <th className="px-4 py-3 text-right">Contado</th>
                 <th className="px-4 py-3 text-right">Diferencia</th>
+                <th className="px-4 py-3 text-center">Acciones</th>
               </tr>
             </thead>
             <tbody>
-              {todas.filter((c) => c.estado === "CERRADA").map((c) => (
+              {currentCierres.map((c) => (
                 <tr key={c.id} className="border-b border-border/50">
                   <td className="px-4 py-2.5 text-xs">{formatDateTimeRD(c.abierta_en)}</td>
                   <td className="px-4 py-2.5 text-xs">{c.cerrada_en && formatDateTimeRD(c.cerrada_en)}</td>
@@ -267,12 +323,50 @@ function CajaPage() {
                   <td className={`px-4 py-2.5 text-right font-medium ${(c.diferencia || 0) === 0 ? "" : (c.diferencia || 0) < 0 ? "text-destructive" : "text-success"}`}>
                     {formatRD(c.diferencia || 0)}
                   </td>
+                  <td className="px-4 py-2.5 text-center">
+                    <Button 
+                      size="sm" 
+                      variant="outline" 
+                      onClick={() => handlePrintCierreHistorico(c)}
+                      className="h-8 gap-1.5 border-emerald-500/20 text-emerald-600 hover:bg-emerald-50 font-bold"
+                    >
+                      <Printer className="h-3.5 w-3.5" />
+                      Imprimir
+                    </Button>
+                  </td>
                 </tr>
               ))}
-              {todas.filter((c) => c.estado === "CERRADA").length === 0 && <tr><td colSpan={6} className="py-8 text-center text-muted-foreground">Sin cierres aún</td></tr>}
+              {currentCierres.length === 0 && <tr><td colSpan={7} className="py-8 text-center text-muted-foreground">Sin cierres aún</td></tr>}
             </tbody>
           </table>
         </div>
+        {totalCierrePages > 1 && (
+          <div className="flex items-center justify-between px-4 py-3 border-t border-border bg-surface-elevated">
+            <span className="text-xs text-muted-foreground">
+              Mostrando {((cierrePage - 1) * 5) + 1} al {Math.min(cierrePage * 5, closedCierres.length)} de {closedCierres.length}
+            </span>
+            <div className="flex gap-1">
+              <Button 
+                variant="outline" 
+                size="sm" 
+                onClick={() => setCierrePage(p => Math.max(1, p - 1))}
+                disabled={cierrePage === 1}
+                className="h-8 text-xs font-bold"
+              >
+                Anterior
+              </Button>
+              <Button 
+                variant="outline" 
+                size="sm" 
+                onClick={() => setCierrePage(p => Math.min(totalCierrePages, p + 1))}
+                disabled={cierrePage === totalCierrePages}
+                className="h-8 text-xs font-bold"
+              >
+                Siguiente
+              </Button>
+            </div>
+          </div>
+        )}
       </Card>
 
       <AperturaDialog 
@@ -283,6 +377,7 @@ function CajaPage() {
         onDone={() => {
           queryClient.invalidateQueries({ queryKey: ['caja-abierta', tenantId] });
           queryClient.invalidateQueries({ queryKey: ['cajas', tenantId] });
+          queryClient.invalidateQueries({ queryKey: ['movimientos', tenantId] });
           setRefresh((r) => r + 1);
         }} 
       />
@@ -313,6 +408,7 @@ function CajaPage() {
         onDone={() => {
           queryClient.invalidateQueries({ queryKey: ['caja-abierta', tenantId] });
           queryClient.invalidateQueries({ queryKey: ['cajas', tenantId] });
+          queryClient.invalidateQueries({ queryKey: ['movimientos', tenantId] });
           setRefresh((r) => r + 1);
         }}
       />
@@ -708,6 +804,7 @@ function CierreDialog({ open, onOpenChange, caja, tenant, empleadoName, efectivo
   const [closedCaja, setClosedCaja] = useState<Caja | null>(null);
   const [loadingOrders, setLoadingOrders] = useState(false);
   const [ordenes, setOrdenes] = useState<Orden[]>([]);
+  const [movimientosPrint, setMovimientosPrint] = useState<MovimientoCaja[]>([]);
   const [showPrint, setShowPrint] = useState(false);
 
   const contadoEf = parseAmount(contadoEfStr);
@@ -752,13 +849,19 @@ function CierreDialog({ open, onOpenChange, caja, tenant, empleadoName, efectivo
   async function handlePrint() {
     if (!closedCaja) return;
     setLoadingOrders(true);
-    // Fetch orders for this specific caja period
-    const data = await getOrdenesByPeriod({ 
-      tenant_id: closedCaja.tenant_id, 
-      desde: closedCaja.abierta_en, 
-      hasta: closedCaja.cerrada_en || new Date().toISOString() 
-    });
-    setOrdenes(data);
+    try {
+      // Fetch orders for this specific caja period
+      const data = await getOrdenesByPeriod({ 
+        tenant_id: closedCaja.tenant_id, 
+        desde: closedCaja.abierta_en, 
+        hasta: closedCaja.cerrada_en || new Date().toISOString() 
+      });
+      setOrdenes(data);
+      const allMovs = await getMovimientos(closedCaja.tenant_id, closedCaja.id);
+      setMovimientosPrint(allMovs);
+    } catch (e) {
+      console.error(e);
+    }
     setLoadingOrders(false);
     setShowPrint(true);
   }
@@ -767,6 +870,7 @@ function CierreDialog({ open, onOpenChange, caja, tenant, empleadoName, efectivo
     return (
       <ReporteCuadreThermal 
         ordenes={ordenes} 
+        movimientos={movimientosPrint}
         tenant={tenant} 
         empleadoName={empleadoName}
         rango={`${formatDateTimeRD(closedCaja.abierta_en)} - ${formatDateTimeRD(closedCaja.cerrada_en!)}`}
@@ -920,6 +1024,7 @@ function HistoricoCierresDialog({ open, onOpenChange, tenant, empleadoId }: {
   const [desde, setDesde] = useState(new Date().toISOString().split('T')[0]);
   const [hasta, setHasta] = useState(new Date().toISOString().split('T')[0]);
   const [cierres, setCierres] = useState<Caja[]>([]);
+  const [page, setPage] = useState(1);
   const [empleados, setEmpleados] = useState<Empleado[]>([]);
   const [loading, setLoading] = useState(false);
   const [showPrint, setShowPrint] = useState(false);
@@ -940,6 +1045,8 @@ function HistoricoCierresDialog({ open, onOpenChange, tenant, empleadoId }: {
   }
 
   const selectedEmpleado = empleados.find(e => e.id === empId);
+  const totalPages = Math.ceil(cierres.length / 5);
+  const currentCierres = cierres.slice((page - 1) * 5, page * 5);
 
   if (showPrint) {
     return (
@@ -1000,36 +1107,65 @@ function HistoricoCierresDialog({ open, onOpenChange, tenant, empleadoId }: {
               <p className="text-muted-foreground font-medium">No se encontraron cierres para estos filtros.</p>
             </div>
           ) : (
-            <div className="border border-border rounded-xl overflow-hidden">
-              <table className="w-full text-sm">
-                <thead className="bg-accent/5 border-b border-border text-xs uppercase font-bold text-muted-foreground">
-                  <tr>
-                    <th className="px-4 py-3 text-left">Apertura / Cierre</th>
-                    <th className="px-4 py-3 text-left">Empleado</th>
-                    <th className="px-4 py-3 text-right">Efectivo</th>
-                    <th className="px-4 py-3 text-right">Diferencia</th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-border">
-                  {cierres.map(c => {
-                    const emp = empleados.find(e => e.id === c.empleado_id);
-                    return (
-                      <tr key={c.id} className="hover:bg-accent/5 transition-colors">
-                        <td className="px-4 py-3">
-                          <div className="font-medium">{formatDateTimeRD(c.abierta_en)}</div>
-                          <div className="text-[10px] text-muted-foreground">{c.cerrada_en ? formatDateTimeRD(c.cerrada_en) : "No cerrado"}</div>
-                        </td>
-                        <td className="px-4 py-3 font-medium">{emp ? `${emp.nombre}` : "Desconocido"}</td>
-                        <td className="px-4 py-3 text-right font-bold text-primary">{formatRD(c.monto_contado_efectivo || 0)}</td>
-                        <td className={`px-4 py-3 text-right font-bold ${(c.diferencia || 0) < 0 ? "text-destructive" : (c.diferencia || 0) > 0 ? "text-success" : "text-muted-foreground"}`}>
-                          {formatRD(c.diferencia || 0)}
-                        </td>
-                      </tr>
-                    );
-                  })}
-                </tbody>
-              </table>
-            </div>
+            <>
+              <div className="border border-border rounded-xl overflow-hidden">
+                <table className="w-full text-sm">
+                  <thead className="bg-accent/5 border-b border-border text-xs uppercase font-bold text-muted-foreground">
+                    <tr>
+                      <th className="px-4 py-3 text-left">Apertura / Cierre</th>
+                      <th className="px-4 py-3 text-left">Empleado</th>
+                      <th className="px-4 py-3 text-right">Efectivo</th>
+                      <th className="px-4 py-3 text-right">Diferencia</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-border">
+                    {currentCierres.map(c => {
+                      const emp = empleados.find(e => e.id === c.empleado_id);
+                      return (
+                        <tr key={c.id} className="hover:bg-accent/5 transition-colors">
+                          <td className="px-4 py-3">
+                            <div className="font-medium">{formatDateTimeRD(c.abierta_en)}</div>
+                            <div className="text-[10px] text-muted-foreground">{c.cerrada_en ? formatDateTimeRD(c.cerrada_en) : "No cerrado"}</div>
+                          </td>
+                          <td className="px-4 py-3 font-medium">{emp ? `${emp.nombre}` : "Desconocido"}</td>
+                          <td className="px-4 py-3 text-right font-bold text-primary">{formatRD(c.monto_contado_efectivo || 0)}</td>
+                          <td className={`px-4 py-3 text-right font-bold ${(c.diferencia || 0) < 0 ? "text-destructive" : (c.diferencia || 0) > 0 ? "text-success" : "text-muted-foreground"}`}>
+                            {formatRD(c.diferencia || 0)}
+                          </td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              </div>
+              {totalPages > 1 && (
+                <div className="flex items-center justify-between px-2 py-2 mt-2">
+                  <span className="text-xs text-muted-foreground">
+                    Mostrando {((page - 1) * 5) + 1} al {Math.min(page * 5, cierres.length)} de {cierres.length}
+                  </span>
+                  <div className="flex gap-1">
+                    <Button 
+                      variant="outline" 
+                      size="sm" 
+                      onClick={() => setPage(p => Math.max(1, p - 1))}
+                      disabled={page === 1}
+                      className="h-8 text-xs font-bold"
+                    >
+                      Anterior
+                    </Button>
+                    <Button 
+                      variant="outline" 
+                      size="sm" 
+                      onClick={() => setPage(p => Math.min(totalPages, p + 1))}
+                      disabled={page === totalPages}
+                      className="h-8 text-xs font-bold"
+                    >
+                      Siguiente
+                    </Button>
+                  </div>
+                </div>
+              )}
+            </>
           )}
         </div>
 
@@ -1175,7 +1311,10 @@ function HistoricoCuadreDialog({ open, onOpenChange, tenant, empleadoId }: {
   const [desde, setDesde] = useState(new Date().toISOString().split('T')[0]);
   const [hasta, setHasta] = useState(new Date().toISOString().split('T')[0]);
   const [filtrarFechas, setFiltrarFechas] = useState(false);
+  const [cierres, setCierres] = useState<Caja[]>([]);
+  const [selectedCierreId, setSelectedCierreId] = useState<string>("");
   const [ordenes, setOrdenes] = useState<Orden[]>([]);
+  const [movimientos, setMovimientos] = useState<MovimientoCaja[]>([]);
   const [empleados, setEmpleados] = useState<Empleado[]>([]);
   const [loading, setLoading] = useState(false);
   const [showPrint, setShowPrint] = useState(false);
@@ -1186,39 +1325,112 @@ function HistoricoCuadreDialog({ open, onOpenChange, tenant, empleadoId }: {
     if (open) {
       getEmpleados(tenant.id).then(setEmpleados);
       if (empleadoId) setEmpId(empleadoId);
-      handleSearch();
+      
+      // Fetch closed shifts
+      getHistoricoCierres({ tenant_id: tenant.id, empleado_id: "all" }).then((data) => {
+        setCierres(data);
+        if (data.length > 0) {
+          const lastCierre = data[0];
+          setSelectedCierreId(lastCierre.id);
+          setDesde(lastCierre.abierta_en);
+          setHasta(lastCierre.cerrada_en || new Date().toISOString());
+          handleSearchForCierre(lastCierre);
+        } else {
+          setSelectedCierreId("");
+          setOrdenes([]);
+          setMovimientos([]);
+        }
+      });
     }
   }, [open, tenant.id, empleadoId]);
 
-  async function handleSearch() {
+  async function handleSearchToday() {
     setLoading(true);
-    const filters = { 
-      tenant_id: tenant.id, 
-      empleado_id: empId,
-      desde: filtrarFechas ? desde : new Date().toISOString().split('T')[0],
-      hasta: filtrarFechas ? hasta : new Date().toISOString().split('T')[0]
-    };
-    const data = await getOrdenesByPeriod(filters);
-    setOrdenes(data);
+    const startRange = new Date().toISOString().split('T')[0];
+    const endRange = new Date().toISOString().split('T')[0] + 'T23:59:59Z';
+    await fetchOrdersAndMovs(startRange, endRange);
     setLoading(false);
   }
 
-  // Si cambia el toggle de filtrarFechas, refrescamos búsqueda
+  async function handleSearchForCierre(cierreObj: Caja) {
+    setLoading(true);
+    const startRange = cierreObj.abierta_en;
+    const endRange = cierreObj.cerrada_en || new Date().toISOString();
+    await fetchOrdersAndMovs(startRange, endRange);
+    setLoading(false);
+  }
+
+  async function fetchOrdersAndMovs(startRange: string, endRange: string) {
+    let query = supabase.from('ordenes').select('*').eq('tenant_id', tenant.id);
+    if (empId && empId !== 'all') {
+      query = query.eq('empleado_id', empId);
+    }
+    query = query.gte('creado_en', startRange).lte('creado_en', endRange);
+    const { data: ordsData } = await query.order('creado_en', { ascending: false });
+    setOrdenes(ordsData || []);
+
+    const allMovs = await getMovimientos(tenant.id);
+    let filteredMovs = [...allMovs];
+    if (empId && empId !== 'all') {
+      filteredMovs = filteredMovs.filter(m => m.empleado_id === empId);
+    }
+    filteredMovs = filteredMovs.filter(m => {
+      const created = m.creado_en || new Date().toISOString();
+      return created >= startRange && created <= endRange;
+    });
+    filteredMovs.sort((a, b) => +new Date(a.creado_en) - +new Date(b.creado_en));
+    setMovimientos(filteredMovs);
+  }
+
+  async function handleSearch() {
+    if (filtrarFechas) {
+      setLoading(true);
+      const startRange = desde;
+      const endRange = hasta + 'T23:59:59Z';
+      await fetchOrdersAndMovs(startRange, endRange);
+      setLoading(false);
+    } else {
+      const activeCierre = cierres.find(c => c.id === selectedCierreId);
+      if (activeCierre) {
+        await handleSearchForCierre(activeCierre);
+      } else {
+        setOrdenes([]);
+        setMovimientos([]);
+      }
+    }
+  }
+
+  // Refrescar al cambiar filtros
   useEffect(() => {
     if (open) handleSearch();
-  }, [filtrarFechas, empId]);
+  }, [filtrarFechas, empId, selectedCierreId]);
+
+  const handleCierreChange = (cierreId: string) => {
+    setSelectedCierreId(cierreId);
+    const selected = cierres.find(c => c.id === cierreId);
+    if (selected) {
+      setDesde(selected.abierta_en);
+      setHasta(selected.cerrada_en || new Date().toISOString());
+    }
+  };
 
   const selectedEmpleado = empleados.find(e => e.id === empId);
 
   if (showPrint) {
+    const activeCierre = cierres.find(c => c.id === selectedCierreId);
+    const printedRange = activeCierre 
+      ? `${formatDateTimeRD(activeCierre.abierta_en)} al ${formatDateTimeRD(activeCierre.cerrada_en!)}` 
+      : `${formatDateTimeRD(desde)} al ${formatDateTimeRD(hasta)}`;
+
     return (
       <ReporteCuadreThermal 
         ordenes={ordenes} 
+        movimientos={movimientos}
         tenant={tenant} 
         empleadoName={selectedEmpleado ? `${selectedEmpleado.nombre} ${selectedEmpleado.apellido || ""}` : "Todos los empleados"}
-        rango={`${desde} al ${hasta}`}
+        rango={printedRange}
         formato={formato}
-        mostrarRango={filtrarFechas}
+        mostrarRango={true}
         onBack={() => setShowPrint(false)}
       />
     );
@@ -1236,7 +1448,7 @@ function HistoricoCuadreDialog({ open, onOpenChange, tenant, empleadoId }: {
           </div>
         </DialogHeader>
         
-        <div className="grid grid-cols-1 md:grid-cols-4 gap-4 bg-accent/5 p-4 rounded-2xl border border-border/50 mb-6 items-end">
+        <div className={`grid grid-cols-1 ${filtrarFechas ? 'md:grid-cols-5' : 'md:grid-cols-4'} gap-4 bg-accent/5 p-4 rounded-2xl border border-border/50 mb-6 items-end`}>
           <div className="space-y-1.5">
             <Label className="text-xs font-bold uppercase tracking-wider text-muted-foreground ml-1">Empleado / Cajero</Label>
             <Select value={empId} onValueChange={setEmpId}>
@@ -1246,6 +1458,23 @@ function HistoricoCuadreDialog({ open, onOpenChange, tenant, empleadoId }: {
               <SelectContent>
                 <SelectItem value="all">Todos los empleados</SelectItem>
                 {empleados.map(e => <SelectItem key={e.id} value={e.id}>{e.nombre} {e.apellido}</SelectItem>)}
+              </SelectContent>
+            </Select>
+          </div>
+
+          <div className="space-y-1.5">
+            <Label className="text-xs font-bold uppercase tracking-wider text-muted-foreground ml-1">Cierre de Caja</Label>
+            <Select value={selectedCierreId} onValueChange={handleCierreChange} disabled={filtrarFechas}>
+              <SelectTrigger className="bg-white border-border/60">
+                <SelectValue placeholder="Seleccionar Cierre" />
+              </SelectTrigger>
+              <SelectContent>
+                {cierres.map((c, idx) => (
+                  <SelectItem key={c.id} value={c.id}>
+                    {idx === 0 ? "Último Cierre" : `Cierre #${cierres.length - idx}`} ({new Date(c.cerrada_en!).toLocaleDateString("es-DO")} {new Date(c.cerrada_en!).toLocaleTimeString("es-DO", {hour: '2-digit', minute:'2-digit'})})
+                  </SelectItem>
+                ))}
+                {cierres.length === 0 && <SelectItem value="none" disabled>Sin cierres</SelectItem>}
               </SelectContent>
             </Select>
           </div>
@@ -1261,22 +1490,32 @@ function HistoricoCuadreDialog({ open, onOpenChange, tenant, empleadoId }: {
           </div>
 
           {filtrarFechas ? (
-            <>
+            <div className="grid grid-cols-2 gap-2 col-span-2">
               <div className="space-y-1.5">
                 <Label className="text-xs font-bold uppercase tracking-wider text-muted-foreground ml-1">Desde</Label>
                 <Input type="date" value={desde} onChange={(e) => setDesde(e.target.value)} className="bg-white border-border/60" />
               </div>
               <div className="space-y-1.5">
                 <Label className="text-xs font-bold uppercase tracking-wider text-muted-foreground ml-1">Hasta</Label>
-                <div className="flex gap-2">
+                <div className="flex gap-1">
                   <Input type="date" value={hasta} onChange={(e) => setHasta(e.target.value)} className="bg-white border-border/60" />
                   <Button onClick={handleSearch} size="icon" className="shrink-0"><Search className="h-4 w-4" /></Button>
                 </div>
               </div>
-            </>
+            </div>
           ) : (
-            <div className="col-span-2 p-3 bg-primary/5 rounded-xl border border-primary/10 text-center">
-              <p className="text-xs font-medium text-primary">Mostrando órdenes de hoy ({new Date().toLocaleDateString()})</p>
+            <div className="p-3 bg-primary/5 rounded-xl border border-primary/10 text-center col-span-1">
+              <p className="text-xs font-medium text-primary">
+                {(() => {
+                  const c = cierres.find(x => x.id === selectedCierreId);
+                  if (c) {
+                    const dateStr = new Date(c.cerrada_en || c.abierta_en).toLocaleDateString("es-DO");
+                    const turno = c.notas_apertura ? c.notas_apertura.replace('Turno:', '').trim() : '';
+                    return `Mostrando último cierre: ${dateStr} ${turno ? `y el turno del ultimo cierre: ${turno}` : ''}`;
+                  }
+                  return "Sin cierres";
+                })()}
+              </p>
             </div>
           )}
         </div>
@@ -1313,6 +1552,71 @@ function HistoricoCuadreDialog({ open, onOpenChange, tenant, empleadoId }: {
               </table>
             </div>
           )}
+
+          {/* Movimientos de Caja Section */}
+          <div className="space-y-3 mt-6">
+            <div className="flex items-center gap-2 border-b border-border/60 pb-2">
+              <Coins className="h-4.5 w-4.5 text-amber-500" />
+              <h4 className="text-sm font-black uppercase tracking-wider text-foreground">
+                Movimientos del Turno
+              </h4>
+              <Badge variant="secondary" className="rounded-lg text-[10px] font-bold px-2 py-0.5 ml-auto">
+                {movimientos.length} movs
+              </Badge>
+            </div>
+            {loading ? (
+              <div className="py-10 text-center text-muted-foreground animate-pulse text-xs">Cargando movimientos...</div>
+            ) : movimientos.length === 0 ? (
+              <div className="py-8 text-center border border-dashed border-border rounded-xl bg-accent/5">
+                <p className="text-xs text-muted-foreground font-medium">No se registraron abonos, ingresos o gastos en este periodo.</p>
+              </div>
+            ) : (
+              <div className="border border-border rounded-xl overflow-hidden bg-background">
+                <table className="w-full text-xs">
+                  <thead className="bg-accent/5 border-b border-border text-[10px] uppercase font-bold text-muted-foreground">
+                    <tr>
+                      <th className="px-4 py-2.5 text-left">Hora</th>
+                      <th className="px-4 py-2.5 text-left">Tipo</th>
+                      <th className="px-4 py-2.5 text-left">Concepto</th>
+                      <th className="px-4 py-2.5 text-left">Método</th>
+                      <th className="px-4 py-2.5 text-right">Monto</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-border font-medium">
+                    {movimientos.filter(m => !m.concepto.startsWith("Venta orden #")).map(m => {
+                      const isNegative = ["EGRESO", "RETIRO", "GASTO_CAJA_CHICA"].includes(m.tipo);
+                      return (
+                        <tr key={m.id} className="hover:bg-accent/5 transition-colors">
+                          <td className="px-4 py-2.5 text-muted-foreground">{formatDateTimeRD(m.creado_en).split(',')[1]?.trim() || "---"}</td>
+                          <td className="px-4 py-2.5">
+                            {(() => {
+                              const isAbonoInicial = m.concepto.includes("Abono inicial orden");
+                              const displayTipo = isAbonoInicial ? "CRÉDITO" : m.tipo;
+                              return (
+                                <Badge variant="outline" className={`text-[9px] font-black rounded-lg py-0 px-1.5 uppercase ${
+                                  m.tipo === 'ABONO' || isAbonoInicial ? 'bg-blue-50 text-blue-700 border-blue-200 dark:bg-blue-950/20 dark:text-blue-400' :
+                                  m.tipo === 'INGRESO' ? 'bg-emerald-50 text-emerald-700 border-emerald-200 dark:bg-emerald-950/20 dark:text-emerald-400' :
+                                  isNegative ? 'bg-rose-50 text-rose-700 border-rose-200 dark:bg-rose-950/20 dark:text-rose-400' :
+                                  'bg-amber-50 text-amber-700 border-amber-200 dark:bg-amber-950/20 dark:text-amber-400'
+                                }`}>
+                                  {displayTipo}
+                                </Badge>
+                              );
+                            })()}
+                          </td>
+                          <td className="px-4 py-2.5 max-w-xs truncate text-foreground font-semibold">{m.concepto}</td>
+                          <td className="px-4 py-2.5 text-muted-foreground uppercase text-[10px]">{m.metodo || "---"}</td>
+                          <td className={`px-4 py-2.5 text-right font-black ${isNegative ? 'text-destructive' : 'text-emerald-600'}`}>
+                            {isNegative ? '-' : '+'}{formatRD(m.monto)}
+                          </td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              </div>
+            )}
+          </div>
         </div>
 
         <DialogFooter className="mt-6 gap-2">
@@ -1330,8 +1634,9 @@ function HistoricoCuadreDialog({ open, onOpenChange, tenant, empleadoId }: {
   );
 }
 
-function ReporteCuadreThermal({ ordenes, tenant, empleadoName, rango, formato, mostrarRango, onBack }: { 
+function ReporteCuadreThermal({ ordenes, movimientos = [], tenant, empleadoName, rango, formato, mostrarRango, onBack }: { 
   ordenes: Orden[], 
+  movimientos?: MovimientoCaja[],
   tenant: Tenant, 
   empleadoName: string, 
   rango: string,
@@ -1343,6 +1648,24 @@ function ReporteCuadreThermal({ ordenes, tenant, empleadoName, rango, formato, m
   const cash = ordenes.filter(o => o.metodo_pago === 'EFECTIVO').reduce((s, o) => s + o.total, 0);
   const card = ordenes.filter(o => o.metodo_pago === 'TARJETA').reduce((s, o) => s + o.total, 0);
   const transfer = ordenes.filter(o => o.metodo_pago === 'TRANSFERENCIA').reduce((s, o) => s + o.total, 0);
+  const credit = ordenes.filter(o => o.metodo_pago === 'CRÉDITO' || o.metodo_pago === 'CREDITO').reduce((s, o) => s + o.total, 0);
+  const ventasContado = cash + card + transfer;
+  const ventasCredito = credit;
+  const totalFacturado = total;
+
+  const abonosCredito = movimientos.filter(m => m.concepto.includes("Abono inicial orden") || m.tipo === "ABONO").reduce((s, m) => s + m.monto, 0);
+  const manualIngresos = movimientos.filter(m => m.tipo === "INGRESO").reduce((s, m) => s + m.monto, 0);
+  const manualEgresos = movimientos.filter(m => ["EGRESO", "RETIRO", "GASTO_CAJA_CHICA"].includes(m.tipo) && !m.concepto.includes("Reembolso: Anulaci")).reduce((s, m) => s + m.monto, 0);
+  const anulado = movimientos.filter(m => m.concepto.includes("Reembolso: Anulaci")).reduce((s, m) => s + m.monto, 0);
+
+  const realTotalEfectivo = cash + card + transfer + abonosCredito + manualIngresos - manualEgresos - anulado;
+
+  const displayMovs = movimientos.filter(m => !m.concepto.startsWith("Venta orden #") && !m.concepto.startsWith("Abono inicial orden #") && m.tipo !== "ABONO");
+
+  const ventasRealizadas = ordenes.filter(o => o.estado !== 'ANULADA').length;
+  const devoluciones = movimientos.filter(m => m.concepto.includes("Reembolso: Anulaci")).length || ordenes.filter(o => o.estado === 'ANULADA').length;
+  const montoDescontado = ordenes.filter(o => o.estado !== 'ANULADA').reduce((s, o) => s + (o.descuento || 0), 0);
+  const itbisRecaudado = ordenes.filter(o => o.estado !== 'ANULADA').reduce((s, o) => s + (o.itbis || 0), 0);
 
   const w = formato === "57mm" ? "w-[58mm]" : "w-[80mm]";
   const cols = formato === "57mm" ? "max-w-[32ch]" : "max-w-[44ch]";
@@ -1377,29 +1700,112 @@ function ReporteCuadreThermal({ ordenes, tenant, empleadoName, rango, formato, m
           </div>
           <div className="my-2 border-t border-dashed border-black" />
 
-          <div className="font-bold text-center mb-2 underline">RESUMEN DE VENTAS</div>
+          <div className="font-bold my-1 text-center">[1] RESUMEN DE VENTAS</div>
+          <div className="border-t border-dashed border-black mb-2" />
           <div className="space-y-1">
-            <div className="flex justify-between"><span>Efectivo:</span> <span>{formatRD(cash)}</span></div>
-            <div className="flex justify-between"><span>Tarjeta:</span> <span>{formatRD(card)}</span></div>
-            <div className="flex justify-between"><span>Transferencia:</span> <span>{formatRD(transfer)}</span></div>
-            <div className="flex justify-between font-bold text-[13px] mt-1 pt-1 border-t border-black/10">
-              <span>TOTAL VENTAS:</span> <span>{formatRD(total)}</span>
+            <div className="flex justify-between"><span>Ventas al Contado:</span> <span>{formatRD(ventasContado)}</span></div>
+            <div className="flex justify-between"><span>Ventas a Crédito:</span> <span>{formatRD(ventasCredito)}</span></div>
+            <div className="border-t border-dashed border-black my-1" />
+            <div className="flex justify-between font-bold">
+              <span>TOTAL FACTURADO:</span> <span>{formatRD(totalFacturado)}</span>
             </div>
           </div>
           
-          <div className="my-2 border-t border-dashed border-black" />
-          <div className="font-bold text-center mb-2 underline">DETALLE DE ÓRDENES</div>
+          <div className="mt-4 border-t border-dashed border-black" />
+          <div className="font-bold my-1 text-center">[2] MOVIMIENTOS DE CAJA</div>
+          <div className="border-t border-dashed border-black mb-2" />
           <div className="space-y-1">
+            <div className="flex justify-between"><span>(+) Efectivo en Ventas:</span> <span>{formatRD(cash)}</span></div>
+            <div className="flex justify-between"><span>(+) Tarjeta:</span> <span>{formatRD(card)}</span></div>
+            <div className="flex justify-between"><span>(+) Transferencia:</span> <span>{formatRD(transfer)}</span></div>
+            <div className="flex justify-between"><span>(+) Abonos a Crédito:</span> <span>{formatRD(abonosCredito)}</span></div>
+            
+            {manualIngresos > 0 && (
+              <div className="flex justify-between"><span>(+) Otros Ingresos:</span> <span>{formatRD(manualIngresos)}</span></div>
+            )}
+            {manualEgresos > 0 && (
+              <div className="flex justify-between"><span>(-) Egresos / Retiros:</span> <span>{formatRD(manualEgresos)}</span></div>
+            )}
+            {anulado > 0 && (
+              <div className="flex justify-between"><span>(-) Anulaciones:</span> <span>{formatRD(anulado)}</span></div>
+            )}
+            
+            <div className="border-t border-dashed border-black my-1" />
+            <div className="flex justify-between font-bold">
+              <span>TOTAL EFECTIVO EN CAJA:</span> <span>{formatRD(realTotalEfectivo)}</span>
+            </div>
+          </div>
+          
+          <div className="mt-4 border-t border-dashed border-black" />
+          <div className="font-bold my-1 text-center">[3] DETALLE DE ÓRDENES</div>
+          <div className="border-t border-dashed border-black mb-2" />
+          <div className="space-y-2">
              <div className="flex justify-between text-[10px] font-bold border-b border-black/5 pb-1">
-               <span># ORDEN</span>
+               <span># ORDEN (TIPO)</span>
                <span>TOTAL</span>
              </div>
-             {ordenes.map(o => (
-                <div key={o.id} className="flex justify-between">
-                  <span>{o.numero} ({o.metodo_pago?.substring(0,3)})</span>
-                  <span>{formatRD(o.total)}</span>
-                </div>
-             ))}
+             {ordenes.map(o => {
+                const isCredito = o.metodo_pago === "CRÉDITO" || o.metodo_pago === "CREDITO";
+                const abono = movimientos?.find(m => m.concepto.includes(o.numero) && m.concepto.includes("Abono inicial"))?.monto || 0;
+                
+                return (
+                  <div key={o.id} className="flex flex-col">
+                    <div className="flex justify-between font-medium">
+                      <span>{o.numero} ({isCredito ? 'CRE' : o.metodo_pago?.substring(0,3)})</span>
+                      <span>{formatRD(o.total)}</span>
+                    </div>
+                    {isCredito && (
+                      <div className="pl-2 space-y-0.5 mt-0.5 text-[10px] text-black/80">
+                        <div className="flex justify-between">
+                          <span>{`> Abono Inicial:`}</span>
+                          <span>{formatRD(abono)}</span>
+                        </div>
+                        <div className="flex justify-between">
+                          <span>{`> Balance Pendiente:`}</span>
+                          <span>{formatRD(o.total - abono)}</span>
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                );
+             })}
+          </div>
+
+          {displayMovs.length > 0 && (
+            <>
+              <div className="mt-4 border-t border-dashed border-black" />
+              <div className="font-bold my-1 text-center">[4] OTROS MOVIMIENTOS</div>
+              <div className="border-t border-dashed border-black mb-2" />
+              <div className="space-y-1">
+                 <div className="flex justify-between text-[10px] font-bold border-b border-black/5 pb-1">
+                   <span>CONCEPTO</span>
+                   <span>MONTO</span>
+                 </div>
+                 {displayMovs.map(m => {
+                    const isNegative = ["EGRESO", "RETIRO", "GASTO_CAJA_CHICA"].includes(m.tipo);
+                    return (
+                      <div key={m.id} className="flex justify-between items-start gap-1 text-[10px]">
+                        <span className="text-left max-w-[70%] leading-tight">
+                          {m.concepto}
+                        </span>
+                        <span className="font-bold shrink-0">
+                          {isNegative ? "-" : "+"}{formatRD(m.monto)}
+                        </span>
+                      </div>
+                    );
+                 })}
+              </div>
+            </>
+          )}
+
+          <div className="mt-4 border-t border-dashed border-black" />
+          <div className="font-bold my-1 text-center">ESTADÍSTICAS DEL TURNO</div>
+          <div className="border-t border-dashed border-black mb-2" />
+          <div className="space-y-1">
+            <div className="flex justify-between"><span>Ventas Emitidas:</span> <span className="font-bold">{ventasRealizadas}</span></div>
+            <div className="flex justify-between"><span>Devoluciones/Cancelados:</span> <span className="font-bold">{devoluciones}</span></div>
+            <div className="flex justify-between"><span>Monto Total Descontado:</span> <span className="font-bold">{formatRD(montoDescontado)}</span></div>
+            <div className="flex justify-between"><span>ITBIS Total Recaudado:</span> <span className="font-bold">{formatRD(itbisRecaudado)}</span></div>
           </div>
 
           <div className="my-4 border-t border-dashed border-black" />

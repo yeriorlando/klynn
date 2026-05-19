@@ -39,7 +39,7 @@ import {
   Building2, Shield, TrendingUp, Users, Trash2, ExternalLink, Plus, Pencil, 
   RefreshCw, Package, LogOut, MoreHorizontal, Key, Droplets as DropletsIcon,
   CreditCard, MessageCircle, Send, Loader2, Save, Image as ImageIcon, Upload,
-  User, Palette, FileText, Banknote, Star, Sparkles, ArrowRight, Copy, Smartphone, CheckCircle2, ShieldCheck, PlusCircle
+  User, Palette, FileText, Banknote, Star, Sparkles, ArrowRight, Copy, Smartphone, CheckCircle2, ShieldCheck, PlusCircle, Bell, BellOff
 } from "lucide-react";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from "@/components/ui/dialog";
 
@@ -48,6 +48,14 @@ export const Route = createFileRoute("/t/$slug/configuracion")({ component: Conf
 const FIELD = "h-11 rounded-lg border-input bg-background text-base focus-visible:ring-1 focus-visible:ring-ring transition-all px-4";
 const LABEL = "text-sm font-medium text-foreground";
 const CARD = "border shadow-sm p-6 rounded-lg";
+
+// Mapa de nombres completos para tipos de comprobantes fiscales
+const NCF_NOMBRES: Record<string, string> = {
+  B01: "CRÉDITO FISCAL", B02: "CONSUMIDOR FINAL", B03: "NOTA DE DÉBITO", B04: "NOTA DE CRÉDITO",
+  B14: "GUBERNAMENTAL", B15: "RÉGIMEN ESPECIAL", B16: "EXPORTACIONES",
+  E31: "CRÉDITO FISCAL", E32: "CONSUMIDOR FINAL", E33: "NOTA DE DÉBITO", E34: "NOTA DE CRÉDITO",
+  E41: "COMPRAS", E43: "GASTOS MENORES", E44: "REGÍMENES ESPECIALES", E45: "GUBERNAMENTAL", E46: "EXPORTACIONES", E47: "PAGOS AL EXTERIOR",
+};
 
 function Field({ label, children, hint, span }: { label: string; children: React.ReactNode; hint?: string; span?: boolean }) {
   return (
@@ -96,18 +104,6 @@ function ConfigPage() {
       setActiveTab(t);
     }
   }, []);
-
-  // Actualizar las variables CSS de marca en tiempo real para cambios en vivo
-  useEffect(() => {
-    if (tenant?.color_primario) {
-      const root = document.documentElement;
-      root.style.setProperty("--primary", tenant.color_primario);
-      root.style.setProperty("--brand-primary", tenant.color_primario);
-      root.style.setProperty("--ring", tenant.color_primario);
-      const useSecondary = tenant.config?.usar_color_secundario ?? false;
-      root.style.setProperty("--primary-glow", useSecondary ? (tenant.color_secundario || tenant.color_primario) : tenant.color_primario);
-    }
-  }, [tenant?.color_primario, tenant?.color_secundario, tenant?.config?.usar_color_secundario]);
 
   if (!auth || auth.tenant.id === '__loading__' || !tenant) return null;
 
@@ -182,8 +178,6 @@ function ConfigPage() {
                 <Field label="Email"><Input className={FIELD} placeholder="Ej: admin@lavanderia.com" value={tenant.email} onChange={(e) => setTenant({ ...tenant, email: e.target.value })} /></Field>
               </div>
 
-
-
               {/* Fila 2: Ubicación */}
               <div className="grid gap-4 md:grid-cols-2">
                 <Field label="Provincia">
@@ -213,7 +207,7 @@ function ConfigPage() {
                 <div className="flex flex-col items-center gap-4">
                   {tenant.logo_url ? (
                     <div className="relative group">
-                      <img src={tenant.logo_url} alt="Logo" className="h-32 w-32 rounded-full object-contain bg-white p-1.5 shadow-elegant border transition-all duration-300 hover:scale-105" />
+                      <img src={tenant.logo_url} alt="Logo" className="h-32 w-32 rounded-full object-contain bg-white p-4 shadow-sm border" />
                       <button onClick={() => setTenant({ ...tenant, logo_url: undefined })} 
                         className="absolute -right-2 -top-2 rounded-full bg-destructive p-1.5 text-white opacity-0 transition group-hover:opacity-100 shadow-lg">
                         <Trash2 className="h-4 w-4" />
@@ -248,58 +242,20 @@ function ConfigPage() {
 
             {/* Tarjeta 2: Color Primario */}
             <Card className={CARD + " flex flex-col items-center justify-center min-h-[340px] text-center"}>
-              <div className="w-full max-w-sm space-y-6">
-                <div className="space-y-1">
+              <div className="w-full max-w-xs space-y-6">
+                <div className="space-y-2">
                   <div className="font-bold text-sm">Color de identidad</div>
                   <p className="text-xs text-muted-foreground">Define el color principal de los botones y acentos del sistema.</p>
                 </div>
-                
-                <div className="flex flex-col items-center justify-center text-center w-full">
-                  <div className="flex flex-wrap items-center justify-center gap-2 p-2 bg-slate-50 border border-slate-200/50 rounded-full shadow-inner max-w-sm">
-                    {[
-                      { name: "Klynn Blue", hex: "#0F4C81" },
-                      { name: "Teal", hex: "#0D9488" },
-                      { name: "Emerald", hex: "#059669" },
-                      { name: "Purple", hex: "#7C3AED" },
-                      { name: "Ruby", hex: "#E11D48" },
-                      { name: "Amber", hex: "#D97706" },
-                      { name: "Slate", hex: "#334155" },
-                    ].map((p) => {
-                      const isSelected = tenant.color_primario?.toLowerCase() === p.hex.toLowerCase();
-                      return (
-                        <button
-                          key={p.hex}
-                          type="button"
-                          onClick={() => setTenant({ ...tenant, color_primario: p.hex })}
-                          className="relative h-8 w-8 rounded-full transition-all duration-300 hover:scale-110 active:scale-95 flex items-center justify-center shadow-sm"
-                          style={{ backgroundColor: p.hex }}
-                          title={p.name}
-                        >
-                          {isSelected && (
-                            <div className="h-3.5 w-3.5 rounded-full bg-white flex items-center justify-center shadow-sm">
-                              <div className="h-1.5 w-1.5 rounded-full" style={{ backgroundColor: p.hex }} />
-                            </div>
-                          )}
-                        </button>
-                      );
-                    })}
-
-                    {/* Custom Color Selector (Color Wheel Palette) */}
-                    <div className="relative h-8 w-8 rounded-full border border-slate-250 bg-white hover:bg-slate-100 transition-all flex items-center justify-center shadow-sm cursor-pointer hover:scale-110 group active:scale-95">
-                      <input
-                        type="color"
-                        value={tenant.color_primario}
-                        onChange={(e) => setTenant({ ...tenant, color_primario: e.target.value })}
-                        className="absolute inset-0 opacity-0 w-full h-full cursor-pointer"
-                      />
-                      <Palette className="h-3.5 w-3.5 text-slate-500 group-hover:text-primary transition-colors" />
-                    </div>
+                <Field label="Color primario" className="text-center">
+                  <div className="flex justify-center gap-3">
+                    <input type="color" value={tenant.color_primario} onChange={(e) => setTenant({ ...tenant, color_primario: e.target.value })} 
+                      className="h-12 w-16 cursor-pointer rounded-lg border border-input bg-background p-1" />
+                    <Input className="h-12 w-32 text-center font-mono font-bold text-lg" value={tenant.color_primario} onChange={(e) => setTenant({ ...tenant, color_primario: e.target.value })} />
                   </div>
-                  
-                  {/* Hex value display */}
-                  <span className="mt-3 font-mono text-[11px] font-bold text-slate-400 bg-slate-100/50 px-2 py-0.5 rounded-md uppercase tracking-wider border border-slate-200/30">
-                    Código Hex: {tenant.color_primario}
-                  </span>
+                </Field>
+                <div className="pt-4 flex justify-center">
+                   <div className="h-12 w-12 rounded-full shadow-inner border-4 border-white" style={{ backgroundColor: tenant.color_primario }} />
                 </div>
               </div>
             </Card>
@@ -584,7 +540,6 @@ function WhatsAppTab({ tenant, wa, saveWA, enabled, onTabChange }: {
     else toast.error("Error: " + (r.reason || "desconocido"));
   }
 
-
   return (
     <Card className={CARD + " relative overflow-hidden"}>
       {/* Barra de progreso de uso */}
@@ -639,8 +594,6 @@ function WhatsAppTab({ tenant, wa, saveWA, enabled, onTabChange }: {
         </div>
       )}
       
-      {/* Contenedor p-6 original si es necesario, pero ya lo moví arriba */}
-
       <div className={!enabled ? "opacity-40 pointer-events-none grayscale-[50%]" : ""}>
         <div className="mb-8 flex items-start gap-4">
           <div className="grid h-12 w-12 place-items-center rounded-2xl bg-emerald-500/10 text-emerald-600">
@@ -949,9 +902,17 @@ function FiscalTab({ tenant, config, sequences, onRefresh, enabled, onTabChange 
 }) {
   const [loading, setLoading] = useState(false);
   const [showNewSeq, setShowNewSeq] = useState(false);
+  const [dialogMode, setDialogMode] = useState<'electronic' | 'traditional'>('electronic');
   
   const cfg: TenantConfig = tenant.config || DEFAULT_CONFIG;
-  const isElectronic = !!config?.is_active;
+
+  // Local state for WhatsApp alert phone (saves on blur, not on every keystroke)
+  const [alertPhone, setAlertPhone] = useState(cfg.alerta_ncf_telefono || "");
+  useEffect(() => { setAlertPhone(cfg.alerta_ncf_telefono || ""); }, [cfg.alerta_ncf_telefono]);
+  
+  // Local state for instant and responsive tab switching
+  const [localIsElectronic, setLocalIsElectronic] = useState(!!config?.is_active);
+  const isElectronic = localIsElectronic;
 
   const [draft, setDraft] = useState<Partial<ECFConfig>>(config || {
     tenant_id: tenant.id,
@@ -961,9 +922,18 @@ function FiscalTab({ tenant, config, sequences, onRefresh, enabled, onTabChange 
     is_active: false
   });
 
-  async function saveECF() {
+  // Keep state synchronized when parent query finishes loading config
+  useEffect(() => {
+    if (config) {
+      setDraft(config);
+      setLocalIsElectronic(!!config.is_active);
+    }
+  }, [config]);
+
+  async function saveECF(overrideActive?: boolean) {
     setLoading(true);
     try {
+      const activeValue = overrideActive !== undefined ? overrideActive : !!draft.is_active;
       // Si empieza con SBX, no limpiamos las letras. Si no, limpiamos solo guiones.
       const isSandboxRNC = draft.rnc_emisor?.toUpperCase().startsWith('SBX');
       const cleanRNC = isSandboxRNC 
@@ -973,6 +943,7 @@ function FiscalTab({ tenant, config, sequences, onRefresh, enabled, onTabChange 
       // 1. Guardar la config electrónica
       await saveECFConfig({
         ...draft,
+        is_active: activeValue,
         rnc_emisor: cleanRNC,
         id: config?.id || crypto.randomUUID(),
         tenant_id: tenant.id,
@@ -982,13 +953,13 @@ function FiscalTab({ tenant, config, sequences, onRefresh, enabled, onTabChange 
 
       // 2. Si es electrónico y no tiene ID de Pronesoft, registrar
       let pTenantId = config?.pronesoft_tenant_id;
-      if (draft.is_active && !pTenantId) {
+      if (activeValue && !pTenantId) {
         toast.info("Registrando negocio en el servidor de certificación...");
         pTenantId = await registerTenantInPronesoft(tenant.id);
       }
 
       // 3. Si hay un certificado nuevo para subir
-      if (draft.is_active && draft.certificate_data && draft.certificate_password) {
+      if (activeValue && draft.certificate_data && draft.certificate_password) {
         toast.info("Sincronizando certificado digital...");
         await uploadCertificateToPronesoft(tenant.id, draft.certificate_data, draft.certificate_password);
         // Limpiar la data del certificado del estado (ya se subió)
@@ -1015,16 +986,39 @@ function FiscalTab({ tenant, config, sequences, onRefresh, enabled, onTabChange 
   async function testConnection() {
     setLoading(true);
     try {
-      const client = getProneSoftClient(config?.pronesoft_tenant_id);
-      const token = await client.getToken();
-      toast.success("¡Conexión con Pronesoft exitosa! ✓");
-      console.log("Pronesoft Token OK:", token.slice(0, 20) + "...");
+      const proneSoftEnv = config?.ambiente === 'pruebas' ? 'sandbox' : config?.ambiente === 'produccion' ? 'production' : undefined;
+      const client = getProneSoftClient(config?.pronesoft_tenant_id, proneSoftEnv);
+      const res = await client.testConnection();
+      if (res.ok) {
+        toast.success("¡Conexión con Pronesoft exitosa! ✓");
+      } else {
+        toast.error("Error al conectar: " + (res?.message || "Credenciales inválidas"));
+      }
     } catch (err: any) {
       toast.error("Error de conexión con Pronesoft: " + err.message);
     }
     setLoading(false);
   }
 
+  // Quick mute / unmute toggle for sequences alerts
+  async function toggleSequenceAlert(seq: ECFSequence) {
+    try {
+      const nextAlertState = seq.recibir_alertas === false ? true : false;
+      await saveECFSequence({
+        ...seq,
+        recibir_alertas: nextAlertState
+      });
+      toast.success(nextAlertState ? "🔔 Alertas de WhatsApp activadas" : "🔕 Alertas silenciadas para esta secuencia");
+      onRefresh();
+    } catch (err: any) {
+      toast.error("Error al actualizar alerta: " + err.message);
+    }
+  }
+
+  // Traditional NCF sequences
+  const tradSequences = sequences.filter(s => s.tipo_ecf.startsWith('B') || s.prefijo === 'B');
+  // Electronic e-CF sequences
+  const elecSequences = sequences.filter(s => s.tipo_ecf.startsWith('E') || s.prefijo === 'E');
 
   return (
     <div className="space-y-6">
@@ -1111,20 +1105,22 @@ function FiscalTab({ tenant, config, sequences, onRefresh, enabled, onTabChange 
             
             <div className="flex p-1 bg-white rounded-xl border shadow-sm">
               <button 
-                onClick={() => {
-                  setDraft({ ...draft, is_active: false });
-                  updateCfg({ ncf_facturacion_activa: true });
-                  saveECF();
+                onClick={async () => {
+                  setLocalIsElectronic(false);
+                  setDraft(d => ({ ...d, is_active: false }));
+                  await updateCfg({ ncf_facturacion_activa: true });
+                  await saveECF(false);
                 }}
                 className={`px-4 py-2 rounded-lg text-xs font-bold transition-all ${!isElectronic ? "bg-primary text-white" : "hover:bg-slate-50"}`}
               >
                 TRADICIONAL (NCF)
               </button>
               <button 
-                onClick={() => {
-                  setDraft({ ...draft, is_active: true });
-                  updateCfg({ ncf_facturacion_activa: true });
-                  saveECF();
+                onClick={async () => {
+                  setLocalIsElectronic(true);
+                  setDraft(d => ({ ...d, is_active: true }));
+                  await updateCfg({ ncf_facturacion_activa: true });
+                  await saveECF(true);
                 }}
                 className={`px-4 py-2 rounded-lg text-xs font-bold transition-all ${isElectronic ? "bg-primary text-white" : "hover:bg-slate-50"}`}
               >
@@ -1172,8 +1168,17 @@ function FiscalTab({ tenant, config, sequences, onRefresh, enabled, onTabChange 
                     </Select>
                   </div>
                 )}
+
+                {/* Mostrar RNC en Ticket Switch */}
+                <div className="flex items-center justify-between p-3 border rounded-xl bg-accent/5">
+                  <div className="space-y-0.5">
+                    <div className="text-sm font-bold">Mostrar RNC en Ticket</div>
+                    <div className="text-xs text-muted-foreground">Imprimir el RNC del contribuyente en todos los comprobantes impresos.</div>
+                  </div>
+                  <Switch checked={cfg.ticket_mostrar_rnc} onCheckedChange={(v) => updateCfg({ ticket_mostrar_rnc: v })} />
+                </div>
                 
-                <Button className="w-full" onClick={saveECF} disabled={loading}>
+                <Button className="w-full h-11 rounded-xl font-bold font-display" onClick={() => saveECF()} disabled={loading}>
                   {loading && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
                   Guardar Datos Fiscales
                 </Button>
@@ -1181,18 +1186,24 @@ function FiscalTab({ tenant, config, sequences, onRefresh, enabled, onTabChange 
             </Card>
 
             {!isElectronic ? (
-              <Card className={CARD}>
-                <h3 className="text-lg font-display mb-4">Configuración de NCF</h3>
-                <div className="space-y-4">
-                  <Field label="Serie NCF (Ej: B02)">
-                    <Input className={FIELD} value={cfg.ncf_secuencia} onChange={(e) => updateCfg({ ncf_secuencia: e.target.value.toUpperCase() })} />
-                  </Field>
-                  <Field label="Próximo Número" hint={`Ej: ${cfg.ncf_secuencia}${String(cfg.ncf_proximo).padStart(8, '0')}`}>
-                    <Input type="number" className={FIELD} value={cfg.ncf_proximo} onChange={(e) => updateCfg({ ncf_proximo: Number(e.target.value) })} />
-                  </Field>
-                  <div className="flex items-center justify-between p-3 border rounded-xl">
-                    <span className="text-sm font-medium text-muted-foreground">Mostrar RNC en Ticket</span>
-                    <Switch checked={cfg.ticket_mostrar_rnc} onCheckedChange={(v) => updateCfg({ ticket_mostrar_rnc: v })} />
+              <Card className={CARD + " bg-gradient-to-br from-slate-900 via-slate-800 to-slate-950 text-white border-none shadow-2xl relative overflow-hidden"}>
+                <div className="absolute top-0 right-0 w-32 h-32 bg-primary/10 rounded-full blur-3xl" />
+                <div className="flex items-center gap-3 mb-4">
+                  <div className="h-10 w-10 rounded-xl bg-white/10 flex items-center justify-center border border-white/10">
+                    <ShieldCheck className="h-5 w-5 text-emerald-400" />
+                  </div>
+                  <h3 className="text-lg font-bold font-display">Normativa Fiscal NCF</h3>
+                </div>
+                <div className="space-y-4 text-xs text-slate-300 leading-relaxed font-sans">
+                  <p>
+                    Estás operando en el modo de <strong>Comprobantes Fiscales tradicionales (NCF)</strong> de la DGII.
+                  </p>
+                  <p>
+                    En este modo, las facturas se emiten localmente y se reportan mes a mes a través de la Oficina Virtual. Las secuencias se configuran y descuentan de forma puramente digital dentro de Klynn.
+                  </p>
+                  <div className="p-3 bg-white/5 rounded-xl border border-white/10 flex items-start gap-2.5">
+                    <Sparkles className="h-4 w-4 text-primary shrink-0 mt-0.5" />
+                    <span>Administra todos tus rangos de comprobantes autorizados y activa alertas inteligentes en tiempo real desde el gestor dinámico de la derecha.</span>
                   </div>
                 </div>
               </Card>
@@ -1237,32 +1248,176 @@ function FiscalTab({ tenant, config, sequences, onRefresh, enabled, onTabChange 
             )}
           </div>
 
-          {/* Columna Derecha: Tipos de Comprobantes o Secuencias e-CF */}
+          {/* Columna Derecha: Alertas de WhatsApp y Listado de Secuencias */}
           <div className="space-y-6">
+            
+            {/* Alerta de Secuencias (WhatsApp notification number config) */}
+            <Card className={CARD}>
+              <div className="flex items-center gap-3 mb-4">
+                <div className="h-10 w-10 rounded-xl bg-primary/10 flex items-center justify-center text-primary">
+                  <MessageCircle className="h-5 w-5" />
+                </div>
+                <div>
+                  <h3 className="text-lg font-display">Alerta de Secuencias</h3>
+                  <p className="text-xs text-muted-foreground">Recibe alertas por WhatsApp cuando tus secuencias estén próximas a agotarse.</p>
+                </div>
+              </div>
+              <div className="space-y-4">
+                <Field label="Número de WhatsApp de Alerta" hint="Ingresa el número con el código de país (Ej: 18091234567)">
+                  <Input 
+                    className={FIELD} 
+                    placeholder="Ej: 18091234567" 
+                    value={alertPhone} 
+                    onChange={(e) => setAlertPhone(e.target.value)} 
+                    onBlur={() => updateCfg({ alerta_ncf_telefono: alertPhone })}
+                  />
+                </Field>
+              </div>
+            </Card>
+
             {!isElectronic ? (
+              // Traditional NCF Sequences manager
               <Card className={CARD}>
-                <h3 className="text-lg font-display mb-4">Tipos de NCF Habilitados</h3>
-                <div className="grid gap-2">
-                  {NCF_TIPOS.map((t) => {
-                    const tipos = cfg.ncf_tipos || [];
-                    const checked = tipos.includes(t.codigo);
-                    return (
-                      <label key={t.codigo} className={`flex cursor-pointer items-center gap-3 rounded-xl border-2 p-3 transition ${checked ? "border-primary bg-primary/5" : "border-border hover:border-primary/40"}`}>
-                        <input type="checkbox" checked={checked} onChange={(e) => {
-                          const set = new Set(tipos);
-                          if (e.target.checked) set.add(t.codigo); else set.delete(t.codigo);
-                          updateCfg({ ncf_tipos: Array.from(set) });
-                        }} className="h-5 w-5 accent-primary" />
-                        <div className="flex-1">
-                          <div className="text-sm font-bold font-mono">{t.codigo} - {t.nombre}</div>
-                          <div className="text-[10px] text-muted-foreground">{t.descripcion}</div>
+                <div className="flex items-center justify-between mb-4">
+                  <h3 className="text-lg font-display">Secuencias NCF</h3>
+                  <div className="flex items-center gap-2">
+                    <input 
+                      type="file" 
+                      id="import-excel-traditional" 
+                      className="hidden" 
+                      accept=".xlsx,.xls" 
+                      onChange={async (e) => {
+                        const file = e.target.files?.[0];
+                        if (file) {
+                          const reader = new FileReader();
+                          reader.onload = async (ev) => {
+                            try {
+                              const arrayBuffer = ev.target?.result as ArrayBuffer;
+                              const XLSX = await import('xlsx');
+                              const workbook = XLSX.read(arrayBuffer, { type: 'array' });
+                              const sheetName = workbook.SheetNames[0];
+                              const worksheet = workbook.Sheets[sheetName];
+                              const jsonData = XLSX.utils.sheet_to_json(worksheet) as any[];
+
+                              toast.info(`Procesando ${jsonData.length} filas del Excel de la DGII...`);
+                              
+                              let importedCount = 0;
+                              for (const row of jsonData) {
+                                // Mapeo de columnas DGII tolerante e insensible a mayúsculas
+                                const rawTipo = row["Tipo"] || row["tipo"] || row["Tipo Comprobante"] || row["Tipo de Comprobante"] || row["CODI_COMI"];
+                                const rawDesde = row["Desde"] || row["desde"] || row["Secuencia Inicial"] || row["Rango Inicial"] || row["Inicio"] || row["SECU_INIC"];
+                                const rawHasta = row["Hasta"] || row["hasta"] || row["Secuencia Final"] || row["Rango Final"] || row["Fin"] || row["SECU_FINA"];
+                                const rawActual = row["Actual"] || row["actual"] || row["Último Emitido"] || row["Último"] || row["Valor Actual"] || 0;
+                                const rawVencimiento = row["Vencimiento"] || row["vencimiento"] || row["Fecha Vencimiento"] || row["Fecha de Vencimiento"] || row["Vence"] || row["FECH_VENC"];
+
+                                if (rawTipo && rawDesde && rawHasta) {
+                                  const tipo = String(rawTipo).trim().toUpperCase();
+                                  if (tipo.startsWith('B')) {
+                                    const seqId = crypto.randomUUID();
+                                    await saveECFSequence({
+                                      id: seqId,
+                                      tenant_id: tenant.id,
+                                      tipo_ecf: tipo,
+                                      prefijo: 'B',
+                                      valor_inicial: Number(rawDesde),
+                                      valor_final: Number(rawHasta),
+                                      valor_actual: Number(rawActual),
+                                      expiration_date: rawVencimiento ? new Date(rawVencimiento).toISOString().split('T')[0] : undefined,
+                                      is_active: true,
+                                      recibir_alertas: false, // Desactivadas por defecto
+                                      alerta_limite: 50
+                                    });
+                                    importedCount++;
+                                  }
+                                }
+                              }
+                              
+                              if (importedCount > 0) {
+                                toast.success(`Se importaron ${importedCount} secuencias NCF con éxito`);
+                                onRefresh();
+                              } else {
+                                toast.warn("No se encontraron secuencias tradicionales válidas (que inicien con 'B') en el archivo.");
+                              }
+                            } catch (err: any) {
+                              toast.error("Error al leer Excel: " + err.message);
+                            }
+                          };
+                          reader.readAsArrayBuffer(file);
+                        }
+                      }} 
+                    />
+                    <Button 
+                      size="sm" 
+                      className="h-7 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white border-none shadow-sm text-[10px] font-bold px-2"
+                      onClick={() => document.getElementById('import-excel-traditional')?.click()}
+                    >
+                      <Upload className="h-3 w-3 mr-1" /> IMPORTAR
+                    </Button>
+                    <Button 
+                      size="sm" 
+                      className="h-7 rounded-lg bg-primary hover:bg-primary/90 text-white border-none shadow-sm text-[10px] font-bold px-2" 
+                      onClick={() => {
+                        setDialogMode('traditional');
+                        setShowNewSeq(true);
+                      }}
+                    >
+                      <PlusCircle className="h-3 w-3 mr-1" /> AÑADIR
+                    </Button>
+                  </div>
+                </div>
+                <div className="space-y-3">
+                  {tradSequences.length === 0 ? (
+                    <div className="py-10 text-center text-muted-foreground text-xs border border-dashed rounded-xl">No hay secuencias NCF tradicionales creadas.</div>
+                  ) : (
+                    tradSequences.map(seq => {
+                      const remaining = seq.valor_final - seq.valor_actual;
+                      const threshold = seq.alerta_limite ?? 50;
+                      const isLow = remaining <= threshold;
+                      const hasAlertEnabled = seq.recibir_alertas !== false;
+
+                      return (
+                        <div key={seq.id} className="p-3 border rounded-xl flex items-center justify-between hover:bg-slate-50/50 transition-all">
+                          <div>
+                            <div className="text-xs font-bold font-mono flex items-center gap-1.5">
+                              <span className="text-primary">{seq.tipo_ecf}{NCF_NOMBRES[seq.tipo_ecf] ? ` - ${NCF_NOMBRES[seq.tipo_ecf]}` : ''}</span>
+                              <Badge className="bg-slate-100 text-slate-700 hover:bg-slate-100 text-[8px] h-3.5 border-none">NCF</Badge>
+                            </div>
+                            <div className="text-[10px] text-muted-foreground font-mono mt-0.5">
+                              {seq.prefijo}{seq.tipo_ecf}{String(seq.valor_actual).padStart(8, '0')}
+                            </div>
+                          </div>
+                          
+                          <div className="flex items-center gap-3">
+                            <div className="text-right">
+                              <div className={`text-xs font-bold ${isLow ? 'text-red-500 animate-pulse font-extrabold' : 'text-emerald-600'}`}>
+                                {remaining} disp.
+                              </div>
+                              <div className="text-[9px] text-muted-foreground font-sans">
+                                Alerta: {threshold}
+                              </div>
+                            </div>
+                            
+                            {/* Quick Mute Bell Toggle Button */}
+                            <button 
+                              onClick={() => toggleSequenceAlert(seq)}
+                              className={`h-8 w-8 rounded-lg border flex items-center justify-center transition-all active:scale-90 ${
+                                hasAlertEnabled 
+                                  ? 'bg-primary/10 border-primary/20 text-primary shadow-sm shadow-primary/5 hover:bg-primary/20' 
+                                  : 'bg-slate-50 border-slate-200 text-slate-400 hover:bg-slate-100'
+                              }`}
+                              title={hasAlertEnabled ? "Alertas de WhatsApp activadas. Clic para silenciar." : "Alertas desactivadas. Clic para activar."}
+                            >
+                              {hasAlertEnabled ? <Bell className="h-3.5 w-3.5 animate-pulse" /> : <BellOff className="h-3.5 w-3.5 opacity-60" />}
+                            </button>
+                          </div>
                         </div>
-                      </label>
-                    );
-                  })}
+                      );
+                    })
+                  )}
                 </div>
               </Card>
             ) : (
+              // Electronic sequences card
               <Card className={CARD}>
                 <div className="flex items-center justify-between mb-4">
                   <h3 className="text-lg font-display">Secuencias e-NCF</h3>
@@ -1303,28 +1458,63 @@ function FiscalTab({ tenant, config, sequences, onRefresh, enabled, onTabChange 
                     <Button 
                       size="sm" 
                       className="h-7 rounded-lg bg-primary hover:bg-primary/90 text-white border-none shadow-sm text-[10px] font-bold px-2" 
-                      onClick={() => setShowNewSeq(true)}
+                      onClick={() => {
+                        setDialogMode('electronic');
+                        setShowNewSeq(true);
+                      }}
                     >
                       <PlusCircle className="h-3 w-3 mr-1" /> AÑADIR
                     </Button>
                   </div>
                 </div>
                 <div className="space-y-3">
-                  {sequences.length === 0 ? (
-                    <div className="py-10 text-center text-muted-foreground text-xs border border-dashed rounded-xl">No hay secuencias e-CF.</div>
+                  {elecSequences.length === 0 ? (
+                    <div className="py-10 text-center text-muted-foreground text-xs border border-dashed rounded-xl">No hay secuencias e-CF creadas.</div>
                   ) : (
-                    sequences.map(seq => (
-                      <div key={seq.id} className="p-3 border rounded-xl flex items-center justify-between">
-                        <div>
-                          <div className="text-xs font-bold font-mono">{seq.tipo_ecf}</div>
-                          <div className="text-[10px] text-muted-foreground">{seq.prefijo}{seq.tipo_ecf}{String(seq.valor_actual).padStart(10, '0')}</div>
+                    elecSequences.map(seq => {
+                      const remaining = seq.valor_final - seq.valor_actual;
+                      const threshold = seq.alerta_limite ?? 50;
+                      const isLow = remaining <= threshold;
+                      const hasAlertEnabled = seq.recibir_alertas !== false;
+
+                      return (
+                        <div key={seq.id} className="p-3 border rounded-xl flex items-center justify-between hover:bg-slate-50/50 transition-all">
+                          <div>
+                            <div className="text-xs font-bold font-mono flex items-center gap-1.5">
+                              <span className="text-primary">{seq.tipo_ecf}{NCF_NOMBRES[seq.tipo_ecf] ? ` - ${NCF_NOMBRES[seq.tipo_ecf]}` : ''}</span>
+                              <Badge className="bg-emerald-50 text-emerald-700 hover:bg-emerald-50 text-[8px] h-3.5 border-none">e-CF</Badge>
+                            </div>
+                            <div className="text-[10px] text-muted-foreground font-mono mt-0.5">
+                              {seq.prefijo}{seq.tipo_ecf}{String(seq.valor_actual).padStart(10, '0')}
+                            </div>
+                          </div>
+                          
+                          <div className="flex items-center gap-3">
+                            <div className="text-right">
+                              <div className={`text-xs font-bold ${isLow ? 'text-red-500 animate-pulse font-extrabold' : 'text-emerald-600'}`}>
+                                {remaining} disp.
+                              </div>
+                              <div className="text-[9px] text-muted-foreground font-sans">
+                                Alerta: {threshold}
+                              </div>
+                            </div>
+                            
+                            {/* Quick Mute Bell Toggle Button */}
+                            <button 
+                              onClick={() => toggleSequenceAlert(seq)}
+                              className={`h-8 w-8 rounded-lg border flex items-center justify-center transition-all active:scale-90 ${
+                                hasAlertEnabled 
+                                  ? 'bg-primary/10 border-primary/20 text-primary shadow-sm shadow-primary/5 hover:bg-primary/20' 
+                                  : 'bg-slate-50 border-slate-200 text-slate-400 hover:bg-slate-100'
+                              }`}
+                              title={hasAlertEnabled ? "Alertas de WhatsApp activadas. Clic para silenciar." : "Alertas desactivadas. Clic para activar."}
+                            >
+                              {hasAlertEnabled ? <Bell className="h-3.5 w-3.5 animate-pulse" /> : <BellOff className="h-3.5 w-3.5 opacity-60" />}
+                            </button>
+                          </div>
                         </div>
-                        <div className="text-right">
-                          <div className="text-xs font-bold text-emerald-600">{seq.valor_final - seq.valor_actual} disp.</div>
-                          <Badge variant="success" className="text-[9px] h-4">ACTIVA</Badge>
-                        </div>
-                      </div>
-                    ))
+                      );
+                    })
                   )}
                 </div>
               </Card>
@@ -1333,25 +1523,45 @@ function FiscalTab({ tenant, config, sequences, onRefresh, enabled, onTabChange 
         </div>
       </div>
 
-      <NewSequenceDialog open={showNewSeq} onOpenChange={setShowNewSeq} tenantId={tenant.id} onCreated={onRefresh} />
+      <NewSequenceDialog open={showNewSeq} onOpenChange={setShowNewSeq} tenantId={tenant.id} onCreated={onRefresh} mode={dialogMode} />
     </div>
   );
 }
 
-function NewSequenceDialog({ open, onOpenChange, tenantId, onCreated }: {
-  open: boolean; onOpenChange: (o: boolean) => void; tenantId: string; onCreated: () => void;
+function NewSequenceDialog({ open, onOpenChange, tenantId, onCreated, mode = 'electronic' }: {
+  open: boolean; onOpenChange: (o: boolean) => void; tenantId: string; onCreated: () => void; mode?: 'electronic' | 'traditional';
 }) {
   const [loading, setLoading] = useState(false);
   const [seq, setSeq] = useState<Partial<ECFSequence>>({
     tenant_id: tenantId,
-    tipo_ecf: "E32",
-    prefijo: "E",
+    tipo_ecf: mode === 'traditional' ? "B02" : "E32",
+    prefijo: mode === 'traditional' ? "B" : "E",
     valor_inicial: 1,
     valor_final: 100,
     valor_actual: 0,
     expiration_date: "",
-    is_active: true
+    is_active: true,
+    recibir_alertas: false, // Notification alerts disabled by default
+    alerta_limite: 50
   });
+
+  // Sync mode changes to reset initial state appropriately when modal triggers
+  useEffect(() => {
+    if (open) {
+      setSeq({
+        tenant_id: tenantId,
+        tipo_ecf: mode === 'traditional' ? "B02" : "E32",
+        prefijo: mode === 'traditional' ? "B" : "E",
+        valor_inicial: 1,
+        valor_final: 100,
+        valor_actual: 0,
+        expiration_date: "",
+        is_active: true,
+        recibir_alertas: false,
+        alerta_limite: 50
+      });
+    }
+  }, [open, mode, tenantId]);
 
   async function save() {
     setLoading(true);
@@ -1360,8 +1570,9 @@ function NewSequenceDialog({ open, onOpenChange, tenantId, onCreated }: {
         ...seq,
         id: crypto.randomUUID(),
         tenant_id: tenantId,
+        prefijo: mode === 'traditional' ? 'B' : 'E'
       } as ECFSequence);
-      toast.success("Secuencia creada");
+      toast.success("Secuencia creada con éxito");
       onCreated();
       onOpenChange(false);
     } catch (err: any) {
@@ -1372,41 +1583,146 @@ function NewSequenceDialog({ open, onOpenChange, tenantId, onCreated }: {
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="sm:max-w-[360px] rounded-[2rem]">
-        <DialogHeader>
-          <DialogTitle>Nueva Secuencia e-CF</DialogTitle>
-          <DialogDescription>Configura los rangos autorizados por la DGII.</DialogDescription>
-        </DialogHeader>
-        <div className="space-y-3 pt-2">
-          <Field label="Tipo de Comprobante">
-            <Select value={seq.tipo_ecf} onValueChange={(v) => setSeq({ ...seq, tipo_ecf: v })}>
-              <SelectTrigger><SelectValue /></SelectTrigger>
-              <SelectContent>
-                <SelectItem value="E31">E31 - CRÉDITO FISCAL</SelectItem>
-                <SelectItem value="E32">E32 - CONSUMIDOR FINAL</SelectItem>
-                <SelectItem value="E33">E33 - NOTA DE DÉBITO</SelectItem>
-                <SelectItem value="E34">E34 - NOTA DE CRÉDITO</SelectItem>
-              </SelectContent>
-            </Select>
-          </Field>
-          <div className="grid grid-cols-2 gap-4">
-            <Field label="Desde"><Input type="number" value={seq.valor_inicial} onChange={(e) => setSeq({ ...seq, valor_inicial: Number(e.target.value) })} /></Field>
-            <Field label="Hasta"><Input type="number" value={seq.valor_final} onChange={(e) => setSeq({ ...seq, valor_final: Number(e.target.value) })} /></Field>
+      <DialogContent className="sm:max-w-[760px] rounded-[2rem] p-0 overflow-hidden border-none shadow-2xl">
+        <div className="grid grid-cols-1 md:grid-cols-12 h-full">
+          {/* Columna Izquierda Ilustrativa Premium (Gradient and Glow Split) */}
+          <div className="md:col-span-5 bg-gradient-to-br from-primary via-primary/95 to-slate-900 text-white p-6 flex flex-col justify-between relative overflow-hidden">
+            <div className="absolute top-0 right-0 w-32 h-32 bg-white/10 rounded-full blur-2xl pointer-events-none" />
+            <div className="absolute bottom-0 left-0 w-24 h-24 bg-primary/20 rounded-full blur-xl pointer-events-none" />
+            
+            <div className="space-y-6 relative z-10">
+              <div className="h-10 w-10 rounded-xl bg-white/15 backdrop-blur-md flex items-center justify-center border border-white/10">
+                <Sparkles className="h-5 w-5 text-white animate-pulse" />
+              </div>
+              <div className="space-y-2">
+                <h4 className="text-lg font-bold font-display tracking-tight">Autorización DGII</h4>
+                <p className="text-xs text-white/80 leading-relaxed font-sans">
+                  Configura tus comprobantes fiscales {mode === 'traditional' ? 'Tradicionales (NCF)' : 'Electrónicos (e-CF)'} de acuerdo con la resolución aprobada por la DGII.
+                </p>
+              </div>
+              
+              <div className="space-y-3.5 pt-2">
+                <div className="flex items-center gap-3">
+                  <div className="h-6 w-6 rounded-lg bg-white/10 flex items-center justify-center text-[10px] font-bold">1</div>
+                  <span className="text-[11px] text-white/90 font-sans">Prefijo {mode === 'traditional' ? '"B" para NCF' : '"E" para e-CF'}</span>
+                </div>
+                <div className="flex items-center gap-3">
+                  <div className="h-6 w-6 rounded-lg bg-white/10 flex items-center justify-center text-[10px] font-bold">2</div>
+                  <span className="text-[11px] text-white/90 font-sans">Establece el rango desde/hasta</span>
+                </div>
+                <div className="flex items-center gap-3">
+                  <div className="h-6 w-6 rounded-lg bg-white/10 flex items-center justify-center text-[10px] font-bold">3</div>
+                  <span className="text-[11px] text-white/90 font-sans">Define alertas de bajo inventario</span>
+                </div>
+              </div>
+            </div>
+            
+            <div className="mt-8 relative z-10 pt-4 border-t border-white/10 flex items-center gap-3 text-xs text-white/70">
+              <ShieldCheck className="h-4 w-4 text-emerald-400" />
+              <span className="font-sans">Conexión cifrada y segura</span>
+            </div>
           </div>
-          <Field label="Valor Actual (Último emitido)">
-            <Input type="number" value={seq.valor_actual} onChange={(e) => setSeq({ ...seq, valor_actual: Number(e.target.value) })} />
-          </Field>
-          <Field label="Fecha de Vencimiento">
-            <Input type="date" value={seq.expiration_date} onChange={(e) => setSeq({ ...seq, expiration_date: e.target.value })} />
-          </Field>
+
+          {/* Columna Derecha de Entrada */}
+          <div className="md:col-span-7 p-6 bg-background flex flex-col justify-between">
+            <div>
+              <DialogHeader className="mb-4">
+                <DialogTitle className="text-xl font-display">{mode === 'traditional' ? "Nueva Secuencia NCF" : "Nueva Secuencia e-CF"}</DialogTitle>
+                <DialogDescription className="text-xs">Establece los rangos de comprobantes autorizados.</DialogDescription>
+              </DialogHeader>
+              
+              <div className="space-y-3.5">
+                <Field label="Tipo de Comprobante">
+                  <Select value={seq.tipo_ecf} onValueChange={(v) => setSeq({ ...seq, tipo_ecf: v })}>
+                    <SelectTrigger className="w-full h-11 rounded-lg"><SelectValue /></SelectTrigger>
+                    {/* Fixed sideways expansion using popper position & strict width anchoring */}
+                    <SelectContent position="popper" className="w-[var(--radix-select-trigger-width)]">
+                      {mode === 'traditional' ? (
+                        <>
+                          <SelectItem value="B01">B01 - CRÉDITO FISCAL</SelectItem>
+                          <SelectItem value="B02">B02 - CONSUMIDOR FINAL</SelectItem>
+                          <SelectItem value="B03">B03 - NOTA DE DÉBITO</SelectItem>
+                          <SelectItem value="B04">B04 - NOTA DE CRÉDITO</SelectItem>
+                          <SelectItem value="B11">B11 - COMPRAS</SelectItem>
+                          <SelectItem value="B13">B13 - GASTOS MENORES</SelectItem>
+                          <SelectItem value="B14">B14 - REGÍMENES ESPECIALES</SelectItem>
+                          <SelectItem value="B15">B15 - GUBERNAMENTAL</SelectItem>
+                          <SelectItem value="B16">B16 - EXPORTACIONES</SelectItem>
+                        </>
+                      ) : (
+                        <>
+                          <SelectItem value="E31">E31 - CRÉDITO FISCAL</SelectItem>
+                          <SelectItem value="E32">E32 - CONSUMIDOR FINAL</SelectItem>
+                          <SelectItem value="E33">E33 - NOTA DE DÉBITO</SelectItem>
+                          <SelectItem value="E34">E34 - NOTA DE CRÉDITO</SelectItem>
+                          <SelectItem value="E41">E41 - COMPRAS</SelectItem>
+                          <SelectItem value="E43">E43 - GASTOS MENORES</SelectItem>
+                          <SelectItem value="E44">E44 - REGÍMENES ESPECIALES</SelectItem>
+                          <SelectItem value="E45">E45 - GUBERNAMENTAL</SelectItem>
+                          <SelectItem value="E46">E46 - EXPORTACIONES</SelectItem>
+                          <SelectItem value="E47">E47 - PAGOS AL EXTERIOR</SelectItem>
+                        </>
+                      )}
+                    </SelectContent>
+                  </Select>
+                </Field>
+                
+                <div className="grid grid-cols-2 gap-4">
+                  <Field label="Desde">
+                    <Input type="number" className="h-10 rounded-lg" value={seq.valor_inicial} onChange={(e) => setSeq({ ...seq, valor_inicial: Number(e.target.value) })} />
+                  </Field>
+                  <Field label="Hasta">
+                    <Input type="number" className="h-10 rounded-lg" value={seq.valor_final} onChange={(e) => setSeq({ ...seq, valor_final: Number(e.target.value) })} />
+                  </Field>
+                </div>
+                
+                <Field label="Valor Actual (Último emitido)">
+                  <Input type="number" className="h-10 rounded-lg" value={seq.valor_actual} onChange={(e) => setSeq({ ...seq, valor_actual: Number(e.target.value) })} />
+                </Field>
+                
+                <Field label="Fecha de Vencimiento">
+                  <Input type="date" className="h-10 rounded-lg" value={seq.expiration_date} onChange={(e) => setSeq({ ...seq, expiration_date: e.target.value })} />
+                </Field>
+
+                {/* Recibir Alertas toggle - defaults to unchecked (false) */}
+                <div className="p-3.5 rounded-2xl border bg-accent/5 flex items-center justify-between gap-4 mt-2">
+                  <div className="space-y-0.5">
+                    <div className="text-sm font-bold flex items-center gap-1.5 text-foreground">
+                      <Bell className="h-4 w-4 text-primary animate-pulse" /> Recibir alertas
+                    </div>
+                    <div className="text-xs text-muted-foreground font-medium">Aviso de WhatsApp por secuencia</div>
+                  </div>
+                  <input 
+                    type="checkbox" 
+                    checked={seq.recibir_alertas === true} 
+                    onChange={(e) => setSeq({ ...seq, recibir_alertas: e.target.checked })} 
+                    className="h-5 w-5 accent-primary cursor-pointer rounded-lg border-gray-300"
+                  />
+                </div>
+
+                {/* Conditional threshold input if alerts are checked */}
+                {seq.recibir_alertas === true && (
+                  <Field label="Límite para Alerta" hint="Recibe un WhatsApp cuando queden esta cantidad de comprobantes en el rango">
+                    <Input 
+                      type="number" 
+                      className="h-10 rounded-lg"
+                      value={seq.alerta_limite ?? 50} 
+                      onChange={(e) => setSeq({ ...seq, alerta_limite: Number(e.target.value) })} 
+                    />
+                  </Field>
+                )}
+              </div>
+            </div>
+            
+            <DialogFooter className="mt-6 gap-2">
+              <Button variant="outline" className="rounded-xl border-border hover:bg-accent" onClick={() => onOpenChange(false)}>Cancelar</Button>
+              <Button onClick={save} disabled={loading} className="rounded-xl font-bold">
+                {loading && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
+                Crear Secuencia
+              </Button>
+            </DialogFooter>
+          </div>
         </div>
-        <DialogFooter className="mt-4 gap-2">
-          <Button variant="outline" className="rounded-xl border-border hover:bg-accent" onClick={() => onOpenChange(false)}>Cancelar</Button>
-          <Button onClick={save} disabled={loading}>
-            {loading && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
-            Crear Secuencia
-          </Button>
-        </DialogFooter>
       </DialogContent>
     </Dialog>
   );

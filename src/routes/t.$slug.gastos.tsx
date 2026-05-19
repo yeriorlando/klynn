@@ -13,7 +13,8 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { 
   getGastos, saveGasto, deleteGasto, formatRD, formatDateRD, uid, CATEGORIAS_GASTOS, 
   getECFDocumentosRecibidos, updateEstadoComercialECF, getTenantPlan, getECFConfig, 
-  DEFAULT_CONFIG, type Gasto, type ECFDocumentRecibido 
+  DEFAULT_CONFIG, type Gasto, type ECFDocumentRecibido,
+  getCajaAbierta, saveMovimiento, type MetodoPago
 } from "@/lib/storage";
 import { toast } from "sonner";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
@@ -332,7 +333,30 @@ function NewGasto({ open, onOpenChange, tenantId, empleadoId, onDone }: { open: 
   async function submit() {
     if (!f.descripcion.trim() || f.monto <= 0) { toast.error("Datos inválidos"); return; }
     try {
-      await saveGasto({ id: uid("gas"), tenant_id: tenantId, empleado_id: empleadoId, ...f, proveedor: f.proveedor || undefined, fecha: new Date().toISOString(), aprobado: true });
+      const gastoId = uid("gas");
+      await saveGasto({ id: gastoId, tenant_id: tenantId, empleado_id: empleadoId, ...f, proveedor: f.proveedor || undefined, fecha: new Date().toISOString(), aprobado: true });
+      
+      try {
+        const caja = await getCajaAbierta(tenantId);
+        if (caja) {
+          const metodo = f.metodo_pago === "Cheque" ? "EFECTIVO" : (f.metodo_pago.toUpperCase() as MetodoPago);
+          await saveMovimiento({
+            id: uid("mov"),
+            tenant_id: tenantId,
+            caja_id: caja.id,
+            empleado_id: empleadoId,
+            tipo: "EGRESO",
+            concepto: `Gasto: ${f.categoria} - ${f.descripcion}`,
+            monto: f.monto,
+            metodo,
+            referencia: gastoId,
+            creado_en: new Date().toISOString(),
+          });
+        }
+      } catch (cajaErr) {
+        console.error("Error creating box movement for gasto:", cajaErr);
+      }
+
       toast.success("Gasto registrado"); onDone();
       setF({ categoria: CATEGORIAS_GASTOS[0], descripcion: "", monto: 0, metodo_pago: "Efectivo", proveedor: "" });
     } catch (err: any) {
@@ -350,8 +374,23 @@ function NewGasto({ open, onOpenChange, tenantId, empleadoId, onDone }: { open: 
               <SelectContent>{CATEGORIAS_GASTOS.map((c) => <SelectItem key={c} value={c}>{c}</SelectItem>)}</SelectContent>
             </Select>
           </div>
-          <div className="md:col-span-2"><Label>Descripción</Label><Input value={f.descripcion} onChange={(e) => setF({ ...f, descripcion: e.target.value })} /></div>
-          <div><Label>Monto (RD$)</Label><Input type="number" value={f.monto || ""} onChange={(e) => setF({ ...f, monto: Number(e.target.value) || 0 })} /></div>
+          <div className="md:col-span-2">
+            <Label>Descripción</Label>
+            <Input 
+              placeholder="Ej: Compra de detergente, pago de luz..." 
+              value={f.descripcion} 
+              onChange={(e) => setF({ ...f, descripcion: e.target.value })} 
+            />
+          </div>
+          <div>
+            <Label>Monto (RD$)</Label>
+            <Input 
+              type="number" 
+              placeholder="0.00" 
+              value={f.monto || ""} 
+              onChange={(e) => setF({ ...f, monto: Number(e.target.value) || 0 })} 
+            />
+          </div>
           <div><Label>Método</Label>
             <Select value={f.metodo_pago} onValueChange={(v) => setF({ ...f, metodo_pago: v })}>
               <SelectTrigger><SelectValue /></SelectTrigger>
@@ -363,7 +402,14 @@ function NewGasto({ open, onOpenChange, tenantId, empleadoId, onDone }: { open: 
               </SelectContent>
             </Select>
           </div>
-          <div className="md:col-span-2"><Label>Proveedor</Label><Input value={f.proveedor} onChange={(e) => setF({ ...f, proveedor: e.target.value })} /></div>
+          <div className="md:col-span-2">
+            <Label>Proveedor</Label>
+            <Input 
+              placeholder="Ej: Distribuidora Dominicana, Claro... (opcional)" 
+              value={f.proveedor} 
+              onChange={(e) => setF({ ...f, proveedor: e.target.value })} 
+            />
+          </div>
         </div>
         <DialogFooter>
           <Button variant="outline" onClick={() => onOpenChange(false)}>Cancelar</Button>

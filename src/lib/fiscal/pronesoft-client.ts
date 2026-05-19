@@ -107,7 +107,13 @@ export class ProneSoftClient {
 
   constructor(config: ProneSoftConfig) {
     this.config  = config;
-    this.baseUrl = PRONESOFT_BASE_URLS[config.env];
+    
+    // Si la credencial es 'live', forzamos el uso del servidor de producción como base,
+    // ya que las llaves live solo se reconocen en el host de producción,
+    // pero aún así podemos enviar al ambiente de pruebas ('TesteCF') en dicho host!
+    const isLiveKey = config.clientId.includes('live') || config.clientSecret.includes('live');
+    
+    this.baseUrl = isLiveKey ? PRONESOFT_BASE_URLS.production : PRONESOFT_BASE_URLS[config.env];
     this.ecfEnv  = config.env === 'sandbox' ? ECF_ENV.sandbox : ECF_ENV.production;
   }
 
@@ -140,6 +146,10 @@ export class ProneSoftClient {
 
   async getToken(): Promise<string> {
     return "proxy-handled";
+  }
+
+  async testConnection(): Promise<{ ok: boolean; message: string }> {
+    return this.callProxy('test-connection', {});
   }
 
   async submitDocument(payload: ECFPayload): Promise<ECFSubmitResponse> {

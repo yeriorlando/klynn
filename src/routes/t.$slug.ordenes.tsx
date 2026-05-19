@@ -97,11 +97,9 @@ function OrdenesPage() {
       if (estado === "LISTA" || estado === "ENTREGADA") {
         const cli = clientes.find((c) => c.id === o.cliente_id);
         if (cli) {
-          import("@/lib/whatsapp").then(({ notificarWhatsApp }) =>
-            notificarWhatsApp(tenant, cli, o, estado === "LISTA" ? "lista" : "entregada").then((r) => {
-              if (r.ok) toast.success("WhatsApp enviado al cliente ✅");
-            }),
-          );
+          notificarWhatsApp(tenant, cli, o, estado === "LISTA" ? "lista" : "entregada").then((r) => {
+            if (r.ok) toast.success("WhatsApp enviado al cliente ✅");
+          });
         }
       }
     } catch (err: any) {

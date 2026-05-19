@@ -849,70 +849,81 @@ function LicenciaDialog({ open, onOpenChange, initial, onSaved }: {
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="sm:max-w-md rounded-2xl border-none shadow-card">
+      <DialogContent className="sm:max-w-4xl rounded-3xl border-none shadow-card">
         <DialogHeader>
-          <DialogTitle>{initial ? "Editar Licencia" : "Nueva Licencia Klynn Desktop"}</DialogTitle>
-          <DialogDescription>Configura los accesos y módulos permitidos para esta instalación local.</DialogDescription>
+          <DialogTitle className="text-2xl font-display font-black text-slate-900">
+            {initial ? "Editar Licencia" : "Nueva Licencia Klynn Desktop"}
+          </DialogTitle>
+          <DialogDescription className="text-xs text-muted-foreground font-semibold">
+            Configura los accesos y módulos permitidos para esta instalación local.
+          </DialogDescription>
         </DialogHeader>
 
-        <div className="grid gap-4 py-4">
-          <div className="space-y-2">
-            <Label>Código de Activación</Label>
-            <Input value={f.codigo} readOnly disabled className="font-mono tracking-widest bg-accent/30 font-bold" />
-          </div>
-          <div className="space-y-2">
-            <Label>Nombre de la Lavandería / Cliente</Label>
-            <Input value={f.nombre_lavanderia} onChange={(e) => setF({...f, nombre_lavanderia: e.target.value})} placeholder="Ej: Lavandería La Principal" />
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-6 py-4">
+          {/* Columna Izquierda: Datos Generales */}
+          <div className="space-y-4">
+            <div className="space-y-2">
+              <Label className="text-xs font-bold uppercase tracking-wider text-muted-foreground ml-1">Código de Activación</Label>
+              <Input value={f.codigo} readOnly disabled className="font-mono tracking-widest bg-accent/30 font-bold h-11 rounded-xl" />
+            </div>
+            <div className="space-y-2">
+              <Label className="text-xs font-bold uppercase tracking-wider text-muted-foreground ml-1">Nombre de la Lavandería / Cliente</Label>
+              <Input value={f.nombre_lavanderia} onChange={(e) => setF({...f, nombre_lavanderia: e.target.value})} placeholder="Ej: Lavandería La Principal" className="h-11 rounded-xl" />
+            </div>
+
+            <div className="grid grid-cols-2 gap-4">
+              <div className="space-y-2">
+                <Label className="text-xs font-bold uppercase tracking-wider text-muted-foreground ml-1">Estado</Label>
+                <Select value={f.estado} onValueChange={(v: any) => setF({...f, estado: v})}>
+                  <SelectTrigger className="h-11 rounded-xl"><SelectValue /></SelectTrigger>
+                  <SelectContent className="rounded-xl shadow-elegant">
+                    <SelectItem value="ACTIVO" className="rounded-lg">Activo</SelectItem>
+                    <SelectItem value="INACTIVO" className="rounded-lg">Inactivo</SelectItem>
+                    <SelectItem value="SUSPENDIDO" className="rounded-lg">Suspendido</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+              {f.es_anual && (
+                <div className="space-y-2">
+                  <Label className="text-xs font-bold uppercase tracking-wider text-muted-foreground ml-1">Fecha de Expiración</Label>
+                  <Input type="date" value={f.expira_en?.substring(0,10) || ""} onChange={(e) => setF({...f, expira_en: new Date(e.target.value).toISOString()})} className="h-11 rounded-xl" />
+                </div>
+              )}
+            </div>
           </div>
 
-          <div className="flex gap-4">
-            <div className="space-y-2 flex-1">
-              <Label>Estado</Label>
-              <Select value={f.estado} onValueChange={(v: any) => setF({...f, estado: v})}>
-                <SelectTrigger><SelectValue /></SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="ACTIVO">Activo</SelectItem>
-                  <SelectItem value="INACTIVO">Inactivo</SelectItem>
-                  <SelectItem value="SUSPENDIDO">Suspendido</SelectItem>
-                </SelectContent>
-              </Select>
-            </div>
-            {f.es_anual && (
-              <div className="space-y-2 flex-1">
-                <Label>Fecha de Expiración</Label>
-                <Input type="date" value={f.expira_en?.substring(0,10) || ""} onChange={(e) => setF({...f, expira_en: new Date(e.target.value).toISOString()})} />
+          {/* Columna Derecha: Módulos y Parámetros */}
+          <div className="space-y-4 p-5 bg-accent/20 border border-border/50 rounded-2xl flex flex-col justify-center">
+            <h4 className="text-xs font-black uppercase tracking-wider text-primary mb-2 px-1">Módulos y Parámetros</h4>
+            <div className="space-y-4">
+              <div className="flex items-center justify-between p-2 rounded-lg hover:bg-white/40 transition-colors">
+                <div className="space-y-0.5">
+                  <Label className="text-sm font-bold">Licencia Anual</Label>
+                  <p className="text-xs text-muted-foreground">Si está apagado, la licencia es de por vida.</p>
+                </div>
+                <Switch checked={f.es_anual} onCheckedChange={(v) => setF({...f, es_anual: v})} />
               </div>
-            )}
-          </div>
-
-          <div className="space-y-4 mt-2 p-4 bg-accent/20 border border-border/50 rounded-xl">
-            <div className="flex items-center justify-between">
-              <div className="space-y-0.5">
-                <Label className="text-sm font-bold">Licencia Anual</Label>
-                <p className="text-xs text-muted-foreground">Si está apagado, la licencia es de por vida.</p>
+              <div className="flex items-center justify-between p-2 rounded-lg hover:bg-white/40 transition-colors">
+                <div className="space-y-0.5">
+                  <Label className="text-sm font-bold">Módulo WhatsApp</Label>
+                  <p className="text-xs text-muted-foreground">Desbloquear notificaciones por WapiSender.</p>
+                </div>
+                <Switch checked={f.whatsapp_activo} onCheckedChange={(v) => setF({...f, whatsapp_activo: v})} />
               </div>
-              <Switch checked={f.es_anual} onCheckedChange={(v) => setF({...f, es_anual: v})} />
-            </div>
-            <div className="flex items-center justify-between">
-              <div className="space-y-0.5">
-                <Label className="text-sm font-bold">Módulo WhatsApp</Label>
-                <p className="text-xs text-muted-foreground">Desbloquear notificaciones por WapiSender.</p>
+              <div className="flex items-center justify-between p-2 rounded-lg hover:bg-white/40 transition-colors">
+                <div className="space-y-0.5">
+                  <Label className="text-sm font-bold">Módulo Facturación Fiscal</Label>
+                  <p className="text-xs text-muted-foreground">Desbloquear e-CFs por Pronesoft.</p>
+                </div>
+                <Switch checked={f.facturacion_activa} onCheckedChange={(v) => setF({...f, facturacion_activa: v})} />
               </div>
-              <Switch checked={f.whatsapp_activo} onCheckedChange={(v) => setF({...f, whatsapp_activo: v})} />
-            </div>
-            <div className="flex items-center justify-between">
-              <div className="space-y-0.5">
-                <Label className="text-sm font-bold">Módulo Facturación Fiscal</Label>
-                <p className="text-xs text-muted-foreground">Desbloquear e-CFs por Pronesoft.</p>
-              </div>
-              <Switch checked={f.facturacion_activa} onCheckedChange={(v) => setF({...f, facturacion_activa: v})} />
             </div>
           </div>
         </div>
 
-        <DialogFooter>
-          <Button variant="ghost" onClick={() => onOpenChange(false)}>Cancelar</Button>
-          <Button onClick={submit} className="bg-primary text-white font-bold">Guardar Licencia</Button>
+        <DialogFooter className="mt-4 gap-2">
+          <Button variant="ghost" onClick={() => onOpenChange(false)} className="rounded-xl">Cancelar</Button>
+          <Button onClick={submit} className="bg-primary text-white font-bold rounded-xl h-11 px-6 shadow-md hover:bg-primary/95 transition-all">Guardar Licencia</Button>
         </DialogFooter>
       </DialogContent>
     </Dialog>

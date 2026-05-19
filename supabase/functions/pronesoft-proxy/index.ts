@@ -1,48 +1,11 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts"
+import { IntegrationClient, Environment } from "npm:@pronesoft-rd/ecf-sdk@0.0.7"
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
   'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type, x-tenant-id',
   'Access-Control-Allow-Methods': 'POST, OPTIONS',
   'Access-Control-Max-Age': '86400',
-}
-
-// Cache de tokens en memoria
-let cachedToken: { token: string; expires: number } | null = null;
-
-async function getAccessToken(baseUrl: string, clientId: string, clientSecret: string): Promise<string> {
-  // Limpieza agresiva de credenciales
-  const cleanId = clientId.trim();
-  const cleanSecret = clientSecret.trim();
-
-  // Reutilizar token si es válido
-  if (cachedToken && Date.now() < cachedToken.expires) {
-    return cachedToken.token;
-  }
-
-  console.log(`[pronesoft-proxy] 🔑 Renovando token para: ${cleanId.substring(0, 10)}...`);
-
-  const res = await fetch(`${baseUrl}/oauth/token`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ clientId: cleanId, clientSecret: cleanSecret }),
-  });
-
-  if (!res.ok) {
-    const err = await res.text();
-    throw new Error(`Error de Autenticación Pronesoft: ${err}`);
-  }
-
-  const data = await res.json();
-  const token = data.accessToken || data.access_token;
-  
-  // Guardamos el token y calculamos expiración (menos un margen de seguridad)
-  cachedToken = {
-    token,
-    expires: Date.now() + ((data.expiresIn || data.expires_in || 3600) - 60) * 1000
-  };
-
-  return token;
 }
 
 serve(async (req) => {
@@ -53,7 +16,7 @@ serve(async (req) => {
   try {
     const { action, payload, config } = await req.json()
 
-    // Acciones de RNC (Microservicio aparte)
+    // Acción pública de consulta RNC (Microservicio)
     if (action === 'get-rnc') {
       const rncRes = await fetch(`https://dgii-rnc.pronesoft.com/get/${payload.rnc}`);
       const data = await rncRes.json();
@@ -67,71 +30,115 @@ serve(async (req) => {
     const baseUrl = config.baseUrl || 'https://api.ecf.pronesoft.com/api/v1';
     const ecfEnv = config.ecfEnv || 'TesteCF';
 
-    // Obtener Token fresco (Auto-refresh)
-    const token = await getAccessToken(baseUrl, config.clientId, config.clientSecret);
+    console.log(`[pronesoft-proxy] 🚀 Inicializando IntegrationClient SDK para: ${config.clientId.substring(0, 10)}...`);
+    
+    // Inicializar el SDK oficial
+    const sdk = new IntegrationClient({
+      baseUrl,
+      clientId: config.clientId.trim(),
+      clientSecret: config.clientSecret.trim(),
+    });
+
+    // Si hay tenantId para delegación multicompañía, obtenemos el cliente scoped
+    const client = config.tenantId ? sdk.forTenant(config.tenantId) : sdk;
+
+    // Convertir el string del ambiente al enum correspondiente de Pronesoft SDK
+    const environmentValue = ecfEnv === 'TesteCF' 
+      ? Environment.TesteCf 
+      : ecfEnv === 'CerteCF' 
+        ? Environment.CerteCf 
+        : Environment.ECf;
 
     let result;
 
     if (action === 'submit') {
-      console.log("[pronesoft-proxy] 📤 Enviando eCF a DGII...");
+      console.log("[pronesoft-proxy] 📤 Enviando eCF a DGII con el SDK...");
       
-      const headers: any = {
-        "Authorization": `Bearer ${token}`,
-        "Content-Type": "application/json",
-      };
-      if (config.tenantId) headers["x-tenant-id"] = config.tenantId;
-
-      const res = await fetch(`${baseUrl}/${ecfEnv}/ecf/submit`, {
-        method: "POST",
-        headers,
-        body: JSON.stringify(payload)
+      result = await client.ecfSubmission.submitEcf({
+        environment: environmentValue,
+        electronicDocument: payload
       });
-
-      const responseText = await res.text();
-      if (!res.ok) throw new Error(`Error Fiscal: ${responseText}`);
-
-      result = JSON.parse(responseText);
-      console.log("[pronesoft-proxy] ✅ eCF emitido:", result.encf);
+      
+      console.log("[pronesoft-proxy] ✅ eCF emitido con éxito");
 
     } else if (action === 'status') {
-      const res = await fetch(`${baseUrl}/${ecfEnv}/ecf/status/${payload.documentId}`, {
-        headers: { "Authorization": `Bearer ${token}` }
+      console.log("[pronesoft-proxy] 🔍 Consultando estado del documento con el SDK...");
+      
+      result = await client.ecfSubmission.getEcfStatus({
+        environment: environmentValue,
+        trackId: payload.documentId
       });
-      result = await res.json();
 
     } else if (action === 'register-company') {
-      const res = await fetch(`${baseUrl}/companies`, {
-        method: "POST",
-        headers: {
-          "Authorization": `Bearer ${token}`,
-          "Content-Type": "application/json"
-        },
-        body: JSON.stringify(payload)
+      console.log("[pronesoft-proxy] 🏢 Registrando empresa asociada con el SDK...");
+      
+      const printerTypeValue = "thermal_80"; // A4, thermal_80, thermal_58
+
+      const res = await sdk.associatedCompanies.createAssociatedCompany({
+        email: payload.email || `laundry-${payload.rnc}@klynn.com`,
+        password: payload.password || "Klynn2026!",
+        name: payload.name,
+        rnc: payload.rnc,
+        phone: payload.phone || "809-555-5555",
+        address: payload.address || "Calle Principal Klynn",
+        city: payload.city || "Santo Domingo",
+        country: payload.country || "DO",
+        printerType: printerTypeValue as any
       });
-      result = await res.json();
+      
+      result = res.business || res;
 
     } else if (action === 'upload-cert') {
+      console.log("[pronesoft-proxy] 🔑 Subiendo certificado digital con el SDK...");
+      
       const binaryString = atob(payload.certificate);
       const bytes = new Uint8Array(binaryString.length);
       for (let i = 0; i < binaryString.length; i++) {
         bytes[i] = binaryString.charCodeAt(i);
       }
       const blob = new Blob([bytes], { type: "application/x-pkcs12" });
-      const formData = new FormData();
-      formData.append("file", blob, "certificado.p12");
-      formData.append("password", payload.password);
 
-      const res = await fetch(`${baseUrl}/${payload.rnc}/certificates`, {
-        method: "POST",
-        headers: { "Authorization": `Bearer ${token}` },
-        body: formData
+      const res = await client.digitalCertificates.uploadCertificate({
+        rnc: payload.rnc,
+        file: blob,
+        password: payload.password
       });
+      
+      result = { ok: true, ...res };
+
+    } else if (action === 'import-sequences') {
+      console.log("[pronesoft-proxy] 📦 Importando secuencias (Bypass compatibilidad)...");
+      
+      // Dado que el SDK oficial no expone directamente un método de importación masiva por XML,
+      // utilizamos fetch directo autenticado de forma interna y transparente para mayor compatibilidad.
+      const token = await sdk.getValidToken(false);
+      const headers: any = {
+        "Authorization": `Bearer ${token}`,
+        "Content-Type": "application/json",
+      };
+      if (config.tenantId) headers["x-tenant-id"] = config.tenantId;
+
+      const res = await fetch(`${baseUrl}/tax-sequences/import`, {
+        method: "POST",
+        headers,
+        body: JSON.stringify(payload)
+      });
+      
       const text = await res.text();
-      if (!res.ok) throw new Error(`Error Certificado: ${text}`);
-      result = { ok: true, ...JSON.parse(text) };
+      if (!res.ok) throw new Error(`Error de Importación: ${text}`);
+      result = JSON.parse(text);
 
     } else if (action === 'test-connection') {
-      result = { ok: true, message: "Conexión estable" };
+      console.log("[pronesoft-proxy] ⚡ Probando conexión y autenticación con el SDK...");
+      // Intentamos validar obteniendo un token del SDK de forma real
+      const token = await sdk.getValidToken(true);
+      if (token) {
+        result = { ok: true, message: "Conexión estable y token del SDK generado" };
+      } else {
+        throw new Error("No se pudo obtener el token de Pronesoft a través del SDK");
+      }
+    } else {
+      throw new Error(`Acción desconocida en el proxy: ${action}`);
     }
 
     return new Response(JSON.stringify(result), {
@@ -140,8 +147,20 @@ serve(async (req) => {
     });
 
   } catch (error: any) {
-    console.error("[pronesoft-proxy] ❌ ERROR:", error.message);
-    return new Response(JSON.stringify({ error: error.message }), {
+    let errorMessage = error.message || String(error);
+    
+    if (error.response && typeof error.response.text === 'function') {
+      try {
+        const bodyText = await error.response.text();
+        console.error("[pronesoft-proxy] ❌ Response Error Body:", bodyText);
+        errorMessage = `${errorMessage}: ${bodyText}`;
+      } catch (e) {
+        console.error("[pronesoft-proxy] Failed to read response body:", e);
+      }
+    }
+
+    console.error("[pronesoft-proxy] ❌ ERROR:", errorMessage);
+    return new Response(JSON.stringify({ error: errorMessage }), {
       headers: { ...corsHeaders, 'Content-Type': 'application/json' },
       status: 200
     });
