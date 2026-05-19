@@ -444,11 +444,6 @@ function RegistroPage() {
                     <div className="flex flex-col items-center justify-center gap-6 mt-4">
                       {/* Selector de color centrado */}
                       <ColorField label="Color principal de tu marca" value={form.color_primario} onChange={(v) => update("color_primario", v)} />
-                      
-                      {/* Texto de ayuda centrado debajo */}
-                      <p className="text-xs text-muted-foreground text-center max-w-sm italic">
-                        🎨 Elige el color que mejor represente a tu lavandería. Tu panel administrativo y pantallas se adaptarán automáticamente a este tono.
-                      </p>
                     </div>
                   </div>
                 </>
@@ -811,7 +806,7 @@ function ColorField({ label, value, onChange }: { label: string; value: string; 
     <div className="flex flex-col items-center justify-center text-center w-full">
       <Label className="mb-3 block text-xs font-bold text-slate-500 uppercase tracking-widest">{label}</Label>
       
-      <div className="flex flex-wrap items-center justify-center gap-3 p-3 bg-slate-50/80 border border-slate-200/50 rounded-full shadow-inner max-w-md">
+      <div className="flex flex-wrap items-center justify-center gap-2 p-2 bg-slate-50/80 border border-slate-200/50 rounded-full shadow-inner w-full max-w-[340px] mx-auto">
         {presets.map((p) => {
           const isSelected = value.toLowerCase() === p.hex.toLowerCase();
           return (
@@ -819,13 +814,13 @@ function ColorField({ label, value, onChange }: { label: string; value: string; 
               key={p.hex}
               type="button"
               onClick={() => onChange(p.hex)}
-              className="relative h-9 w-9 rounded-full transition-all duration-300 hover:scale-110 active:scale-95 flex items-center justify-center shadow-sm"
+              className="relative h-8 w-8 rounded-full transition-all duration-300 hover:scale-110 active:scale-95 flex items-center justify-center shadow-sm"
               style={{ backgroundColor: p.hex }}
               title={p.name}
             >
               {isSelected && (
-                <div className="h-4 w-4 rounded-full bg-white flex items-center justify-center shadow-sm">
-                  <div className="h-2 w-2 rounded-full" style={{ backgroundColor: p.hex }} />
+                <div className="h-3 w-3 rounded-full bg-white flex items-center justify-center shadow-sm">
+                  <div className="h-1.5 w-1.5 rounded-full" style={{ backgroundColor: p.hex }} />
                 </div>
               )}
             </button>
@@ -833,21 +828,22 @@ function ColorField({ label, value, onChange }: { label: string; value: string; 
         })}
 
         {/* Custom Color Selector (Color Wheel Palette) */}
-        <div className="relative h-9 w-9 rounded-full border border-slate-250 bg-white hover:bg-slate-100 transition-all flex items-center justify-center shadow-sm cursor-pointer hover:scale-110 group active:scale-95">
+        <div className="relative h-8 w-8 rounded-full border border-slate-250 bg-white hover:bg-slate-100 transition-all flex items-center justify-center shadow-sm cursor-pointer hover:scale-110 group active:scale-95">
           <input
             type="color"
             value={value}
             onChange={(e) => onChange(e.target.value)}
-            className="absolute inset-0 opacity-0 w-full h-full cursor-pointer"
+            className="absolute inset-0 h-full w-full cursor-pointer opacity-0"
+            title="Seleccionar otro color"
           />
-          <Palette className="h-4 w-4 text-slate-500 group-hover:text-primary transition-colors" />
+          <Palette className="h-3.5 w-3.5 text-slate-500 group-hover:text-primary transition-colors" />
         </div>
       </div>
-      
-      {/* Hex value display */}
-      <span className="mt-3 font-mono text-[11px] font-bold text-slate-400 bg-slate-100/50 px-2 py-0.5 rounded-md uppercase tracking-wider border border-slate-200/30">
-        Código Hex: {value}
-      </span>
+      <div className="mt-4 flex items-center justify-center">
+        <div className="inline-flex items-center gap-2 rounded-full bg-slate-100 px-3 py-1 font-mono text-[11px] font-semibold text-slate-500">
+          CÓDIGO HEX: <span className="uppercase text-slate-700">{value}</span>
+        </div>
+      </div>
     </div>
   );
 }

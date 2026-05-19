@@ -88,6 +88,15 @@ function ConfigPage() {
   const [showSuccess, setShowSuccess] = useState(false);
 
   useEffect(() => {
+    if (tenant) {
+      const root = document.documentElement;
+      root.style.setProperty("--brand-primary", tenant.color_primario);
+      root.style.setProperty("--primary", tenant.color_primario);
+      root.style.setProperty("--ring", tenant.color_primario);
+    }
+  }, [tenant?.color_primario]);
+
+  useEffect(() => {
     if (auth?.tenant && auth.tenant.id !== '__loading__' && !tenant) {
       setTenant(auth.tenant);
     }
@@ -242,20 +251,60 @@ function ConfigPage() {
 
             {/* Tarjeta 2: Color Primario */}
             <Card className={CARD + " flex flex-col items-center justify-center min-h-[340px] text-center"}>
-              <div className="w-full max-w-xs space-y-6">
+              <div className="w-full max-w-sm space-y-6">
                 <div className="space-y-2">
                   <div className="font-bold text-sm">Color de identidad</div>
                   <p className="text-xs text-muted-foreground">Define el color principal de los botones y acentos del sistema.</p>
                 </div>
-                <Field label="Color primario" className="text-center">
-                  <div className="flex justify-center gap-3">
-                    <input type="color" value={tenant.color_primario} onChange={(e) => setTenant({ ...tenant, color_primario: e.target.value })} 
-                      className="h-12 w-16 cursor-pointer rounded-lg border border-input bg-background p-1" />
-                    <Input className="h-12 w-32 text-center font-mono font-bold text-lg" value={tenant.color_primario} onChange={(e) => setTenant({ ...tenant, color_primario: e.target.value })} />
+                
+                <div className="flex flex-col items-center justify-center text-center w-full mt-4">
+                  <div className="flex flex-wrap items-center justify-center gap-2 p-2 bg-slate-50/80 border border-slate-200/50 rounded-full shadow-inner w-full max-w-[340px] mx-auto">
+                    {[
+                      { name: "Klynn Blue", hex: "#0F4C81" },
+                      { name: "Teal", hex: "#0D9488" },
+                      { name: "Emerald", hex: "#059669" },
+                      { name: "Purple", hex: "#7C3AED" },
+                      { name: "Ruby", hex: "#E11D48" },
+                      { name: "Amber", hex: "#D97706" },
+                      { name: "Slate", hex: "#334155" },
+                    ].map((p) => {
+                      const isSelected = tenant.color_primario.toLowerCase() === p.hex.toLowerCase();
+                      return (
+                        <button
+                          key={p.hex}
+                          type="button"
+                          onClick={() => setTenant({ ...tenant, color_primario: p.hex })}
+                          className="relative h-8 w-8 rounded-full transition-all duration-300 hover:scale-110 active:scale-95 flex items-center justify-center shadow-sm"
+                          style={{ backgroundColor: p.hex }}
+                          title={p.name}
+                        >
+                          {isSelected && (
+                            <div className="h-3 w-3 rounded-full bg-white flex items-center justify-center shadow-sm">
+                              <div className="h-1.5 w-1.5 rounded-full" style={{ backgroundColor: p.hex }} />
+                            </div>
+                          )}
+                        </button>
+                      );
+                    })}
+
+                    {/* Custom Color Selector */}
+                    <div className="relative h-8 w-8 rounded-full border border-slate-250 bg-white hover:bg-slate-100 transition-all flex items-center justify-center shadow-sm cursor-pointer hover:scale-110 group active:scale-95">
+                      <input
+                        type="color"
+                        value={tenant.color_primario}
+                        onChange={(e) => setTenant({ ...tenant, color_primario: e.target.value })}
+                        className="absolute inset-0 h-full w-full cursor-pointer opacity-0"
+                        title="Seleccionar otro color"
+                      />
+                      <Palette className="h-3.5 w-3.5 text-slate-500 group-hover:text-primary transition-colors" />
+                    </div>
                   </div>
-                </Field>
-                <div className="pt-4 flex justify-center">
-                   <div className="h-12 w-12 rounded-full shadow-inner border-4 border-white" style={{ backgroundColor: tenant.color_primario }} />
+
+                  <div className="mt-4 flex items-center justify-center">
+                    <div className="inline-flex items-center gap-2 rounded-full bg-slate-100 px-3 py-1 font-mono text-[11px] font-semibold text-slate-500">
+                      CÓDIGO HEX: <span className="uppercase text-slate-700">{tenant.color_primario}</span>
+                    </div>
+                  </div>
                 </div>
               </div>
             </Card>

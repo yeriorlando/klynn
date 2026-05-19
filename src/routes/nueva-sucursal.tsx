@@ -110,6 +110,20 @@ function NuevaSucursalPage() {
   const [isProvisioning, setIsProvisioning] = useState(false);
   const [provisioningStep, setProvisioningStep] = useState(0);
 
+  const logoInputRef = useRef<HTMLInputElement>(null);
+
+  async function handleLogoUpload(e: React.ChangeEvent<HTMLInputElement>) {
+    const f = e.target.files?.[0];
+    if (!f) return;
+    if (f.size > 5 * 1024 * 1024) { alert("Máximo 5MB"); return; }
+    try {
+      const compressed = await compressImage(f, 512, 512, 0.7);
+      update("logo_url", compressed);
+    } catch {
+      alert("Error al procesar la imagen");
+    }
+  }
+
   const filteredSteps = useMemo(() => {
     if (globalConfig.requirePlanOnRegistration) return STEPS;
     return STEPS.filter(s => s.id !== 3);
@@ -363,41 +377,64 @@ function NuevaSucursalPage() {
                   <h1 className="mb-2 text-3xl font-bold">Personaliza la sucursal</h1>
                   <p className="mb-8 text-muted-foreground">Define la identidad de esta nueva lavandería.</p>
                   <div className="grid gap-6">
-                    <Field label="Tu subdominio *" error={errors.slug}>
+                    <Field label="Tu subdominio *" error={errors.slug} className="hidden">
                       <div className="flex h-11 items-center overflow-hidden rounded-lg border border-input bg-background focus-within:ring-2 focus-within:ring-primary/20 transition-all">
                         <Input className="border-0 focus-visible:ring-0 font-bold text-lg text-primary h-full" value={form.slug} onChange={(e) => setForm((f) => ({ ...f, slug: slugify(e.target.value), slugTouched: true }))} placeholder="lavanderia-norte" />
                         <div className="px-4 text-sm font-medium text-muted-foreground bg-muted h-full flex items-center border-l border-input">.klynn.com.do</div>
                       </div>
                     </Field>
-                    <div className="grid gap-5 md:grid-cols-2">
-                      <ColorField label="Color primario" value={form.color_primario} onChange={(v) => update("color_primario", v)} />
-                      <LogoUploader label="Logotipo" value={form.logo_url} onChange={(v) => update("logo_url", v)} />
-                    </div>
 
                     {/* Branding Preview */}
-                    <div className="rounded-2xl border border-border bg-accent/20 p-6">
-                      <div className="mb-4 text-center text-xs font-semibold uppercase tracking-wider text-muted-foreground">Vista previa</div>
-                      <div className="flex flex-col items-center gap-3">
+                    <div className="rounded-3xl border border-border/80 bg-slate-50/50 p-6 md:p-8 backdrop-blur-sm relative overflow-hidden text-center shadow-inner mt-2">
+                      <div className="absolute -left-10 -top-10 h-32 w-32 rounded-full bg-primary/5 blur-[30px] pointer-events-none" />
+                      <div className="mb-4 text-center text-xs font-semibold uppercase tracking-wider text-muted-foreground/80">Vista previa de la sucursal</div>
+                      <div className="flex flex-col items-center gap-4">
                         <div
-                          className="relative h-32 w-32 shrink-0 overflow-hidden rounded-full border-[4px] border-white shadow-elegant transition-all duration-500"
-                          style={{ backgroundColor: form.color_primario }}
+                          className="relative h-32 w-32 shrink-0 overflow-hidden rounded-full border-[4px] border-white shadow-elegant transition-all duration-500 bg-white"
+                          style={{ borderColor: form.color_primario }}
                         >
                           {form.logo_url ? (
                             <img src={form.logo_url} alt="logo" className="h-full w-full object-cover" />
                           ) : (
-                            <div className="flex h-full w-full items-center justify-center bg-white">
-                               <Building2 className="h-12 w-12 text-slate-300" />
+                            <div className="flex h-full w-full items-center justify-center bg-slate-50">
+                               <Building2 className="h-14 w-14 text-slate-300" />
                             </div>
                           )}
                         </div>
                         <div className="text-center">
-                          <div className="text-3xl font-bold tracking-tight" style={{ color: form.color_primario }}>{form.nombre || "Sucursal"}</div>
-                          <div className="mt-1 flex h-10 items-center justify-center rounded-lg bg-white/50 px-4 font-mono text-lg text-muted-foreground border border-slate-200/50">
-                            {(form.slug || "milavanderia")}.klynn.com.do
+                          <div className="text-3xl font-display font-bold tracking-tight mb-2" style={{ color: form.color_primario }}>{form.nombre || "Sucursal"}</div>
+                          
+                          {/* El botón de subir logo justo debajo del nombre de la lavandería con su icono */}
+                          <div className="flex items-center justify-center gap-2 mt-3">
+                            <input ref={logoInputRef} type="file" accept="image/*" className="hidden" onChange={handleLogoUpload} />
+                            <button
+                              type="button"
+                              onClick={() => logoInputRef.current?.click()}
+                              className="h-9 px-4 rounded-full bg-white hover:bg-slate-50 text-xs font-bold text-slate-700 border border-slate-200 shadow-sm flex items-center gap-1.5 transition-all hover:scale-105 active:scale-95"
+                            >
+                              <Upload className="h-3.5 w-3.5 text-slate-500" /> {form.logo_url ? "Cambiar logotipo" : "Subir logotipo"}
+                            </button>
+                            {form.logo_url && (
+                              <button
+                                type="button"
+                                onClick={() => update("logo_url", "")}
+                                className="h-9 w-9 rounded-full bg-destructive/10 hover:bg-destructive text-destructive hover:text-white flex items-center justify-center transition-all hover:scale-105 active:scale-95 text-sm font-bold animate-fade-in"
+                                title="Quitar logotipo"
+                              >
+                                ×
+                              </button>
+                            )}
                           </div>
                         </div>
                       </div>
                     </div>
+
+                    <div className="flex flex-col items-center justify-center gap-6 mt-4">
+                      {/* Selector de color centrado */}
+                      <ColorField label="Color principal de la sucursal" value={form.color_primario} onChange={(v) => update("color_primario", v)} />
+                      
+                    </div>
+
                   </div>
                 </>
               )}
@@ -628,31 +665,52 @@ function LogoUploader({ label, value, onChange }: { label: string; value: string
     }
   }
   return (
-    <div>
-      <Label className="mb-1.5 block text-sm font-medium">{label}</Label>
+    <div className="w-full">
+      <Label className="mb-2 block text-sm font-semibold text-slate-700">{label}</Label>
       <input ref={inputRef} type="file" accept="image/*" hidden onChange={onFile} />
-      <button
-        type="button"
-        onClick={() => inputRef.current?.click()}
-        className="flex h-[60px] w-full items-center justify-center gap-2 rounded-md border-2 border-dashed border-input bg-background text-sm text-muted-foreground transition hover:border-primary hover:bg-accent/30 hover:text-foreground"
-      >
-        {value ? (
-          <>
-            <img src={value} alt="logo" className="h-9 w-9 rounded-md object-cover" />
-            <span>Cambiar logotipo</span>
-          </>
-        ) : (
-          <>
-            <Upload className="h-4 w-4" />
-            <span>Subir logotipo (PNG/JPG, máx 2MB)</span>
-          </>
-        )}
-      </button>
-      {value && (
-        <button type="button" onClick={() => onChange("")} className="mt-1.5 text-xs text-muted-foreground hover:text-destructive">
-          <ImageIcon className="mr-1 inline h-3 w-3" /> Quitar logo
+      
+      <div className="relative group">
+        <button
+          type="button"
+          onClick={() => inputRef.current?.click()}
+          className="relative flex items-center justify-between w-full p-4 rounded-2xl border border-slate-200/80 bg-slate-50/50 hover:bg-white hover:border-primary/80 transition-all shadow-sm hover:shadow-md hover:scale-[1.01] duration-300 text-left active:scale-[0.99]"
+        >
+          <div className="flex items-center gap-4">
+            {value ? (
+              <div className="relative h-14 w-14 rounded-xl border border-slate-100/50 overflow-hidden shadow-inner bg-white shrink-0">
+                <img src={value} alt="logo" className="h-full w-full object-cover" />
+              </div>
+            ) : (
+              <div className="h-14 w-14 rounded-xl bg-primary/5 text-primary border border-primary/10 flex items-center justify-center shrink-0 group-hover:bg-primary group-hover:text-white transition-colors duration-300">
+                <Upload className="h-6 w-6" />
+              </div>
+            )}
+            
+            <div>
+              <p className="font-bold text-slate-800 text-sm">
+                {value ? "Logotipo seleccionado" : "Subir logotipo comercial"}
+              </p>
+              <p className="text-xs text-slate-400 mt-0.5">
+                {value ? "Haz clic para cambiar la imagen" : "PNG o JPG, tamaño sugerido 512x512"}
+              </p>
+            </div>
+          </div>
+
+          <div className="h-9 px-4 rounded-xl bg-white border border-slate-200 text-xs font-bold text-slate-700 flex items-center justify-center hover:bg-slate-50 transition-colors shrink-0">
+            {value ? "Cambiar" : "Examinar"}
+          </div>
         </button>
-      )}
+
+        {value && (
+          <button 
+            type="button" 
+            onClick={() => onChange("")} 
+            className="absolute -top-2 -right-2 h-6 w-6 rounded-full bg-destructive text-white hover:bg-destructive/90 flex items-center justify-center shadow-md text-xs font-bold transition-all active:scale-95"
+          >
+            ×
+          </button>
+        )}
+      </div>
     </div>
   );
 }
@@ -668,12 +726,58 @@ function Field({ label, error, className = "", children }: { label: string; erro
 }
 
 function ColorField({ label, value, onChange }: { label: string; value: string; onChange: (v: string) => void }) {
+  const presets = [
+    { name: "Klynn Blue", hex: "#0F4C81" },
+    { name: "Teal", hex: "#0D9488" },
+    { name: "Emerald", hex: "#059669" },
+    { name: "Purple", hex: "#7C3AED" },
+    { name: "Ruby", hex: "#E11D48" },
+    { name: "Amber", hex: "#D97706" },
+    { name: "Slate", hex: "#334155" },
+  ];
+
   return (
-    <div>
-      <Label className="mb-1.5 block text-sm font-medium">{label}</Label>
-      <div className="flex items-center gap-3 rounded-md border border-input bg-background p-2">
-        <input type="color" value={value} onChange={(e) => onChange(e.target.value)} className="h-10 w-14 cursor-pointer rounded border-0 bg-transparent" />
-        <Input value={value} onChange={(e) => onChange(e.target.value)} className="border-0 font-mono uppercase focus-visible:ring-0" />
+    <div className="flex flex-col items-center justify-center text-center w-full">
+      <Label className="mb-3 block text-xs font-bold text-slate-500 uppercase tracking-widest">{label}</Label>
+      
+      <div className="flex flex-wrap items-center justify-center gap-2 p-2 bg-slate-50/80 border border-slate-200/50 rounded-full shadow-inner w-full max-w-[340px] mx-auto">
+        {presets.map((p) => {
+          const isSelected = value.toLowerCase() === p.hex.toLowerCase();
+          return (
+            <button
+              key={p.hex}
+              type="button"
+              onClick={() => onChange(p.hex)}
+              className="relative h-8 w-8 rounded-full transition-all duration-300 hover:scale-110 active:scale-95 flex items-center justify-center shadow-sm"
+              style={{ backgroundColor: p.hex }}
+              title={p.name}
+            >
+              {isSelected && (
+                <div className="h-3 w-3 rounded-full bg-white flex items-center justify-center shadow-sm">
+                  <div className="h-1.5 w-1.5 rounded-full" style={{ backgroundColor: p.hex }} />
+                </div>
+              )}
+            </button>
+          );
+        })}
+
+        {/* Custom Color Selector (Color Wheel Palette) */}
+        <div className="relative h-8 w-8 rounded-full border border-slate-250 bg-white hover:bg-slate-100 transition-all flex items-center justify-center shadow-sm cursor-pointer hover:scale-110 group active:scale-95">
+          <input
+            type="color"
+            value={value}
+            onChange={(e) => onChange(e.target.value)}
+            className="absolute inset-0 h-full w-full cursor-pointer opacity-0"
+            title="Seleccionar otro color"
+          />
+          <Palette className="h-3.5 w-3.5 text-slate-500 group-hover:text-primary transition-colors" />
+        </div>
+      </div>
+
+      <div className="mt-4 flex items-center justify-center">
+        <div className="inline-flex items-center gap-2 rounded-full bg-slate-100 px-3 py-1 font-mono text-[11px] font-semibold text-slate-500">
+          CÓDIGO HEX: <span className="uppercase text-slate-700">{value}</span>
+        </div>
       </div>
     </div>
   );
