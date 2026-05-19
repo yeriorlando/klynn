@@ -1440,25 +1440,44 @@ export async function getCurrentUser(): Promise<{ empleado: Empleado; tenant: Te
   }
 
   // Caso 2: Usuario regular
-  // Si tenemos una sesión local válida para este email, usarla
-  if (session?.empleado_id) {
-    const emp = await getEmpleadoById(session.empleado_id);
-    if (emp && emp.email.toLowerCase() === email) {
-      const ten = await getTenantById(emp.tenant_id);
-      if (ten) return { empleado: emp, tenant: ten };
+  const { data: emps } = await supabase.from('empleados').select('*').eq('email', email).eq('activo', true);
+  
+  if (!emps || emps.length === 0) {
+    if (isBrowser()) localStorage.removeItem('lvx:session');
+    return null;
+  }
+
+  // 1. Intentar hacer match con el tenant_id de la sesión guardada
+  if (session?.tenant_id) {
+    const empMatch = emps.find(e => e.tenant_id === session.tenant_id);
+    if (empMatch) {
+      const ten = await getTenantById(empMatch.tenant_id);
+      if (ten) {
+        setSession({ empleado_id: empMatch.id, tenant_id: ten.id, iniciado_en: new Date().toISOString() });
+        return { empleado: empMatch, tenant: ten };
+      }
     }
   }
 
-  // Fallback: Buscar cualquier perfil de empleado para este email en Supabase
-  const { data: emps } = await supabase.from('empleados').select('*').eq('email', email).eq('activo', true);
-  if (emps && emps.length > 0) {
-    const emp = emps[0];
-    const ten = await getTenantById(emp.tenant_id);
+  // 2. Intentar hacer match con el slug activo (activeTenant)
+  const activeSlug = isBrowser() ? localStorage.getItem(KEY.active) : null;
+  if (activeSlug) {
+    const ten = await getTenantBySlug(activeSlug);
     if (ten) {
-      // Actualizar sesión local con el perfil encontrado
-      setSession({ empleado_id: emp.id, tenant_id: ten.id, iniciado_en: new Date().toISOString() });
-      return { empleado: emp, tenant: ten };
+      const empMatch = emps.find(e => e.tenant_id === ten.id);
+      if (empMatch) {
+         setSession({ empleado_id: empMatch.id, tenant_id: ten.id, iniciado_en: new Date().toISOString() });
+         return { empleado: empMatch, tenant: ten };
+      }
     }
+  }
+
+  // 3. Fallback al primer empleado encontrado
+  const emp = emps[0];
+  const ten = await getTenantById(emp.tenant_id);
+  if (ten) {
+    setSession({ empleado_id: emp.id, tenant_id: ten.id, iniciado_en: new Date().toISOString() });
+    return { empleado: emp, tenant: ten };
   }
 
   return null;
